@@ -32,10 +32,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
               await deps.sendMessage(data.chatJid, data.text);
             }
             unlinkSync(fp);
-          } catch { try { renameSync(fp, join(ipcDir, `error-${file}`)); } catch {} }
+          } catch (e) { console.error(`[ipc] Error processing message ${file}:`, e); try { renameSync(fp, join(ipcDir, `error-${file}`)); } catch {} }
         }
       }
-    } catch {}
+    } catch (e) { console.error("[ipc] Error reading messages dir:", e); }
 
     // Process task commands
     try {
@@ -46,10 +46,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
             const data = JSON.parse(readFileSync(fp, "utf-8"));
             processTaskCommand(data);
             unlinkSync(fp);
-          } catch { try { renameSync(fp, join(ipcDir, `error-${file}`)); } catch {} }
+          } catch (e) { console.error(`[ipc] Error processing task ${file}:`, e); try { renameSync(fp, join(ipcDir, `error-${file}`)); } catch {} }
         }
       }
-    } catch {}
+    } catch (e) { console.error("[ipc] Error reading tasks dir:", e); }
 
     setTimeout(poll, IPC_POLL_INTERVAL);
   };

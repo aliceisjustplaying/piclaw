@@ -37,7 +37,12 @@ export async function runAgent(prompt: string, chatJid: string): Promise<AgentOu
   const proc = Bun.spawn(args, { cwd: WORKSPACE_DIR, env, stdout: "pipe", stderr: "pipe" });
 
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; proc.kill(); }, AGENT_TIMEOUT);
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+    // SIGKILL fallback if SIGTERM doesn't terminate the process
+    setTimeout(() => { try { proc.kill(9); } catch {} }, 5000);
+  }, AGENT_TIMEOUT);
 
   const collect = async (s: ReadableStream<Uint8Array> | null): Promise<string> => {
     if (!s) return "";

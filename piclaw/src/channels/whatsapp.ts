@@ -107,14 +107,18 @@ export class WhatsAppChannel {
         const senderName = msg.pushName || sender.split("@")[0];
         const fromMe = msg.key.fromMe || false;
         const isBotMessage = content.startsWith(`${ASSISTANT_NAME}:`);
+        const msgId = msg.key.id || `fallback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
         this.opts.onChatMetadata(chatJid, timestamp);
+
+        // Skip non-text messages (images without captions, stickers, audio, etc.)
+        if (!content) continue;
 
         // Store messages from monitored chats (or any from-me message for auto-registration)
         const jids = this.opts.chatJids();
         if (jids.has(chatJid) || fromMe) {
           this.opts.onMessage(chatJid, {
-            id: msg.key.id || "",
+            id: msgId,
             chat_jid: chatJid,
             sender,
             sender_name: senderName,

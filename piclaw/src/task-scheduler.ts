@@ -12,6 +12,10 @@ export interface SchedulerDeps {
 }
 
 async function executeTask(task: ScheduledTask, deps: SchedulerDeps): Promise<void> {
+  // Re-check task status (may have been paused/cancelled while queued)
+  const fresh = getTaskById(task.id);
+  if (!fresh || fresh.status !== "active") return;
+
   const start = Date.now();
   let result: string | null = null;
   let error: string | null = null;

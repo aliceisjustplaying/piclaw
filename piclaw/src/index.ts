@@ -94,7 +94,10 @@ async function messageLoop(): Promise<void> {
         const byChat = new Map<string, boolean>();
         for (const msg of messages) byChat.set(msg.chat_jid, true);
         for (const chatJid of byChat.keys()) {
-          queue.enqueue(async () => { await processMessages(chatJid); });
+          queue.enqueue(async () => {
+            const ok = await processMessages(chatJid);
+            if (!ok) throw new Error(`Agent processing failed for ${chatJid}`);
+          }, `chat:${chatJid}`);
         }
       }
     } catch (err) {
