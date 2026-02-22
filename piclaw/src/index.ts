@@ -2,7 +2,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { ASSISTANT_NAME, DATA_DIR, POLL_INTERVAL, STORE_DIR, TRIGGER_PATTERN, WORKSPACE_DIR } from "./config.js";
+import { ASSISTANT_NAME, DATA_DIR, POLL_INTERVAL, PUSHOVER_APP_TOKEN, PUSHOVER_DEVICE, PUSHOVER_PRIORITY, PUSHOVER_SOUND, PUSHOVER_USER_KEY, STORE_DIR, TRIGGER_PATTERN, WORKSPACE_DIR } from "./config.js";
 import { initDatabase, getMessagesSince, getNewMessages, getRouterState, setRouterState, storeMessage, storeChatMetadata } from "./db.js";
 import { runAgent } from "./agent-runner.js";
 import { AgentQueue } from "./queue.js";
@@ -10,6 +10,7 @@ import { startIpcWatcher } from "./ipc.js";
 import { startSchedulerLoop } from "./task-scheduler.js";
 import { WhatsAppChannel } from "./channels/whatsapp.js";
 import { WebChannel } from "./channels/web.js";
+import { PushoverChannel } from "./channels/pushover.js";
 import { formatMessages, formatOutbound } from "./router.js";
 
 const HELP_TEXT = `piclaw - Pi Coding Agent Assistant
@@ -54,6 +55,7 @@ let lastAgentTimestamp: Record<string, string> = {};
 const queue = new AgentQueue();
 let whatsapp: WhatsAppChannel;
 let web: WebChannel;
+let pushover: PushoverChannel | null = null;
 
 // Chat JIDs we listen on — loaded from data/chats.json
 let chatJids: Set<string> = new Set();
@@ -164,6 +166,7 @@ async function main(): Promise<void> {
     await queue.shutdown(5000);
     await whatsapp.disconnect();
     await web?.stop();
+    await pushover?.stop();
     process.exit(0);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
@@ -171,6 +174,17 @@ async function main(): Promise<void> {
 
   web = new WebChannel({ queue });
   await web.start();
+
+  if (PUSHOVER_APP_TOKEN && PUSHOVER_USER_KEY) {
+    pushover = new PushoverChannel({
+      appToken: PUSHOVER_APP_TOKEN,
+      userKey: PUSHOVER_USER_KEY,
+      device: PUSHOVER_DEVICE || undefined,
+      priority: PUSHOVER_PRIORITY,
+      sound: PUSHOVER_SOUND || undefined,
+    });
+    await pushover.start();
+  }
 
   whatsapp = new WhatsAppChannel({
     chatJids: () => chatJids,
@@ -193,6 +207,12 @@ async function main(): Promise<void> {
       return;
     }
     await whatsapp.sendMessage(jid, text);
+    // Mirror to Pushover if configured
+    if (pushover) {
+      await pushover.sendMessage(jid, text).catch((err) =>
+        console.error("[pushover] Failed to mirror message:", err)
+      );
+    }
   };
 
   startIpcWatcher({

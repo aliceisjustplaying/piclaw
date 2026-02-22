@@ -1,7 +1,7 @@
 import { resolve } from "path";
 import { readEnvFile } from "./env.js";
 
-const envConfig = readEnvFile(["ASSISTANT_NAME"]);
+const envConfig = readEnvFile(["ASSISTANT_NAME", "PUSHOVER_APP_TOKEN", "PUSHOVER_USER_KEY", "PUSHOVER_DEVICE", "PUSHOVER_PRIORITY", "PUSHOVER_SOUND"]);
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || "pi";
 export const POLL_INTERVAL = 2000;
@@ -58,3 +58,10 @@ function escapeRegex(str: string): string {
 
 export const TRIGGER_PATTERN = new RegExp(`(?:^|\\s)@${escapeRegex(ASSISTANT_NAME)}\\b`, "i");
 export const TIMEZONE = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// Pushover notification channel
+export const PUSHOVER_APP_TOKEN = process.env.PUSHOVER_APP_TOKEN || envConfig.PUSHOVER_APP_TOKEN || "";
+export const PUSHOVER_USER_KEY = process.env.PUSHOVER_USER_KEY || envConfig.PUSHOVER_USER_KEY || "";
+export const PUSHOVER_DEVICE = process.env.PUSHOVER_DEVICE || envConfig.PUSHOVER_DEVICE || "";
+export const PUSHOVER_PRIORITY = parseInt(process.env.PUSHOVER_PRIORITY || envConfig.PUSHOVER_PRIORITY || "0", 10);
+export const PUSHOVER_SOUND = process.env.PUSHOVER_SOUND || envConfig.PUSHOVER_SOUND || "";
