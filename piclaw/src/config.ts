@@ -16,8 +16,36 @@ export const DATA_DIR = resolve(process.env.PICLAW_DATA || `${WORKSPACE_DIR}/.pi
 export const AGENT_TIMEOUT = parseInt(process.env.AGENT_TIMEOUT || "600000", 10); // 10min default
 export const IPC_POLL_INTERVAL = 1000;
 
-export const WEB_PORT = parseInt(process.env.PICLAW_WEB_PORT || "8080", 10);
-export const WEB_HOST = process.env.PICLAW_WEB_HOST || "0.0.0.0";
+const CLI_ARGS = process.argv.slice(2);
+
+function readCliArg(name: string, alias?: string): string | undefined {
+  const names = [name, alias].filter(Boolean) as string[];
+  for (let i = 0; i < CLI_ARGS.length; i += 1) {
+    const arg = CLI_ARGS[i];
+    for (const flag of names) {
+      if (arg === flag) {
+        return CLI_ARGS[i + 1];
+      }
+      if (arg.startsWith(`${flag}=`)) {
+        return arg.slice(flag.length + 1);
+      }
+    }
+  }
+  return undefined;
+}
+
+function parsePort(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+const ENV_WEB_PORT = parseInt(process.env.PICLAW_WEB_PORT || "8080", 10);
+const CLI_WEB_PORT = readCliArg("--port", "-p");
+const CLI_WEB_HOST = readCliArg("--host");
+
+export const WEB_PORT = parsePort(CLI_WEB_PORT, ENV_WEB_PORT);
+export const WEB_HOST = CLI_WEB_HOST || process.env.PICLAW_WEB_HOST || "0.0.0.0";
 
 export const SESSIONS_DIR = resolve(DATA_DIR, "sessions");
 
