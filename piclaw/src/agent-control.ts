@@ -106,15 +106,25 @@ export async function applyControlCommand(
         };
       }
 
-      const modelNames = Array.from(
-        new Set(available.map((model) => `${model.provider}/${model.id}`))
-      ).sort((a, b) => a.localeCompare(b));
+      const uniqueModels = new Map<string, Model<any>>();
+      for (const model of available) {
+        const key = `${model.provider}/${model.id}`;
+        if (!uniqueModels.has(key)) {
+          uniqueModels.set(key, model);
+        }
+      }
+
+      const modelNames = Array.from(uniqueModels.keys()).sort((a, b) => a.localeCompare(b));
+      const currentKey = session.model ? `${session.model.provider}/${session.model.id}` : null;
+      const entries = modelNames.map((name) =>
+        name === currentKey ? `• ${name} (current)` : `• ${name}`
+      );
 
       return {
         status: "success",
         message: [
           "Available models:",
-          ...modelNames.map((name) => `• ${name}`),
+          ...entries,
           "Use /model <provider>/<modelId> to switch.",
         ].join("\n"),
       };
