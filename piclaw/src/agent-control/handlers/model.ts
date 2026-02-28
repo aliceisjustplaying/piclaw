@@ -82,22 +82,6 @@ export async function handleModel(session: AgentSession, modelRegistry: ModelReg
     return { status: "error", message };
   }
 
-  const modelChanged =
-    !previousModel ||
-    previousModel.provider !== selected.provider ||
-    previousModel.id !== selected.id;
-  if (modelChanged) {
-    try {
-      await session.reload();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        status: "error",
-        message: `Model set to ${selected.provider}/${selected.id}, but reload failed: ${message}`,
-      };
-    }
-  }
-
   const thinkingNote = session.supportsThinking()
     ? ` Thinking level: ${session.thinkingLevel}.`
     : " Thinking is off for this model.";
@@ -154,18 +138,6 @@ export async function handleThinking(session: AgentSession, _modelRegistry: Mode
   }
 
   const note = applied !== requestedRaw ? ` (requested ${requestedRaw})` : "";
-  if (applied !== previousLevel) {
-    try {
-      await session.reload();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        status: "error",
-        message: `Thinking level set to ${applied}${note}, but reload failed: ${message}`,
-      };
-    }
-  }
-
   return {
     status: "success",
     message: `Thinking level set to ${applied}${note}.`,
@@ -191,21 +163,9 @@ export async function handleCycleModel(session: AgentSession, _modelRegistry: Mo
 }
 
 export async function handleCycleThinking(session: AgentSession, _modelRegistry: ModelRegistry, _command: CycleThinkingCommand): Promise<AgentControlResult> {
-  const previous = session.thinkingLevel;
   const level = session.cycleThinkingLevel();
   if (!level) {
     return { status: "error", message: "Current model does not support thinking levels." };
-  }
-  if (level !== previous) {
-    try {
-      await session.reload();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        status: "error",
-        message: `Thinking level set to ${level}, but reload failed: ${message}`,
-      };
-    }
   }
   return { status: "success", message: `Thinking level set to ${level}.` };
 }

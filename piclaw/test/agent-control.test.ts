@@ -118,7 +118,7 @@ test("applyControlCommand switches model and thinking level", async () => {
   expect(modelResult.status).toBe("success");
   expect(session.model).toBe(modelReasoning);
   expect(modelResult.message).toContain("openai/gpt-test");
-  expect(session.reloadCalls).toBe(1);
+  expect(session.reloadCalls).toBe(0);
 
   const thinkingResult = await applyControlCommand(session as any, registry, {
     type: "thinking",
@@ -128,7 +128,7 @@ test("applyControlCommand switches model and thinking level", async () => {
 
   expect(thinkingResult.status).toBe("success");
   expect(session.thinkingLevel).toBe("high");
-  expect(session.reloadCalls).toBe(2);
+  expect(session.reloadCalls).toBe(0);
 });
 
 test("applyControlCommand reports unsupported thinking", async () => {
