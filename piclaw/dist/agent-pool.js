@@ -174,7 +174,8 @@ export class AgentPool {
             console.log(`[agent-pool] Session ready for ${chatJid} (pool size: ${this.pool.size})`);
             return session;
         }
-        const { tools, customTools } = createSessionTools(WORKSPACE_DIR, this.bashOperations, chatJid, this.attachments);
+        const sessionRef = {};
+        const { tools, customTools } = createSessionTools(WORKSPACE_DIR, this.bashOperations, chatJid, this.attachments, this.modelRegistry, () => sessionRef.session);
         const session = await createDefaultSession(chatJid, {
             authStorage: this.authStorage,
             modelRegistry: this.modelRegistry,
@@ -182,6 +183,7 @@ export class AgentPool {
             tools,
             customTools,
         });
+        sessionRef.session = session;
         this.pool.set(chatJid, { session, lastUsed: Date.now() });
         await this.bindSession(session, chatJid);
         console.log(`[agent-pool] Session ready for ${chatJid} (pool size: ${this.pool.size})`);

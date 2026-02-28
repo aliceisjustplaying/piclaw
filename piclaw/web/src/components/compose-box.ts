@@ -11,6 +11,33 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
     const [loading, setLoading] = useState(false);
     const [mediaFiles, setMediaFiles] = useState([]);
     const textareaRef = useRef(null);
+    const canShareLocation = typeof window !== 'undefined'
+        && typeof navigator !== 'undefined'
+        && Boolean(navigator.geolocation)
+        && Boolean(window.isSecureContext);
+
+    const resizeTextarea = () => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+    };
+
+    const updateValue = (value) => {
+        if (searchMode) {
+            setSearchText(value);
+        } else {
+            setContent(value);
+        }
+        requestAnimationFrame(resizeTextarea);
+    };
+
+    const appendToValue = (snippet) => {
+        const current = searchMode ? searchText : content;
+        const prefix = current && !current.endsWith('\n') ? '\n' : '';
+        const next = `${current}${prefix}${snippet}`.trimStart();
+        updateValue(next);
+    };
 
     const handleSubmit = async () => {
         if (!content.trim() && mediaFiles.length === 0) return;
@@ -55,19 +82,33 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
         setMediaFiles([...e.target.files]);
     };
 
+    const handleLocation = () => {
+        if (!navigator.geolocation) {
+            alert('Geolocation is not available in this browser.');
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const { latitude, longitude, accuracy } = pos.coords;
+                const coords = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                const accuracyLabel = Number.isFinite(accuracy) ? ` ±${Math.round(accuracy)}m` : '';
+                const mapLink = `https://maps.google.com/?q=${latitude},${longitude}`;
+                const snippet = `Location: ${coords}${accuracyLabel} ${mapLink}`;
+                appendToValue(snippet);
+            },
+            (err) => {
+                const message = err?.message || 'Unable to retrieve location.';
+                alert(`Location error: ${message}`);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
+
     // Auto-resize textarea
     const handleInput = (e) => {
         const value = e.target.value;
-        if (searchMode) {
-            setSearchText(value);
-        } else {
-            setContent(value);
-        }
-        const textarea = textareaRef.current;
-        if (textarea) {
-            textarea.style.height = 'auto';
-            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
-        }
+        updateValue(value);
     };
 
     return html`
@@ -101,6 +142,21 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
                             </svg>
                         `}
                     </button>
+                    ${canShareLocation && html`
+                        <button
+                            class="icon-btn location-btn"
+                            onClick=${handleLocation}
+                            title="Share location"
+                            type="button"
+                            disabled=${loading}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 2a14 14 0 0 1 0 20a14 14 0 0 1 0-20" />
+                                <path d="M2 12h20" />
+                            </svg>
+                        </button>
+                    `}
                     ${!searchMode && html`
                         <label class="icon-btn" title="Attach image">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
