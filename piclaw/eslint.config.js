@@ -27,12 +27,12 @@ export default [
     rules: {
       ...tsPlugin.configs.recommended.rules,
       "@typescript-eslint/ban-ts-comment": "off",
-      "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
       "no-undef": "off",
       "no-useless-escape": "off",
-      "no-useless-assignment": "warn",
-      "no-empty": ["warn", { "allowEmptyCatch": true }],
+      "no-useless-assignment": "error",
+      "no-empty": ["error", { "allowEmptyCatch": true }],
     },
   },
 ];

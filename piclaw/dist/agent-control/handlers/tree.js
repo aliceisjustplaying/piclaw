@@ -64,8 +64,8 @@ export async function handleTree(session, command) {
         const limit = Math.max(1, command.limit ?? 10);
         const mode = command.mode ?? "tail";
         const offset = Math.max(0, command.offset ?? 0);
-        let start = 0;
-        let end = totalEntries;
+        let start;
+        let end;
         if (mode === "tail") {
             start = Math.max(totalEntries - limit, 0);
             end = totalEntries;

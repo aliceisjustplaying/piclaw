@@ -77,8 +77,8 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
     const mode = command.mode ?? "tail";
     const offset = Math.max(0, command.offset ?? 0);
 
-    let start = 0;
-    let end = totalEntries;
+    let start: number;
+    let end: number;
 
     if (mode === "tail") {
       start = Math.max(totalEntries - limit, 0);

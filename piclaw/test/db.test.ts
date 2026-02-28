@@ -1,5 +1,4 @@
 import { beforeAll, expect, test } from "bun:test";
-import { join } from "path";
 import { getTestWorkspace, setEnv } from "./helpers.js";
 
 let db: typeof import("../src/db.js");

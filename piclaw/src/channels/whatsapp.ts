@@ -11,7 +11,7 @@ import makeWASocket, {
 import qrcode from "qrcode-terminal";
 
 import { ASSISTANT_NAME, STORE_DIR, WHATSAPP_PHONE } from "../config.js";
-import type { NewMessage, OnChatMetadata, OnInboundMessage } from "../types.js";
+import type { OnChatMetadata, OnInboundMessage } from "../types.js";
 
 // Minimal pino-compatible logger for baileys (it requires one)
 const silentLogger = {
