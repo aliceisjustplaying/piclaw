@@ -96,7 +96,7 @@ async function execute(
 
   return {
     content: [{ type: "text", text: `Attached "${filename}" (${Math.round(size / 1024)} KB). A download card will appear in the chat automatically.` }],
-    details: { media_id: mediaId, filename, content_type: contentType, size, kind },
+    details: { filename, content_type: contentType, size, kind },
   };
 }
 
