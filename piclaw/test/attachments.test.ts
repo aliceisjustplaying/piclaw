@@ -69,17 +69,18 @@ test("attach_file tool stores media and registers attachment", async () => {
 
   const result = await tool.execute("call", { path: "hello.txt" });
   const details = result.details as any;
-  expect(details.media_id).toBeDefined();
-
-  const media = db.getMediaById(details.media_id);
-  expect(media?.filename).toBe("hello.txt");
-  expect(media?.metadata?.size).toBe(5);
-  expect(media?.metadata?.kind).toBe("file");
+  expect(details.filename).toBe("hello.txt");
+  expect(details.size).toBe(5);
+  expect(details.kind).toBe("file");
 
   const registry = getAttachmentRegistry();
   const pending = registry.take("web:default");
   expect(pending.length).toBe(1);
-  expect(pending[0].id).toBe(details.media_id);
+
+  const media = db.getMediaById(pending[0].id);
+  expect(media?.filename).toBe("hello.txt");
+  expect(media?.metadata?.size).toBe(5);
+  expect(media?.metadata?.kind).toBe("file");
 });
 
 test("web processChat stores attachment content blocks", async () => {
