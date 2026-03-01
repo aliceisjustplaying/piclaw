@@ -22,7 +22,7 @@ import { writeAgentLog } from "./agent-pool/logging.js";
 import { createDefaultSession, ensureSessionDir } from "./agent-pool/session.js";
 import { executeSlashCommand } from "./agent-pool/slash-command.js";
 import { recordMessageUsage } from "./agent-pool/usage.js";
-import { resolveModelLabel } from "./model-utils.js";
+import { resolveModelLabel } from "./utils/model-utils.js";
 import { withChatContext } from "./core/chat-context.js";
 
 export interface AgentOutput {

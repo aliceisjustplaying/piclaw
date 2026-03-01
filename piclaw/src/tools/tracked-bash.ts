@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import type { BashOperations } from "@mariozechner/pi-coding-agent";
-import { killProcessTree, registerProcess, unregisterProcess } from "../process-tracker.js";
+import { killProcessTree, registerProcess, unregisterProcess } from "../utils/process-tracker.js";
 
 function resolveShellConfig(): { shell: string; args: string[] } {
   if (process.platform === "win32") {

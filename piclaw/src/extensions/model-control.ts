@@ -9,7 +9,7 @@ import type { Model } from "@mariozechner/pi-ai";
 import { supportsXhigh } from "@mariozechner/pi-ai";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import { findModel, parseModelInput } from "../model-utils.js";
+import { findModel, parseModelInput } from "../utils/model-utils.js";
 
 // ---------------------------------------------------------------------------
 // Constants

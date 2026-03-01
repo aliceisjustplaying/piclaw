@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { killTrackedProcesses, listTrackedProcesses, registerProcess, unregisterProcess } from "../../src/process-tracker.js";
+import { killTrackedProcesses, listTrackedProcesses, registerProcess, unregisterProcess } from "../../src/utils/process-tracker.js";
 
 test("process tracker registers and clears processes", () => {
   registerProcess(12345);
