@@ -5,7 +5,7 @@
  * it with the shared AttachmentRegistry so the AgentPool can include
  * attachment metadata in the response.
  *
- * Reads `process.env.PICLAW_CHAT_JID` at execution time.
+ * Reads the current chat JID from AsyncLocalStorage/env at execution time.
  */
 import { basename, resolve, relative } from "path";
 import { Type, type Static } from "@sinclair/typebox";
@@ -19,6 +19,7 @@ import type {
 import { createMedia } from "../db.js";
 import { WORKSPACE_DIR } from "../config.js";
 import { getAttachmentRegistry } from "../agent-pool/attachments.js";
+import { getChatJid } from "../chat-context.js";
 
 // ── Schema ────────────────────────────────────────────────
 
@@ -53,10 +54,6 @@ function detectContentType(path: string, fallback?: string): string {
   return "application/octet-stream";
 }
 
-function getChatJid(): string {
-  return process.env.PICLAW_CHAT_JID ?? "web:default";
-}
-
 // ── Tool execute ──────────────────────────────────────────
 
 async function execute(
@@ -85,7 +82,7 @@ async function execute(
   const mediaId = createMedia(filename, contentType, data, null, { size, source_path: resolved, kind });
 
   const registry = getAttachmentRegistry();
-  registry.register(getChatJid(), {
+  registry.register(getChatJid("web:default"), {
     id: mediaId,
     name: filename,
     contentType,

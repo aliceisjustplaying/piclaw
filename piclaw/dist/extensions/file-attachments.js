@@ -5,13 +5,14 @@
  * it with the shared AttachmentRegistry so the AgentPool can include
  * attachment metadata in the response.
  *
- * Reads `process.env.PICLAW_CHAT_JID` at execution time.
+ * Reads the current chat JID from AsyncLocalStorage/env at execution time.
  */
 import { basename, resolve, relative } from "path";
 import { Type } from "@sinclair/typebox";
 import { createMedia } from "../db.js";
 import { WORKSPACE_DIR } from "../config.js";
 import { getAttachmentRegistry } from "../agent-pool/attachments.js";
+import { getChatJid } from "../chat-context.js";
 // ── Schema ────────────────────────────────────────────────
 const AttachmentSchema = Type.Object({
     path: Type.String({ description: "Path to a file inside the workspace." }),
@@ -40,9 +41,6 @@ function detectContentType(path, fallback) {
     catch { /* ignore */ }
     return "application/octet-stream";
 }
-function getChatJid() {
-    return process.env.PICLAW_CHAT_JID ?? "web:default";
-}
 // ── Tool execute ──────────────────────────────────────────
 async function execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
     const resolved = resolveWorkspacePath(params.path);
@@ -60,7 +58,7 @@ async function execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
     const kind = params.kind || (contentType.startsWith("image/") ? "image" : "file");
     const mediaId = createMedia(filename, contentType, data, null, { size, source_path: resolved, kind });
     const registry = getAttachmentRegistry();
-    registry.register(getChatJid(), {
+    registry.register(getChatJid("web:default"), {
         id: mediaId,
         name: filename,
         contentType,

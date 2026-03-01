@@ -46,7 +46,7 @@ test("agent pool aggregates streamed text and writes logs", async () => {
   const result = await pool.runAgent("test", "web:default");
   expect(result.status).toBe("success");
   expect(result.result).toBe("Hello world");
-  expect(process.env.PICLAW_CHAT_JID).toBe("web:default");
+  expect(process.env.PICLAW_CHAT_JID).toBeUndefined();
 
   const logsDir = join(process.env.PICLAW_WORKSPACE || ws.workspace, "logs");
   const logFiles = readdirSync(logsDir).filter((f) => f.startsWith("agent-") && f.endsWith(".log"));

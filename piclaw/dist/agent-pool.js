@@ -11,6 +11,7 @@ import { createDefaultSession, ensureSessionDir } from "./agent-pool/session.js"
 import { executeSlashCommand } from "./agent-pool/slash-command.js";
 import { recordMessageUsage } from "./agent-pool/usage.js";
 import { resolveModelLabel } from "./model-utils.js";
+import { withChatContext } from "./chat-context.js";
 /** How long (ms) an idle session stays cached before being disposed. */
 const IDLE_TTL = 10 * 60 * 1000; // 10 minutes
 const CLEANUP_INTERVAL = 60 * 1000; // check every minute
@@ -64,39 +65,41 @@ export class AgentPool {
             const tracker = this.createTurnTracker(chatJid, options.onTurnComplete);
             const unsub = this.subscribeToSession(session, chatJid, tracker, options.onEvent);
             const { timeoutId, timedOutRef } = this.startPromptTimeout(session, chatJid);
-            this.setRunEnvironment(chatJid);
-            const phases = options.autoCompactPhases ?? ["pre", "post"];
-            if (phases.includes("pre")) {
-                await this.maybeAutoCompact(session, "pre", options.onAutoCompact);
-            }
-            try {
-                await session.prompt(prompt);
-            }
-            finally {
-                clearTimeout(timeoutId);
-                unsub();
-            }
-            if (phases.includes("post")) {
-                void this.maybeAutoCompact(session, "post", options.onAutoCompact).catch((err) => {
-                    console.error("[agent-pool] Post auto-compaction failed:", err);
-                });
-            }
-            const duration = Date.now() - startTime;
-            // If onTurnComplete was used, intermediate turns were already flushed.
-            // The final turn's text is in tracker.getFinalText().
-            const finalText = tracker.getFinalText();
-            const finalAttachments = this.attachments.take(chatJid);
-            const timedOut = timedOutRef.value;
-            writeAgentLog(this.logsDir, chatJid, duration, timedOut, finalText, null);
-            if (timedOut) {
-                return { status: "error", result: null, error: `Timed out after ${AGENT_TIMEOUT}ms` };
-            }
-            console.log(`[agent-pool] Done in ${duration}ms (${finalText.length} chars, ${tracker.getTurnCount() + 1} turns, session ${chatJid})`);
-            return {
-                status: "success",
-                result: finalText || null,
-                attachments: finalAttachments.length ? finalAttachments : undefined,
-            };
+            const channel = detectChannel(chatJid);
+            return await withChatContext(chatJid, channel, async () => {
+                const phases = options.autoCompactPhases ?? ["pre", "post"];
+                if (phases.includes("pre")) {
+                    await this.maybeAutoCompact(session, "pre", options.onAutoCompact);
+                }
+                try {
+                    await session.prompt(prompt);
+                }
+                finally {
+                    clearTimeout(timeoutId);
+                    unsub();
+                }
+                if (phases.includes("post")) {
+                    void this.maybeAutoCompact(session, "post", options.onAutoCompact).catch((err) => {
+                        console.error("[agent-pool] Post auto-compaction failed:", err);
+                    });
+                }
+                const duration = Date.now() - startTime;
+                // If onTurnComplete was used, intermediate turns were already flushed.
+                // The final turn's text is in tracker.getFinalText().
+                const finalText = tracker.getFinalText();
+                const finalAttachments = this.attachments.take(chatJid);
+                const timedOut = timedOutRef.value;
+                writeAgentLog(this.logsDir, chatJid, duration, timedOut, finalText, null);
+                if (timedOut) {
+                    return { status: "error", result: null, error: `Timed out after ${AGENT_TIMEOUT}ms` };
+                }
+                console.log(`[agent-pool] Done in ${duration}ms (${finalText.length} chars, ${tracker.getTurnCount() + 1} turns, session ${chatJid})`);
+                return {
+                    status: "success",
+                    result: finalText || null,
+                    attachments: finalAttachments.length ? finalAttachments : undefined,
+                };
+            });
         }
         catch (err) {
             this.attachments.clear(chatJid);
@@ -109,8 +112,8 @@ export class AgentPool {
     }
     async applyControlCommand(chatJid, command) {
         const session = await this.getOrCreate(chatJid);
-        this.setRunEnvironment(chatJid);
-        return applyControlCommand(session, this.modelRegistry, command);
+        const channel = detectChannel(chatJid);
+        return withChatContext(chatJid, channel, () => applyControlCommand(session, this.modelRegistry, command));
     }
     async getCurrentModelLabel(chatJid) {
         const session = await this.getOrCreate(chatJid);
@@ -150,10 +153,12 @@ export class AgentPool {
         const session = await this.getOrCreate(chatJid);
         if (!session.isStreaming)
             return { queued: false };
-        this.setRunEnvironment(chatJid);
+        const channel = detectChannel(chatJid);
         try {
-            await session.prompt(text, { streamingBehavior: behavior });
-            return { queued: true };
+            return await withChatContext(chatJid, channel, async () => {
+                await session.prompt(text, { streamingBehavior: behavior });
+                return { queued: true };
+            });
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -163,9 +168,9 @@ export class AgentPool {
     /** Execute a raw slash command in the AgentSession (extension commands). */
     async applySlashCommand(chatJid, rawText) {
         this.attachments.clear(chatJid);
-        this.setRunEnvironment(chatJid);
         const session = await this.getOrCreate(chatJid);
-        const result = await executeSlashCommand(session, chatJid, rawText);
+        const channel = detectChannel(chatJid);
+        const result = await withChatContext(chatJid, channel, () => executeSlashCommand(session, chatJid, rawText));
         this.attachments.clear(chatJid);
         return result;
     }
@@ -277,10 +282,6 @@ export class AgentPool {
             await session.abort();
         }, AGENT_TIMEOUT);
         return { timeoutId, timedOutRef };
-    }
-    setRunEnvironment(chatJid) {
-        process.env.PICLAW_CHAT_JID = chatJid;
-        process.env.PICLAW_CHANNEL = detectChannel(chatJid);
     }
     async bindSession(session, chatJid) {
         if (!this.sessionBinder)
