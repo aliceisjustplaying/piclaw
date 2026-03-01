@@ -1,7 +1,11 @@
 import type { WebChannel } from "../../web.js";
 import { ASSISTANT_AVATAR, ASSISTANT_NAME, TRIGGER_PATTERN } from "../../../config.js";
 import { parseControlCommand } from "../../../agent-control.js";
-import { normalizeMediaIds } from "../posts-service.js";
+import {
+  normalizeAgentMessagePayload,
+  parseAgentMessageRequest,
+  storeAgentUserMessage,
+} from "../agent-message-service.js";
 import { getMessagesSince } from "../../../db.js";
 import { detectChannel, formatMessages, formatOutbound } from "../../../router.js";
 import { createAgentProfileBuilder } from "../agent-utils.js";
@@ -18,35 +22,24 @@ export async function handleAgentMessage(
   defaultAgentId: string
 ): Promise<Response> {
   const agentId = pathname.split("/")[2] || defaultAgentId;
-  let data: {
-    content?: string;
-    thread_id?: number | null;
-    media_ids?: number[];
-    content_blocks?: unknown[];
-    link_previews?: unknown[];
-  };
-  try {
-    data = await req.json();
-  } catch {
-    return channel.json({ error: "Invalid JSON" }, 400);
-  }
+  const parsed = await parseAgentMessageRequest(req);
+  if (parsed.error || !parsed.payload) return channel.json({ error: parsed.error }, 400);
 
-  if (!data.content) return channel.json({ error: "Missing 'content' field" }, 400);
+  const normalized = normalizeAgentMessagePayload(parsed.payload);
+  if (!normalized.content) return channel.json({ error: "Missing 'content' field" }, 400);
 
-  const mediaIds = normalizeMediaIds(data.media_ids);
-  const contentBlocks = Array.isArray(data.content_blocks) ? data.content_blocks : undefined;
-  const linkPreviews = Array.isArray(data.link_previews) ? data.link_previews : undefined;
-
-  const interaction = channel.storeMessage(chatJid, data.content, false, mediaIds, {
-    contentBlocks,
-    linkPreviews,
+  const interaction = storeAgentUserMessage(channel, chatJid, {
+    content: normalized.content,
+    mediaIds: normalized.mediaIds,
+    contentBlocks: normalized.contentBlocks,
+    linkPreviews: normalized.linkPreviews,
   });
 
   if (!interaction) return channel.json({ error: "Failed to store message" }, 500);
 
   channel.broadcastEvent("new_post", interaction);
 
-  const threadId = resolveThreadId(data.thread_id, interaction.id);
+  const threadId = resolveThreadId(normalized.threadId, interaction.id);
 
   const markCommandHandled = () => {
     if (interaction?.timestamp) {
@@ -55,7 +48,7 @@ export async function handleAgentMessage(
     }
   };
 
-  const command = parseControlCommand(data.content, TRIGGER_PATTERN);
+  const command = parseControlCommand(normalized.content, TRIGGER_PATTERN);
   if (command) {
     const result = await channel.agentPool.applyControlCommand(chatJid, command);
     const formatted = formatOutbound(result.message, "web");
@@ -75,7 +68,7 @@ export async function handleAgentMessage(
   }
 
   // If message looks like an extension slash command (starts with '/'), execute it directly
-  const trimmed = (data.content || "").trim();
+  const trimmed = (normalized.content || "").trim();
   if (trimmed.startsWith("/")) {
     const cmdResult = await channel.agentPool.applySlashCommand(chatJid, trimmed);
     try {
@@ -91,7 +84,7 @@ export async function handleAgentMessage(
     );
   }
 
-  const steerResult = await channel.agentPool.queueStreamingMessage(chatJid, data.content, "steer");
+  const steerResult = await channel.agentPool.queueStreamingMessage(chatJid, normalized.content, "steer");
   if (steerResult.queued) {
     markCommandHandled();
     return channel.json(
