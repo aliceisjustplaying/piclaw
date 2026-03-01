@@ -1231,6 +1231,7 @@ body {
     --turn-color: var(--accent-color);
     max-width: 100%;
     box-sizing: border-box;
+    overflow: hidden;
 }
 
 .turn-dot {
@@ -1263,6 +1264,7 @@ body {
 
 .agent-status-text {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1274,8 +1276,8 @@ body {
     gap: var(--spacing-sm);
     flex-shrink: 0;
     width: 100%;
-    padding: 0 var(--spacing-md);
     box-sizing: border-box;
+    overflow: hidden;
 }
 
 .agent-thinking {
