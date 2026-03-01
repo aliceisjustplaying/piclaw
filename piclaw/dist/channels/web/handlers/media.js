@@ -1,4 +1,5 @@
-import { createMedia, getMediaById, getMediaInfoById } from "../../../db.js";
+import { MediaService } from "../media-service.js";
+const mediaService = new MediaService();
 export async function handleMediaUpload(channel, req) {
     let form;
     try {
@@ -10,27 +11,20 @@ export async function handleMediaUpload(channel, req) {
     const file = form.get("file");
     if (!(file instanceof File))
         return channel.json({ error: "Missing file" }, 400);
-    const arrayBuffer = await file.arrayBuffer();
-    const data = new Uint8Array(arrayBuffer);
-    const mediaId = createMedia(file.name || "upload", file.type || "application/octet-stream", data, null, { size: file.size });
-    return channel.json({ id: mediaId, filename: file.name, size: file.size });
+    const result = await mediaService.createFromFile(file);
+    return channel.json(result.body, result.status);
 }
 export function handleMedia(channel, id, thumbnail) {
-    const media = getMediaById(id);
-    if (!media)
-        return channel.json({ error: "Media not found" }, 404);
-    const blob = thumbnail && media.thumbnail ? media.thumbnail : media.data;
-    const buffer = blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength);
-    const body = new Blob([buffer], { type: media.content_type });
-    return new Response(body, {
+    const result = mediaService.getMedia(id, thumbnail);
+    if (result.status !== 200)
+        return channel.json({ error: "Media not found" }, result.status);
+    return new Response(result.body, {
         headers: {
-            "Content-Type": media.content_type,
+            "Content-Type": result.contentType || "application/octet-stream",
         },
     });
 }
 export function handleMediaInfo(channel, id) {
-    const info = getMediaInfoById(id);
-    if (!info)
-        return channel.json({ error: "Media not found" }, 404);
-    return channel.json(info);
+    const result = mediaService.getInfo(id);
+    return channel.json(result.body, result.status);
 }
