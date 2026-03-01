@@ -602,6 +602,13 @@ function App() {
             return;
         }
 
+        if (eventType === 'workspace_update') {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('workspace-update', { detail: data }));
+            }
+            return;
+        }
+
         // Add new posts/replies to timeline (only when on main timeline) - append at end for chat style
         const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current;
         if (eventType === 'agent_response') {

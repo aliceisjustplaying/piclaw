@@ -1,7 +1,7 @@
 import { initTheme } from "@mariozechner/pi-coding-agent";
 import { ASSISTANT_AVATAR, ASSISTANT_NAME, WEB_HOST, WEB_IDLE_TIMEOUT, WEB_PORT } from "../config.js";
 import { handleMedia, handleMediaInfo, handleMediaUpload } from "./web/handlers/media.js";
-import { handleWorkspaceAttach, handleWorkspaceFile, handleWorkspaceRaw, handleWorkspaceTree } from "./web/handlers/workspace.js";
+import { handleWorkspaceAttach, handleWorkspaceFile, handleWorkspaceRaw, handleWorkspaceTree, startWorkspaceWatcher } from "./web/handlers/workspace.js";
 import { handleSse, broadcastEvent } from "./web/sse.js";
 import { serveDocsStatic, serveStatic } from "./web/static.js";
 import { clampInt, jsonResponse, parseOptionalInt } from "./web/http-utils.js";
@@ -25,6 +25,7 @@ export class WebChannel {
     pendingLinkPreviews = new Set();
     queuedFollowupPlaceholders = new Map();
     fallbackTheme = createFallbackTheme();
+    workspaceWatcher = null;
     constructor(opts) {
         this.queue = opts.queue;
         this.agentPool = opts.agentPool;
@@ -44,6 +45,7 @@ export class WebChannel {
             idleTimeout: WEB_IDLE_TIMEOUT,
             fetch: (req) => this.handleRequest(req),
         });
+        this.workspaceWatcher = startWorkspaceWatcher(this);
         console.log(`[web] UI listening on http://${WEB_HOST}:${WEB_PORT}`);
     }
     async stop() {
@@ -65,6 +67,10 @@ export class WebChannel {
         this.pendingUiRequests.clear();
         this.server?.stop(true);
         this.server = null;
+        if (this.workspaceWatcher) {
+            await this.workspaceWatcher.close();
+            this.workspaceWatcher = null;
+        }
     }
     async sendMessage(chatJid, text, threadId) {
         const interaction = this.storeMessage(chatJid, text, true, [], threadId ? { threadId } : undefined);

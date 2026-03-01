@@ -3,7 +3,7 @@ import type { AgentPool } from "../agent-pool.js";
 import { initTheme, type AgentSession } from "@mariozechner/pi-coding-agent";
 import { ASSISTANT_AVATAR, ASSISTANT_NAME, WEB_HOST, WEB_IDLE_TIMEOUT, WEB_PORT } from "../config.js";
 import { handleMedia, handleMediaInfo, handleMediaUpload } from "./web/handlers/media.js";
-import { handleWorkspaceAttach, handleWorkspaceFile, handleWorkspaceRaw, handleWorkspaceTree } from "./web/handlers/workspace.js";
+import { handleWorkspaceAttach, handleWorkspaceFile, handleWorkspaceRaw, handleWorkspaceTree, startWorkspaceWatcher } from "./web/handlers/workspace.js";
 import { handleSse, broadcastEvent, type PendingClient } from "./web/sse.js";
 import { serveDocsStatic, serveStatic } from "./web/static.js";
 import { clampInt, jsonResponse, parseOptionalInt } from "./web/http-utils.js";
@@ -52,6 +52,7 @@ export class WebChannel {
   pendingLinkPreviews = new Set<number>();
   queuedFollowupPlaceholders = new Map<string, number[]>();
   fallbackTheme = createFallbackTheme();
+  workspaceWatcher: { close: () => Promise<void> } | null = null;
 
   constructor(opts: WebChannelOpts) {
     this.queue = opts.queue;
@@ -72,6 +73,7 @@ export class WebChannel {
       idleTimeout: WEB_IDLE_TIMEOUT,
       fetch: (req) => this.handleRequest(req),
     });
+    this.workspaceWatcher = startWorkspaceWatcher(this);
     console.log(`[web] UI listening on http://${WEB_HOST}:${WEB_PORT}`);
   }
 
@@ -88,6 +90,10 @@ export class WebChannel {
     this.pendingUiRequests.clear();
     this.server?.stop(true);
     this.server = null;
+    if (this.workspaceWatcher) {
+      await this.workspaceWatcher.close();
+      this.workspaceWatcher = null;
+    }
   }
 
   async sendMessage(chatJid: string, text: string, threadId?: number | null): Promise<void> {

@@ -12,7 +12,7 @@ import { formatFileSize, formatTimestamp } from '../utils/format.js';
 import { renderMarkdown } from '../markdown.js';
 
 const INDENT = 16;
-const REFRESH_INTERVAL_MS = 15000;
+const REFRESH_INTERVAL_MS = 60000;
 
 // ── Tree data helpers ─────────────────────────────────────────────────────────
 
@@ -205,6 +205,32 @@ export function WorkspaceExplorer({ onFileSelect }) {
         }
     };
     loadSubtreeRef.current = loadSubtree;
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handler = (event) => {
+            const updates = event?.detail?.updates || [];
+            if (!Array.isArray(updates) || updates.length === 0) return;
+            setTree(prev => {
+                let next = prev;
+                for (const update of updates) {
+                    if (!update?.root) continue;
+                    if (!next || update.path === '.' || !update.path) {
+                        next = update.root;
+                    } else {
+                        next = replaceNodeAtPath(next, update.path, update.root);
+                    }
+                }
+                if (next) {
+                    lastSigRef.current = treeSignature(next, expandedRef.current);
+                }
+                setInitialLoad(false);
+                return next;
+            });
+        };
+        window.addEventListener('workspace-update', handler);
+        return () => window.removeEventListener('workspace-update', handler);
+    }, []);
 
     // Always point at the freshest loadTree — interval calls this ref,
     // so it always has the current closure (tree, expanded, etc.).

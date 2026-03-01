@@ -280,6 +280,10 @@ export class SSEClient {
             this.onEvent('agent_request', JSON.parse(e.data));
         });
 
+        this.eventSource.addEventListener('workspace_update', (e) => {
+            this.onEvent('workspace_update', JSON.parse(e.data));
+        });
+
         this.eventSource.addEventListener('agent_request_timeout', (e) => {
             this.onEvent('agent_request_timeout', JSON.parse(e.data));
         });

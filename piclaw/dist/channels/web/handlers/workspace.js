@@ -1,7 +1,9 @@
 import { statSync, readdirSync, readFileSync } from "fs";
 import path from "path";
+import chokidar from "chokidar";
 import { WORKSPACE_DIR } from "../../../config.js";
 import { createMedia } from "../../../db.js";
+import { broadcastEvent } from "../sse.js";
 const EXCLUDE_DIRS = new Set([
     "node_modules",
     ".git",
@@ -98,6 +100,23 @@ function formatMtime(stats) {
 function shouldExcludeDir(name) {
     return EXCLUDE_DIRS.has(name);
 }
+function shouldIgnorePath(absPath) {
+    const rel = path.relative(WORKSPACE_DIR, absPath);
+    if (!rel || rel === ".")
+        return false;
+    if (rel.startsWith("..") || path.isAbsolute(rel))
+        return true;
+    const parts = rel.split(path.sep);
+    for (const part of parts) {
+        if (!part || part === ".")
+            continue;
+        if (part.startsWith(".") && part !== ".piclaw")
+            return true;
+        if (EXCLUDE_DIRS.has(part))
+            return true;
+    }
+    return false;
+}
 function buildTree(absPath, depth, state) {
     const stats = statSync(absPath);
     const node = {
@@ -158,7 +177,7 @@ export function handleWorkspaceTree(_channel, req) {
     if (!targetPath)
         return new Response(JSON.stringify({ error: "Invalid path" }), { status: 400 });
     const depthRaw = parseInt(url.searchParams.get("depth") || "2", 10);
-    const depth = Number.isFinite(depthRaw) ? Math.min(Math.max(depthRaw, 1), 6) : 2;
+    const depth = Number.isFinite(depthRaw) ? Math.min(Math.max(depthRaw, 1), 8) : 2;
     try {
         const state = { count: 0, truncated: false };
         const tree = buildTree(targetPath, depth, state);
@@ -287,4 +306,75 @@ export async function handleWorkspaceAttach(_channel, req) {
     catch {
         return new Response(JSON.stringify({ error: "Failed to attach file" }), { status: 500 });
     }
+}
+function compressPaths(paths) {
+    const normalized = Array.from(new Set(paths.map((p) => (p || ".").replace(/\\/g, "/"))));
+    if (normalized.includes("."))
+        return ["."];
+    normalized.sort((a, b) => a.length - b.length);
+    return normalized.filter((candidate) => {
+        let current = candidate;
+        while (current.includes("/")) {
+            current = current.slice(0, current.lastIndexOf("/"));
+            if (normalized.includes(current))
+                return false;
+        }
+        return true;
+    });
+}
+export function startWorkspaceWatcher(channel) {
+    const pending = new Set();
+    let flushTimer = null;
+    const queuePath = (absPath) => {
+        if (shouldIgnorePath(absPath))
+            return;
+        const rel = toRelativePath(absPath);
+        const target = rel === "." ? "." : toRelativePath(path.dirname(absPath));
+        pending.add(target);
+        if (flushTimer)
+            return;
+        flushTimer = setTimeout(() => {
+            flushTimer = null;
+            const targets = compressPaths(Array.from(pending));
+            pending.clear();
+            if (!targets.length)
+                return;
+            const updates = [];
+            for (const relPath of targets) {
+                const abs = resolveWorkspacePath(relPath);
+                if (!abs)
+                    continue;
+                try {
+                    const state = { count: 0, truncated: false };
+                    const depth = relPath === "." ? 4 : 3;
+                    const root = buildTree(abs, depth, state);
+                    updates.push({ path: relPath, root, truncated: state.truncated });
+                }
+                catch {
+                    // ignore
+                }
+            }
+            if (updates.length)
+                broadcastEvent(channel, "workspace_update", { updates });
+        }, 300);
+    };
+    const watcher = chokidar.watch(WORKSPACE_DIR, {
+        ignoreInitial: true,
+        depth: 8,
+        awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
+        ignored: (p) => shouldIgnorePath(p),
+    });
+    watcher.on("add", queuePath);
+    watcher.on("addDir", queuePath);
+    watcher.on("unlink", queuePath);
+    watcher.on("unlinkDir", queuePath);
+    watcher.on("change", queuePath);
+    return {
+        close: async () => {
+            try {
+                await watcher.close();
+            }
+            catch { }
+        },
+    };
 }
