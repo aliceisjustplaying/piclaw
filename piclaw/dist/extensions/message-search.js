@@ -1,12 +1,13 @@
 /**
  * message-search – registers the search_messages tool as an extension.
  *
- * Reads `process.env.PICLAW_CHAT_JID` at execution time so the default
+ * Reads the current chat JID from AsyncLocalStorage/env at execution time so the default
  * chat scope follows the current agent invocation rather than being
  * captured at session-creation time.
  */
 import { Type } from "@sinclair/typebox";
 import { getDb } from "../db.js";
+import { getChatJid } from "../chat-context.js";
 // ── Schema ────────────────────────────────────────────────
 const SearchMessagesSchema = Type.Object({
     query: Type.Optional(Type.String({ description: "FTS query text (matches message content)." })),
@@ -76,7 +77,7 @@ function formatRow(row) {
     return `• [${row.rowid}] (${row.chat_jid}) ${sender} (${role}) — ${preview} (${row.timestamp})`;
 }
 function getDefaultChatJid() {
-    return process.env.PICLAW_CHAT_JID ?? "web:default";
+    return getChatJid("web:default");
 }
 // ── DB queries ────────────────────────────────────────────
 function fetchByRowId(db, rowId, chatJid) {

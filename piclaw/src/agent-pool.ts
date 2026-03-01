@@ -23,6 +23,7 @@ import { createDefaultSession, ensureSessionDir } from "./agent-pool/session.js"
 import { executeSlashCommand } from "./agent-pool/slash-command.js";
 import { recordMessageUsage } from "./agent-pool/usage.js";
 import { resolveModelLabel } from "./model-utils.js";
+import { withChatContext } from "./chat-context.js";
 
 export interface AgentOutput {
   status: "success" | "error";
@@ -130,48 +131,49 @@ export class AgentPool {
       const unsub = this.subscribeToSession(session, chatJid, tracker, options.onEvent);
       const { timeoutId, timedOutRef } = this.startPromptTimeout(session, chatJid);
 
-      this.setRunEnvironment(chatJid);
+      const channel = detectChannel(chatJid);
+      return await withChatContext(chatJid, channel, async () => {
+        const phases = options.autoCompactPhases ?? ["pre", "post"];
+        if (phases.includes("pre")) {
+          await this.maybeAutoCompact(session, "pre", options.onAutoCompact);
+        }
 
-      const phases = options.autoCompactPhases ?? ["pre", "post"];
-      if (phases.includes("pre")) {
-        await this.maybeAutoCompact(session, "pre", options.onAutoCompact);
-      }
+        try {
+          await session.prompt(prompt);
+        } finally {
+          clearTimeout(timeoutId);
+          unsub();
+        }
 
-      try {
-        await session.prompt(prompt);
-      } finally {
-        clearTimeout(timeoutId);
-        unsub();
-      }
+        if (phases.includes("post")) {
+          void this.maybeAutoCompact(session, "post", options.onAutoCompact).catch((err) => {
+            console.error("[agent-pool] Post auto-compaction failed:", err);
+          });
+        }
 
-      if (phases.includes("post")) {
-        void this.maybeAutoCompact(session, "post", options.onAutoCompact).catch((err) => {
-          console.error("[agent-pool] Post auto-compaction failed:", err);
-        });
-      }
+        const duration = Date.now() - startTime;
 
-      const duration = Date.now() - startTime;
+        // If onTurnComplete was used, intermediate turns were already flushed.
+        // The final turn's text is in tracker.getFinalText().
+        const finalText = tracker.getFinalText();
+        const finalAttachments = this.attachments.take(chatJid);
 
-      // If onTurnComplete was used, intermediate turns were already flushed.
-      // The final turn's text is in tracker.getFinalText().
-      const finalText = tracker.getFinalText();
-      const finalAttachments = this.attachments.take(chatJid);
+        const timedOut = timedOutRef.value;
+        writeAgentLog(this.logsDir, chatJid, duration, timedOut, finalText, null);
 
-      const timedOut = timedOutRef.value;
-      writeAgentLog(this.logsDir, chatJid, duration, timedOut, finalText, null);
+        if (timedOut) {
+          return { status: "error", result: null, error: `Timed out after ${AGENT_TIMEOUT}ms` };
+        }
 
-      if (timedOut) {
-        return { status: "error", result: null, error: `Timed out after ${AGENT_TIMEOUT}ms` };
-      }
-
-      console.log(
-        `[agent-pool] Done in ${duration}ms (${finalText.length} chars, ${tracker.getTurnCount() + 1} turns, session ${chatJid})`
-      );
-      return {
-        status: "success",
-        result: finalText || null,
-        attachments: finalAttachments.length ? finalAttachments : undefined,
-      };
+        console.log(
+          `[agent-pool] Done in ${duration}ms (${finalText.length} chars, ${tracker.getTurnCount() + 1} turns, session ${chatJid})`
+        );
+        return {
+          status: "success",
+          result: finalText || null,
+          attachments: finalAttachments.length ? finalAttachments : undefined,
+        };
+      });
     } catch (err) {
       this.attachments.clear(chatJid);
       const duration = Date.now() - startTime;
@@ -184,8 +186,8 @@ export class AgentPool {
 
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {
     const session = await this.getOrCreate(chatJid);
-    this.setRunEnvironment(chatJid);
-    return applyControlCommand(session, this.modelRegistry, command);
+    const channel = detectChannel(chatJid);
+    return withChatContext(chatJid, channel, () => applyControlCommand(session, this.modelRegistry, command));
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
@@ -231,11 +233,13 @@ export class AgentPool {
     const session = await this.getOrCreate(chatJid);
     if (!session.isStreaming) return { queued: false };
 
-    this.setRunEnvironment(chatJid);
+    const channel = detectChannel(chatJid);
 
     try {
-      await session.prompt(text, { streamingBehavior: behavior });
-      return { queued: true };
+      return await withChatContext(chatJid, channel, async () => {
+        await session.prompt(text, { streamingBehavior: behavior });
+        return { queued: true };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { queued: false, error: message };
@@ -245,9 +249,9 @@ export class AgentPool {
   /** Execute a raw slash command in the AgentSession (extension commands). */
   async applySlashCommand(chatJid: string, rawText: string): Promise<AgentControlResult> {
     this.attachments.clear(chatJid);
-    this.setRunEnvironment(chatJid);
     const session = await this.getOrCreate(chatJid);
-    const result = await executeSlashCommand(session, chatJid, rawText);
+    const channel = detectChannel(chatJid);
+    const result = await withChatContext(chatJid, channel, () => executeSlashCommand(session, chatJid, rawText));
     this.attachments.clear(chatJid);
     return result;
   }
@@ -382,11 +386,6 @@ export class AgentPool {
       await session.abort();
     }, AGENT_TIMEOUT);
     return { timeoutId, timedOutRef };
-  }
-
-  private setRunEnvironment(chatJid: string): void {
-    process.env.PICLAW_CHAT_JID = chatJid;
-    process.env.PICLAW_CHANNEL = detectChannel(chatJid);
   }
 
   private async bindSession(session: AgentSession, chatJid: string): Promise<void> {

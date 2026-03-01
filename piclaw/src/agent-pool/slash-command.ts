@@ -3,6 +3,7 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentControlResult } from "../agent-control-types.js";
 import { AGENT_TIMEOUT } from "../config.js";
 import { detectChannel } from "../router.js";
+import { withChatContext } from "../chat-context.js";
 
 export async function executeSlashCommand(
   session: AgentSession,
@@ -108,10 +109,11 @@ export async function executeSlashCommand(
       } catch {}
     }, AGENT_TIMEOUT);
 
+    const channel = detectChannel(chatJid);
     try {
-      process.env.PICLAW_CHAT_JID = chatJid;
-      process.env.PICLAW_CHANNEL = detectChannel(chatJid);
-      await session.prompt(rawText);
+      await withChatContext(chatJid, channel, async () => {
+        await session.prompt(rawText);
+      });
     } finally {
       clearTimeout(timeoutId);
       unsub();

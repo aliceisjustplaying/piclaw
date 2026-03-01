@@ -1,5 +1,6 @@
 import { AGENT_TIMEOUT } from "../config.js";
 import { detectChannel } from "../router.js";
+import { withChatContext } from "../chat-context.js";
 export async function executeSlashCommand(session, chatJid, rawText) {
     const startTime = Date.now();
     try {
@@ -99,10 +100,11 @@ export async function executeSlashCommand(session, chatJid, rawText) {
             }
             catch { }
         }, AGENT_TIMEOUT);
+        const channel = detectChannel(chatJid);
         try {
-            process.env.PICLAW_CHAT_JID = chatJid;
-            process.env.PICLAW_CHANNEL = detectChannel(chatJid);
-            await session.prompt(rawText);
+            await withChatContext(chatJid, channel, async () => {
+                await session.prompt(rawText);
+            });
         }
         finally {
             clearTimeout(timeoutId);
