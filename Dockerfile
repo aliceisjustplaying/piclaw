@@ -51,7 +51,8 @@ RUN chmod +x /entrypoint.sh /usr/local/bin/run-piclaw.sh
 # Layer 4: Install Homebrew, Bun, and Pi Coding Agent as agent
 USER agent
 WORKDIR /home/agent
-RUN /bin/bash -lc 'set -euo pipefail
+RUN bash <<'EOF'
+set -euo pipefail
 curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/install-brew.sh
 /bin/bash /tmp/install-brew.sh
 rm /tmp/install-brew.sh
@@ -73,12 +74,12 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 bun add -g @mariozechner/pi-coding-agent
 PI_CLI="$(readlink -f "$BUN_INSTALL/bin/pi")"
 rm "$BUN_INSTALL/bin/pi"
-cat <<EOF > "$BUN_INSTALL/bin/pi"
+cat <<'WRAPPER' > "$BUN_INSTALL/bin/pi"
 #!/usr/bin/env bash
 exec bun "$PI_CLI" "\$@"
-EOF
+WRAPPER
 chmod +x "$BUN_INSTALL/bin/pi"
-'
+EOF
 
 # Set up pi config directories and global AGENTS.md
 RUN mkdir -p ~/.pi/agent/skills ~/.pi/agent/sessions \
