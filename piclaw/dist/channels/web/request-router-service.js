@@ -39,7 +39,7 @@ export class RequestRouterService {
             return this.channel.serveStatic("index.html");
         }
         if (isGetOrHead && pathname === "/manifest.json") {
-            return this.serveStaticAsset(req, "manifest.json");
+            return this.channel.handleManifest(req);
         }
         if (isGetOrHead && pathname === "/favicon.ico") {
             return this.serveStaticAsset(req, "favicon.ico");
