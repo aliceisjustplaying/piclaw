@@ -267,6 +267,20 @@ export class AgentPool {
     createTurnTracker(chatJid, onTurnComplete) {
         let currentTurnText = "";
         let turnCount = 0;
+        let messageHasDelta = false;
+        const extractTextFromContent = (content) => {
+            if (!content)
+                return "";
+            if (typeof content === "string")
+                return content;
+            if (Array.isArray(content)) {
+                return content
+                    .filter((block) => block && block.type === "text")
+                    .map((block) => typeof block.text === "string" ? block.text : "")
+                    .join("");
+            }
+            return "";
+        };
         const flushTurn = () => {
             const text = currentTurnText.trim();
             if (!text && !onTurnComplete)
@@ -280,16 +294,34 @@ export class AgentPool {
                 turnCount++;
             }
             currentTurnText = "";
+            messageHasDelta = false;
         };
         const handleMessageUpdate = (event) => {
-            if (event.type !== "message_update")
+            if (event.type === "message_update") {
+                if (event.assistantMessageEvent.type === "text_start") {
+                    if (onTurnComplete) {
+                        // A new text response is starting — flush the previous turn
+                        flushTurn();
+                    }
+                    else {
+                        messageHasDelta = false;
+                    }
+                }
+                if (event.assistantMessageEvent.type === "text_delta") {
+                    messageHasDelta = true;
+                    currentTurnText += event.assistantMessageEvent.delta;
+                }
                 return;
-            if (event.assistantMessageEvent.type === "text_start" && onTurnComplete) {
-                // A new text response is starting — flush the previous turn
-                flushTurn();
             }
-            if (event.assistantMessageEvent.type === "text_delta") {
-                currentTurnText += event.assistantMessageEvent.delta;
+            if (event.type === "message_end") {
+                const message = event.message;
+                if (message?.role === "assistant") {
+                    const text = extractTextFromContent(message.content);
+                    if (!messageHasDelta && text) {
+                        currentTurnText = text;
+                    }
+                }
+                messageHasDelta = false;
             }
         };
         return {
