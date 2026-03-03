@@ -1,6 +1,9 @@
 # PiClaw - Minimal Pi Coding Agent Sandbox
 FROM debian:bookworm-slim
 
+ARG HOMEBREW_BREW_GIT_REMOTES=""
+ARG HOMEBREW_CORE_GIT_REMOTES=""
+
 # Environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     TERM=xterm-256color \
@@ -10,9 +13,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/agent \
     HOMEBREW_NO_AUTO_UPDATE=1 \
     HOMEBREW_NO_INSTALL_CLEANUP=1 \
-    HOMEBREW_BREW_GIT_REMOTE=https://mirrors.edge.kernel.org/homebrew/brew.git \
-    HOMEBREW_CORE_GIT_REMOTE=https://mirrors.edge.kernel.org/homebrew/homebrew-core.git \
-    BREW_GIT_REMOTE=https://mirrors.edge.kernel.org/homebrew/brew.git
+    HOMEBREW_BREW_GIT_REMOTES=${HOMEBREW_BREW_GIT_REMOTES} \
+    HOMEBREW_CORE_GIT_REMOTES=${HOMEBREW_CORE_GIT_REMOTES}
 
 WORKDIR /tmp
 
@@ -53,6 +55,42 @@ USER agent
 WORKDIR /home/agent
 RUN bash <<'EOF'
 set -euo pipefail
+
+DEFAULT_BREW_REMOTE="https://github.com/Homebrew/brew.git"
+DEFAULT_CORE_REMOTE="https://github.com/Homebrew/homebrew-core.git"
+
+choose_remote() {
+  local fallback="$1"
+  local raw="$2"
+  local normalized remote
+  if [ -n "$raw" ]; then
+    normalized=$(printf '%s\n' "$raw" | tr ',;' '\n')
+    while IFS= read -r remote; do
+      remote=$(printf '%s' "$remote" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [ -z "$remote" ]; then
+        continue
+      fi
+      if git ls-remote "$remote" HEAD >/dev/null 2>&1; then
+        printf '%s\n' "$remote"
+        return 0
+      else
+        echo "Skipping unreachable Homebrew remote: $remote" >&2
+      fi
+    done <<<"$normalized"
+  fi
+  if git ls-remote "$fallback" HEAD >/dev/null 2>&1; then
+    printf '%s\n' "$fallback"
+    return 0
+  fi
+  echo "Fallback Homebrew remote $fallback is unreachable." >&2
+  return 1
+}
+
+BREW_REMOTE=$(choose_remote "$DEFAULT_BREW_REMOTE" "${HOMEBREW_BREW_GIT_REMOTES:-}")
+CORE_REMOTE=$(choose_remote "$DEFAULT_CORE_REMOTE" "${HOMEBREW_CORE_GIT_REMOTES:-}")
+export HOMEBREW_BREW_GIT_REMOTE="$BREW_REMOTE"
+export HOMEBREW_CORE_GIT_REMOTE="$CORE_REMOTE"
+
 curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/install-brew.sh
 /bin/bash /tmp/install-brew.sh
 rm /tmp/install-brew.sh
