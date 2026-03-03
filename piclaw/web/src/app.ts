@@ -992,14 +992,6 @@ function App() {
                 post: data,
                 turnId: currentTurnIdRef.current,
             };
-            const content = data?.data?.content;
-            if (typeof content === 'string' && content.startsWith('Model set to ')) {
-                const rest = content.slice('Model set to '.length).trim();
-                const modelToken = rest.split(/\s+/)[0];
-                if (modelToken && modelToken.includes('/')) {
-                    setActiveModel(modelToken);
-                }
-            }
         }
         if (!activeHashtag && !activeSearch && (eventType === 'new_post' || eventType === 'agent_response')) {
             setPosts(prev => {
@@ -1201,6 +1193,7 @@ function App() {
                     notificationsEnabled=${notificationsEnabled}
                     notificationPermission=${notificationPermission}
                     onToggleNotifications=${handleToggleNotifications}
+                    onModelChange=${setActiveModel}
                 />
                 <${ConnectionStatus} status=${connectionStatus} />
                 <${AgentRequestModal}

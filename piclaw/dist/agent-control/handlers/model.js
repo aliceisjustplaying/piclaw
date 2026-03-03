@@ -67,9 +67,13 @@ export async function handleModel(session, modelRegistry, command) {
     const thinkingNote = session.supportsThinking()
         ? ` Thinking level: ${session.thinkingLevel}.`
         : " Thinking is off for this model.";
+    const modelLabel = `${selected.provider}/${selected.id}`;
+    const thinkingLevel = session.thinkingLevel ?? null;
     return {
         status: "success",
-        message: `Model set to ${selected.provider}/${selected.id}.${thinkingNote}`,
+        message: `Model set to ${modelLabel}.${thinkingNote}`,
+        model_label: modelLabel,
+        thinking_level: thinkingLevel,
     };
 }
 export async function handleThinking(session, _modelRegistry, command) {
@@ -94,6 +98,7 @@ export async function handleThinking(session, _modelRegistry, command) {
         return {
             status: "success",
             message: lines.join("\n"),
+            thinking_level: session.thinkingLevel ?? null,
         };
     }
     if (!THINKING_LEVELS.includes(requestedRaw)) {
@@ -110,12 +115,14 @@ export async function handleThinking(session, _modelRegistry, command) {
         return {
             status: requestedRaw === "off" ? "success" : "error",
             message: "Current model does not support thinking levels. Thinking is off.",
+            thinking_level: session.thinkingLevel ?? null,
         };
     }
     const note = applied !== requestedRaw ? ` (requested ${requestedRaw})` : "";
     return {
         status: "success",
         message: `Thinking level set to ${applied}${note}.`,
+        thinking_level: applied ?? session.thinkingLevel ?? null,
     };
 }
 export async function handleCycleModel(session, _modelRegistry, command) {
@@ -126,9 +133,12 @@ export async function handleCycleModel(session, _modelRegistry, command) {
         }
         const label = `${result.model.provider}/${result.model.id}`;
         const scope = result.isScoped ? "scoped" : "available";
+        const thinkingLevel = result.thinkingLevel ?? null;
         return {
             status: "success",
             message: `Model set to ${label} (cycle: ${scope}). Thinking level: ${result.thinkingLevel}.`,
+            model_label: label,
+            thinking_level: thinkingLevel,
         };
     }
     catch (err) {
@@ -139,7 +149,7 @@ export async function handleCycleModel(session, _modelRegistry, command) {
 export async function handleCycleThinking(session, _modelRegistry, _command) {
     const level = session.cycleThinkingLevel();
     if (!level) {
-        return { status: "error", message: "Current model does not support thinking levels." };
+        return { status: "error", message: "Current model does not support thinking levels.", thinking_level: session.thinkingLevel ?? null };
     }
-    return { status: "success", message: `Thinking level set to ${level}.` };
+    return { status: "success", message: `Thinking level set to ${level}.`, thinking_level: level };
 }

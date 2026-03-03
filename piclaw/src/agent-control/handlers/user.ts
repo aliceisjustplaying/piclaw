@@ -2,7 +2,6 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentControlCommand, AgentControlResult } from "../agent-control-types.js";
 import {
   USER_AVATAR,
-  USER_AVATAR_BACKGROUND,
   USER_NAME,
   setUserAvatar,
   setUserAvatarBackground,

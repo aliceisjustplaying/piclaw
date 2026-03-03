@@ -182,4 +182,6 @@ export interface AgentControlResult {
   message: string;
   messages?: Array<{ role: string; text: string; customType?: string }>;
   queued_followup?: boolean;
+  model_label?: string | null;
+  thinking_level?: string | null;
 }

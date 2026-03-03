@@ -115,7 +115,13 @@ export class AgentPool {
     async applyControlCommand(chatJid, command) {
         const session = await this.getOrCreate(chatJid);
         const channel = detectChannel(chatJid);
-        return withChatContext(chatJid, channel, () => applyControlCommand(session, this.modelRegistry, command));
+        const result = await withChatContext(chatJid, channel, () => applyControlCommand(session, this.modelRegistry, command));
+        const shouldPersistModel = result.status === "success"
+            && (command.type === "cycle_model" || (command.type === "model" && (command.modelId || command.provider)));
+        if (shouldPersistModel) {
+            this.persistDefaultModel(session);
+        }
+        return result;
     }
     async getCurrentModelLabel(chatJid) {
         const session = await this.getOrCreate(chatJid);
@@ -205,6 +211,7 @@ export class AgentPool {
         if (this.createSession) {
             const session = await this.createSession(chatJid, chatSessionDir);
             this.pool.set(chatJid, { session, lastUsed: Date.now() });
+            await this.applyDefaultModel(session);
             await this.bindSession(session, chatJid);
             console.log(`[agent-pool] Session ready for ${chatJid} (pool size: ${this.pool.size})`);
             return session;
@@ -222,9 +229,37 @@ export class AgentPool {
             tools,
         });
         this.pool.set(chatJid, { session, lastUsed: Date.now() });
+        await this.applyDefaultModel(session);
         await this.bindSession(session, chatJid);
         console.log(`[agent-pool] Session ready for ${chatJid} (pool size: ${this.pool.size})`);
         return session;
+    }
+    async applyDefaultModel(session) {
+        const provider = this.settingsManager.getDefaultProvider();
+        const modelId = this.settingsManager.getDefaultModel();
+        if (!provider || !modelId)
+            return;
+        const current = session.model;
+        if (current && current.provider === provider && current.id === modelId)
+            return;
+        const resolved = this.modelRegistry.find(provider, modelId);
+        if (!resolved)
+            return;
+        const setModel = session.setModel;
+        if (typeof setModel !== "function")
+            return;
+        try {
+            await setModel.call(session, resolved);
+        }
+        catch (err) {
+            console.warn(`[agent-pool] Failed to restore model ${provider}/${modelId}:`, err);
+        }
+    }
+    persistDefaultModel(session) {
+        const model = session.model;
+        if (!model)
+            return;
+        this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
     }
     createTurnTracker(chatJid, onTurnComplete) {
         let currentTurnText = "";

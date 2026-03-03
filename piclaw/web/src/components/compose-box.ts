@@ -19,6 +19,7 @@ export function ComposeBox({
     notificationsEnabled = false,
     notificationPermission = 'default',
     onToggleNotifications,
+    onModelChange,
 }) {
     const [content, setContent] = useState('');
     const [searchText, setSearchText] = useState('');
@@ -79,7 +80,10 @@ export function ComposeBox({
             const message = [baseContent, fileBlock].filter(Boolean).join('\n\n');
 
             // Send to agent by default
-            await sendAgentMessage('default', message, null, mediaIds);
+            const response = await sendAgentMessage('default', message, null, mediaIds);
+            if (response?.command?.model_label && typeof onModelChange === 'function') {
+                onModelChange(response.command.model_label);
+            }
 
             setContent('');
             setMediaFiles([]);
