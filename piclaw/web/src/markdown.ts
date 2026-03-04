@@ -162,12 +162,12 @@ function renderMath(html_content) {
 
     const stripCodeBlocks = (html) => {
         const blocks = [];
-        let output = html.replace(/<pre><code>[\s\S]*?<\/code><\/pre>/g, (match) => {
+        let output = html.replace(/<pre\b[^>]*>\s*<code\b[^>]*>[\s\S]*?<\/code>\s*<\/pre>/gi, (match) => {
             const idx = blocks.length;
             blocks.push(match);
             return `@@CODE_BLOCK_${idx}@@`;
         });
-        output = output.replace(/<code>[\s\S]*?<\/code>/g, (match) => {
+        output = output.replace(/<code\b[^>]*>[\s\S]*?<\/code>/gi, (match) => {
             const idx = blocks.length;
             blocks.push(match);
             return `@@CODE_INLINE_${idx}@@`;
