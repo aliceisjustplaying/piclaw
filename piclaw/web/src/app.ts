@@ -187,10 +187,6 @@ function App() {
         notificationsEnabledRef.current = notificationsEnabled;
     }, [notificationsEnabled]);
 
-    useEffect(() => () => {
-        clearLastActivityTimer();
-    }, [clearLastActivityTimer]);
-
     useEffect(() => {
         if (typeof window === 'undefined') return;
         localStorage.setItem('workspaceOpen', String(workspaceOpen));
@@ -259,6 +255,12 @@ function App() {
         }
         lastActivityTokenRef.current = 0;
     }, []);
+
+    // Cleanup: cancel any pending last-activity timer on unmount.
+    // Placed after clearLastActivityTimer definition to avoid TDZ errors.
+    useEffect(() => () => {
+        clearLastActivityTimer();
+    }, [clearLastActivityTimer]);
 
     const clearLastActivityFlag = useCallback(() => {
         clearLastActivityTimer();

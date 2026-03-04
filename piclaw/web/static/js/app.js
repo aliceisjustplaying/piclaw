@@ -187,10 +187,6 @@ function App() {
         notificationsEnabledRef.current = notificationsEnabled;
     }, [notificationsEnabled]);
 
-    useEffect(() => () => {
-        clearLastActivityTimer();
-    }, [clearLastActivityTimer]);
-
     useEffect(() => {
         if (typeof window === 'undefined') return;
         localStorage.setItem('workspaceOpen', String(workspaceOpen));
@@ -259,6 +255,10 @@ function App() {
         }
         lastActivityTokenRef.current = 0;
     }, []);
+
+    useEffect(() => () => {
+        clearLastActivityTimer();
+    }, [clearLastActivityTimer]);
 
     const clearLastActivityFlag = useCallback(() => {
         clearLastActivityTimer();
