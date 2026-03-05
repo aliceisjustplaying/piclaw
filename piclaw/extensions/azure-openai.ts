@@ -20,9 +20,9 @@ import {
   convertResponsesMessages,
   convertResponsesTools,
   processResponsesStream,
-} from "../node_modules/@mariozechner/pi-ai/dist/providers/openai-responses-shared.js";
-import { streamSimpleOpenAICompletions } from "@mariozechner/pi-ai";
-import { buildBaseOptions, clampReasoning } from "../node_modules/@mariozechner/pi-ai/dist/providers/simple-options.js";
+} from "@mariozechner/pi-ai/dist/providers/openai-responses-shared.js";
+import { streamSimpleOpenAICompletions } from "@mariozechner/pi-ai/dist/providers/openai-completions.js";
+import { buildBaseOptions, clampReasoning } from "@mariozechner/pi-ai/dist/providers/simple-options.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
