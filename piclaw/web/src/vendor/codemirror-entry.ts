@@ -12,7 +12,7 @@ export { yaml } from "@codemirror/lang-yaml";
 export { sql } from "@codemirror/lang-sql";
 export { xml } from "@codemirror/lang-xml";
 export { StreamLanguage, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-export { tags } from "@lezer/highlight";
+export { tags, classHighlighter } from "@lezer/highlight";
 export { shell } from "@codemirror/legacy-modes/mode/shell";
 export { indentWithTab } from "@codemirror/commands";
 export { search, openSearchPanel, closeSearchPanel, searchKeymap } from "@codemirror/search";
