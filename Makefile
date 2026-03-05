@@ -4,7 +4,7 @@
 #   vendor         – Bundle vendored CodeMirror (minified ESM).
 #   build-web      – Copy web frontend TS sources to static/js/.
 #   build-ts       – Compile TypeScript to dist/.
-#   build-piclaw   – Full build: vendor + build-web + build-ts.
+#   build-piclaw   – Full build: build-web (vendor + copy) + build-ts.
 #   pack           – Pack piclaw into a .tgz (depends on build-piclaw).
 #   local-install  – Pack, install globally, and restart (full cycle).
 #   lint/test      – Run ESLint and bun test suite.
@@ -48,18 +48,16 @@ build: ## Build Docker image
 # ── Build pipeline ───────────────────────────────────────────────────
 
 vendor: ## Bundle vendored CodeMirror (minified ESM)
-	cd piclaw && bun build web/src/vendor/codemirror-entry.ts \
-		--target=browser --format=esm --minify \
-		--outfile web/static/js/vendor/codemirror.js
+	cd piclaw && bun run build:vendor
 	@ls -lh piclaw/web/static/js/vendor/codemirror.js
 
-build-web: ## Copy web TS sources to static/js/
+build-web: ## Copy web TS sources to static/js/ (includes vendor bundle)
 	cd piclaw && bun run build:web
 
 build-ts: ## Compile TypeScript to dist/
 	cd piclaw && bun run build
 
-build-piclaw: vendor build-web build-ts ## Full build: vendor + web + ts
+build-piclaw: build-web build-ts ## Full build: vendor + web + ts
 
 # ── Pack & install ───────────────────────────────────────────────────
 
