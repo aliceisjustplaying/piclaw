@@ -259,7 +259,6 @@ describe("streamErrorDetail scoping", () => {
     let caught: any;
     try {
       // Simulates the buggy code structure
-      // eslint-disable-next-line no-eval
       eval(`
         (function() {
           try {
@@ -281,34 +280,31 @@ describe("streamErrorDetail scoping", () => {
   });
 
   test("variable declared before try block is accessible in catch (demonstrates the fix)", () => {
-    let errorMessage = "";
-    // Simulates the fixed code structure
-    let streamErrorDetail = "";
-    try {
-      throw new Error("400 missing reasoning item");
-    } catch (error) {
-      const rawMsg = error instanceof Error ? error.message : String(error);
-      errorMessage = streamErrorDetail || rawMsg;
+    // Simulates the fixed code structure: streamErrorDetail is "" so rawMsg is used
+    function resolveError(detail: string): string {
+      try {
+        throw new Error("400 missing reasoning item");
+      } catch (error) {
+        const rawMsg = error instanceof Error ? error.message : String(error);
+        return detail || rawMsg;
+      }
     }
-    // streamErrorDetail is "" so it falls through to the raw error message
-    expect(errorMessage).toBe("400 missing reasoning item");
+    expect(resolveError("")).toBe("400 missing reasoning item");
   });
 
   test("streamErrorDetail captures detail when stream fails before throw", () => {
-    let errorMessage = "";
-    let streamErrorDetail = "";
-
     // Simulates: stream event sets detail, then processResponsesStream throws
-    streamErrorDetail = "invalid_request_error: missing reasoning item";
-
-    try {
-      throw new Error("Unknown error");
-    } catch (error) {
-      const rawMsg = error instanceof Error ? error.message : String(error);
-      errorMessage = streamErrorDetail || rawMsg;
+    function resolveError(detail: string): string {
+      try {
+        throw new Error("Unknown error");
+      } catch (error) {
+        const rawMsg = error instanceof Error ? error.message : String(error);
+        return detail || rawMsg;
+      }
     }
     // streamErrorDetail takes priority over the generic error
-    expect(errorMessage).toBe("invalid_request_error: missing reasoning item");
+    expect(resolveError("invalid_request_error: missing reasoning item"))
+      .toBe("invalid_request_error: missing reasoning item");
   });
 });
 
