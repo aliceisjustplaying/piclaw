@@ -297,7 +297,10 @@ export async function processChat(
   });
 
   if (output.status === "error") {
-    channel.state.lastAgentTimestamp[chatJid] = prevCursor;
+    // Keep lastAgentTimestamp advanced past the failed message — do NOT roll
+    // it back to prevCursor. Rolling back causes the failed user turn to be
+    // re-processed on every reload or model switch, creating an infinite loop.
+    // The failedRun record preserves the failure details for diagnostics.
     channel.state.clearPendingResume(chatJid);
 
     if (output.error && output.error.includes("already processing")) {
