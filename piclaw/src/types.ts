@@ -63,6 +63,14 @@ export interface ScheduledTask {
   prompt: string;
   /** Optional model override for this task's agent session. */
   model?: string | null;
+  /** Task kind: agent prompt or shell command. */
+  task_kind?: "agent" | "shell";
+  /** Shell command to execute (for task_kind === "shell"). */
+  command?: string | null;
+  /** Working directory for shell command execution. */
+  cwd?: string | null;
+  /** Optional timeout (seconds) for shell commands. */
+  timeout_sec?: number | null;
   /** How the task recurs: cron expression, fixed interval, or one-shot. */
   schedule_type: "cron" | "interval" | "once";
   /** The cron expression, interval duration, or ISO date for one-shot tasks. */

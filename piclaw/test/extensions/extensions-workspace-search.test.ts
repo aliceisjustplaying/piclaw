@@ -140,4 +140,38 @@ describe("workspace-search extension", () => {
     expect(second.details.count).toBe(1);
     expect(second.content[0].text).toContain("notes/big.md");
   });
+
+  test("paginates results with offset", async () => {
+    const notesDir = path.join(ws.workspace, "notes");
+    await fs.mkdir(notesDir, { recursive: true });
+    await fs.writeFile(path.join(notesDir, "first.md"), "kittens kittens kittens kittens kittens");
+    await fs.writeFile(path.join(notesDir, "second.md"), "kittens kittens kittens");
+    await fs.writeFile(path.join(notesDir, "third.md"), "kittens");
+
+    const tool = await getSearchTool();
+    const first = await executeWithContext(tool, { query: "kittens", refresh: true, limit: 1, offset: 0 });
+    const second = await executeWithContext(tool, { query: "kittens", refresh: false, limit: 1, offset: 1 });
+
+    expect(first.details.count).toBe(1);
+    expect(second.details.count).toBe(1);
+    expect(second.details.results[0].path).not.toBe(first.details.results[0].path);
+  });
+
+  test("refresh indexes large file sets", async () => {
+    const notesDir = path.join(ws.workspace, "notes");
+    await fs.mkdir(notesDir, { recursive: true });
+
+    const tool = await getSearchTool();
+    await fs.writeFile(path.join(notesDir, "seed.md"), "kittens seed");
+    await executeWithContext(tool, { query: "kittens", refresh: true });
+
+    const files = Array.from({ length: 60 }, (_, i) => `file-${i}.md`);
+    await Promise.all(
+      files.map((file, i) => fs.writeFile(path.join(notesDir, file), `kittens batch ${i}`))
+    );
+
+    const result = await executeWithContext(tool, { query: "batch", refresh: true, limit: 50 });
+    expect(result.details.count).toBe(50);
+    expect(result.content[0].text).toContain("notes/file-");
+  });
 });

@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../../helpers.js";
 
 import { ResponseService } from "../../../src/channels/web/http/response-service.js";
 

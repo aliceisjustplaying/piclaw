@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
+import "../helpers.js";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { Model } from "@mariozechner/pi-ai";
 import { modelControl } from "../../src/extensions/model-control.js";
@@ -174,6 +175,14 @@ describe("model-control extension", () => {
     expect(result.details.available_thinking_levels).toEqual(["off"]);
   });
 
+  test("get_model_state handles missing context usage", async () => {
+    fake.setCurrentModel(makeModel());
+    const ctx = fake.makeCtx({ getContextUsage: () => undefined } as any);
+    const result = await callTool(fake.tools, "get_model_state", {}, ctx);
+    expect(result.content[0].text).toContain("Context: unknown");
+    expect(result.details.context_tokens).toBeNull();
+  });
+
   test("get_model_state with reasoning model", async () => {
     fake.setCurrentModel(makeReasoningModel());
     fake.setThinkingLevel("high");
@@ -193,6 +202,23 @@ describe("model-control extension", () => {
     expect(result.content[0].text).toContain("Available models:");
     expect(result.details.total).toBeGreaterThan(0);
     expect(result.details.models.length).toBeGreaterThan(0);
+  });
+
+  test("list_models skips malformed entries", async () => {
+    const badModel = makeModel({ provider: "", id: "" });
+    const ctx = fake.makeCtx({
+      modelRegistry: {
+        refresh: () => {},
+        getAvailable: () => [makeModel(), badModel],
+        getAll: () => [makeModel(), badModel],
+        getApiKey: async () => "key",
+        getApiKeyForProvider: async () => "key",
+      } as any,
+    } as any);
+
+    const result = await callTool(fake.tools, "list_models", {}, ctx);
+    expect(result.details.models.length).toBe(1);
+    expect(result.details.models[0].label).toBe("test-provider/test-model");
   });
 
   test("list_models filters by query", async () => {

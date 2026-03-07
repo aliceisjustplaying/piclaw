@@ -92,6 +92,26 @@ test("attach_file tool stores media and registers attachment", async () => {
   expect(media?.metadata?.kind).toBe("file");
 });
 
+test("attach_file reports missing file", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+  });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  const { fileAttachments } = await import("../../src/extensions/file-attachments.js");
+  const fake = makeFakeApi();
+  fileAttachments(fake.api);
+
+  const tool = fake.tools.get("attach_file");
+  const result = await withChatContext("web:default", "web", () => tool.execute("call", { path: "missing.txt" }));
+  expect(result.content[0].text).toContain("File not found");
+});
+
 test("web processChat stores attachment content blocks", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
@@ -179,6 +199,50 @@ test("read_attachment tool returns text content", async () => {
   const result = await tool.execute("call", { id: mediaId, mode: "text" });
   const text = result.content?.[0]?.text || "";
   expect(text).toContain("hello world");
+});
+
+test("read_attachment respects max_bytes boundary", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  const data = new TextEncoder().encode("hello");
+  const mediaId = db.createMedia("note.txt", "text/plain", data, null, { size: data.length });
+
+  const { fileAttachments } = await import("../../src/extensions/file-attachments.js");
+  const fake = makeFakeApi();
+  fileAttachments(fake.api);
+
+  const tool = fake.tools.get("read_attachment");
+  const full = await tool.execute("call", { id: mediaId, mode: "text", max_bytes: 5 });
+  expect(full.details?.truncated).toBe(false);
+
+  const truncated = await tool.execute("call", { id: mediaId, mode: "text", max_bytes: 4 });
+  expect(truncated.details?.truncated).toBe(true);
+  expect(truncated.content?.[0]?.text || "").toContain("truncated");
+});
+
+test("read_attachment returns base64 for binary content", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  const data = new Uint8Array([0, 1, 2, 3]);
+  const mediaId = db.createMedia("blob.bin", "application/octet-stream", data, null, { size: data.length });
+
+  const { fileAttachments } = await import("../../src/extensions/file-attachments.js");
+  const fake = makeFakeApi();
+  fileAttachments(fake.api);
+
+  const tool = fake.tools.get("read_attachment");
+  const result = await tool.execute("call", { id: mediaId, mode: "base64", max_bytes: 4 });
+  const expected = Buffer.from(data).toString("base64");
+  expect(result.details?.mode).toBe("base64");
+  expect(result.content?.[0]?.text || "").toContain(expected);
 });
 
 test("export_attachment tool writes to workspace tmp", async () => {

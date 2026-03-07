@@ -7,6 +7,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../../helpers.js";
 import { getDisplayContent } from "../../../web/src/components/post.ts";
 
 test("getDisplayContent keeps URL text when previews are present", () => {

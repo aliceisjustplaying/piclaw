@@ -26,6 +26,14 @@ const SearchMessagesSchema = Type.Object({
       description: "Chat JID to search. Use 'all' or '*' to search across chats. Defaults to current chat.",
     }),
   ),
+  role: Type.Optional(
+    Type.Union([
+      Type.Literal("user"),
+      Type.Literal("assistant"),
+    ], {
+      description: "Filter by sender role (user or assistant).",
+    }),
+  ),
   limit: Type.Optional(Type.Integer({ description: "Max results (1-50).", minimum: 1, maximum: 50 })),
   offset: Type.Optional(Type.Integer({ description: "Offset for pagination.", minimum: 0 })),
   details_max_chars: Type.Optional(
@@ -104,6 +112,14 @@ function normalizeChatJid(input: string | undefined, defaultChat: string): strin
   return trimmed;
 }
 
+function normalizeRole(input: string | undefined): number | null {
+  if (!input) return null;
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed === "assistant" || trimmed === "bot") return 1;
+  if (trimmed === "user") return 0;
+  return null;
+}
+
 function formatRow(row: MessageRow): string {
   const role = row.is_bot_message ? "assistant" : "user";
   const sender = row.sender_name || row.sender || role;
@@ -117,15 +133,33 @@ function getDefaultChatJid(): string {
 
 // ── DB queries ────────────────────────────────────────────
 
-function fetchByRowId(db: ReturnType<typeof getDb>, rowId: number, chatJid: string | null): MessageRow | null {
+function fetchByRowId(
+  db: ReturnType<typeof getDb>,
+  rowId: number,
+  chatJid: string | null,
+  roleFilter: number | null
+): MessageRow | null {
   const cols = "rowid, chat_jid, sender, sender_name, content, timestamp, is_bot_message";
+  if (chatJid && roleFilter !== null) {
+    return (db.prepare(`SELECT ${cols} FROM messages WHERE rowid = ? AND chat_jid = ? AND is_bot_message = ?`).get(rowId, chatJid, roleFilter) as MessageRow | undefined) ?? null;
+  }
   if (chatJid) {
     return (db.prepare(`SELECT ${cols} FROM messages WHERE rowid = ? AND chat_jid = ?`).get(rowId, chatJid) as MessageRow | undefined) ?? null;
+  }
+  if (roleFilter !== null) {
+    return (db.prepare(`SELECT ${cols} FROM messages WHERE rowid = ? AND is_bot_message = ?`).get(rowId, roleFilter) as MessageRow | undefined) ?? null;
   }
   return (db.prepare(`SELECT ${cols} FROM messages WHERE rowid = ?`).get(rowId) as MessageRow | undefined) ?? null;
 }
 
-function searchMessages(db: ReturnType<typeof getDb>, query: string, chatJid: string | null, limit: number, offset: number): MessageRow[] {
+function searchMessages(
+  db: ReturnType<typeof getDb>,
+  query: string,
+  chatJid: string | null,
+  roleFilter: number | null,
+  limit: number,
+  offset: number
+): MessageRow[] {
   const trimmed = query.trim();
   if (!trimmed) return [];
 
@@ -134,8 +168,14 @@ function searchMessages(db: ReturnType<typeof getDb>, query: string, chatJid: st
     if (!tag) return [];
     const pattern = `%#${tag}%`;
     const cols = "rowid, chat_jid, sender, sender_name, content, timestamp, is_bot_message";
+    if (chatJid && roleFilter !== null) {
+      return db.prepare(`SELECT ${cols} FROM messages WHERE chat_jid = ? AND is_bot_message = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(chatJid, roleFilter, pattern, limit, offset) as MessageRow[];
+    }
     if (chatJid) {
       return db.prepare(`SELECT ${cols} FROM messages WHERE chat_jid = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(chatJid, pattern, limit, offset) as MessageRow[];
+    }
+    if (roleFilter !== null) {
+      return db.prepare(`SELECT ${cols} FROM messages WHERE is_bot_message = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(roleFilter, pattern, limit, offset) as MessageRow[];
     }
     return db.prepare(`SELECT ${cols} FROM messages WHERE content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(pattern, limit, offset) as MessageRow[];
   }
@@ -143,15 +183,27 @@ function searchMessages(db: ReturnType<typeof getDb>, query: string, chatJid: st
   try {
     const base = `SELECT messages.rowid, messages.chat_jid, messages.sender, messages.sender_name, messages.content, messages.timestamp, messages.is_bot_message
            FROM messages JOIN messages_fts ON messages_fts.rowid = messages.rowid`;
+    if (chatJid && roleFilter !== null) {
+      return db.prepare(`${base} WHERE messages.chat_jid = ? AND messages.is_bot_message = ? AND messages_fts MATCH ? ORDER BY messages.rowid DESC LIMIT ? OFFSET ?`).all(chatJid, roleFilter, trimmed, limit, offset) as MessageRow[];
+    }
     if (chatJid) {
       return db.prepare(`${base} WHERE messages.chat_jid = ? AND messages_fts MATCH ? ORDER BY messages.rowid DESC LIMIT ? OFFSET ?`).all(chatJid, trimmed, limit, offset) as MessageRow[];
+    }
+    if (roleFilter !== null) {
+      return db.prepare(`${base} WHERE messages.is_bot_message = ? AND messages_fts MATCH ? ORDER BY messages.rowid DESC LIMIT ? OFFSET ?`).all(roleFilter, trimmed, limit, offset) as MessageRow[];
     }
     return db.prepare(`${base} WHERE messages_fts MATCH ? ORDER BY messages.rowid DESC LIMIT ? OFFSET ?`).all(trimmed, limit, offset) as MessageRow[];
   } catch {
     const pattern = `%${trimmed}%`;
     const cols = "rowid, chat_jid, sender, sender_name, content, timestamp, is_bot_message";
+    if (chatJid && roleFilter !== null) {
+      return db.prepare(`SELECT ${cols} FROM messages WHERE chat_jid = ? AND is_bot_message = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(chatJid, roleFilter, pattern, limit, offset) as MessageRow[];
+    }
     if (chatJid) {
       return db.prepare(`SELECT ${cols} FROM messages WHERE chat_jid = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(chatJid, pattern, limit, offset) as MessageRow[];
+    }
+    if (roleFilter !== null) {
+      return db.prepare(`SELECT ${cols} FROM messages WHERE is_bot_message = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(roleFilter, pattern, limit, offset) as MessageRow[];
     }
     return db.prepare(`SELECT ${cols} FROM messages WHERE content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(pattern, limit, offset) as MessageRow[];
   }
@@ -170,12 +222,13 @@ async function execute(
   const limit = clampNumber(params.limit, 10, 1, 50);
   const offset = clampNumber(params.offset, 0, 0, 1000000);
   const chatJid = normalizeChatJid(params.chat_jid, getDefaultChatJid());
+  const roleFilter = normalizeRole(params.role);
   const detailsMaxChars = normalizeDetailsMax(params.details_max_chars);
 
   // Single row lookup
   if (Number.isFinite(params.row_id)) {
     const rowId = Number(params.row_id);
-    const row = fetchByRowId(db, rowId, chatJid);
+    const row = fetchByRowId(db, rowId, chatJid, roleFilter);
     if (!row) {
       return { content: [{ type: "text", text: `No message found for rowid ${rowId}.` }], details: { count: 0, results: [] } };
     }
@@ -192,7 +245,7 @@ async function execute(
     return { content: [{ type: "text", text: "Provide a query or row_id." }], details: { count: 0, results: [] } };
   }
 
-  const rows = searchMessages(db, query, chatJid, limit, offset);
+  const rows = searchMessages(db, query, chatJid, roleFilter, limit, offset);
   if (!rows.length) {
     return { content: [{ type: "text", text: "No matching messages found." }], details: { count: 0, results: [] } };
   }

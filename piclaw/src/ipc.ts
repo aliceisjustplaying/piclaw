@@ -24,6 +24,7 @@ import { CronExpressionParser } from "cron-parser";
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from "./core/config.js";
 import { createTask, deleteTask, getTaskById, updateTask } from "./db.js";
 import { createUuid } from "./utils/ids.js";
+import { validateShellCommand, validateShellCwd } from "./utils/task-validation.js";
 
 /**
  * Dependency injection interface for IPC handlers.
@@ -111,7 +112,8 @@ async function processTaskCommand(data: Record<string, any>, deps: IpcDeps): Pro
   switch (data.type) {
     // --- Create a new scheduled task ---
     case "schedule_task": {
-      if (!data.prompt || !data.schedule_type || !data.schedule_value || !data.chatJid) return;
+      if (!data.schedule_type || !data.schedule_value || !data.chatJid) return;
+      const taskKind = data.task_kind === "shell" || data.command ? "shell" : "agent";
       let nextRun: string | null = null;
       if (data.schedule_type === "cron") {
         try { nextRun = CronExpressionParser.parse(data.schedule_value, { tz: TIMEZONE }).next().toISOString(); } catch { return; }
@@ -124,6 +126,42 @@ async function processTaskCommand(data: Record<string, any>, deps: IpcDeps): Pro
         if (isNaN(d.getTime())) return;
         nextRun = d.toISOString();
       }
+
+      if (taskKind === "shell") {
+        const validated = validateShellCommand(data.command);
+        if (!validated.ok) {
+          await deps.sendMessage(data.chatJid, `Cannot schedule shell task: ${validated.error || "Invalid command."}`);
+          return;
+        }
+        const cwdResult = validateShellCwd(data.cwd);
+        if (!cwdResult.ok) {
+          await deps.sendMessage(data.chatJid, `Cannot schedule shell task: ${cwdResult.error || "Invalid cwd."}`);
+          return;
+        }
+        if (data.model) {
+          await deps.sendMessage(data.chatJid, "Cannot schedule shell task with a model override.");
+          return;
+        }
+
+        createTask({
+          id: createUuid("task"),
+          chat_jid: data.chatJid,
+          prompt: validated.command || "",
+          model: null,
+          task_kind: "shell",
+          command: validated.command || null,
+          cwd: cwdResult.cwd,
+          timeout_sec: Number.isFinite(data.timeout_sec) ? Number(data.timeout_sec) : null,
+          schedule_type: data.schedule_type,
+          schedule_value: data.schedule_value,
+          next_run: nextRun,
+          status: "active",
+          created_at: new Date().toISOString(),
+        });
+        break;
+      }
+
+      if (!data.prompt || typeof data.prompt !== "string" || !data.prompt.trim()) return;
 
       // Validate the model override if one was requested.
       const requested = typeof data.model === "string" && data.model.trim() ? data.model.trim() : null;
@@ -146,6 +184,10 @@ async function processTaskCommand(data: Record<string, any>, deps: IpcDeps): Pro
         chat_jid: data.chatJid,
         prompt: data.prompt,
         model,
+        task_kind: "agent",
+        command: null,
+        cwd: null,
+        timeout_sec: null,
         schedule_type: data.schedule_type,
         schedule_value: data.schedule_value,
         next_run: nextRun,
@@ -181,6 +223,10 @@ async function processTaskCommand(data: Record<string, any>, deps: IpcDeps): Pro
       if (typeof data.prompt === "string") updates.prompt = data.prompt;
       if (typeof data.schedule_type === "string") updates.schedule_type = data.schedule_type;
       if (typeof data.schedule_value === "string") updates.schedule_value = data.schedule_value;
+      if (typeof data.task_kind === "string") updates.task_kind = data.task_kind;
+      if (typeof data.command === "string") updates.command = data.command;
+      if (typeof data.cwd === "string") updates.cwd = data.cwd;
+      if (Number.isFinite(data.timeout_sec)) updates.timeout_sec = Number(data.timeout_sec);
       if (typeof data.model === "string") {
         if (data.model === "") {
           updates.model = null;
@@ -195,6 +241,33 @@ async function processTaskCommand(data: Record<string, any>, deps: IpcDeps): Pro
           updates.model = data.model.trim();
         }
       }
+
+      // Validate shell command changes if applicable
+      const kind = updates.task_kind ?? t.task_kind ?? (t.command ? "shell" : "agent");
+      if (kind === "shell") {
+        if (updates.command !== undefined) {
+          const validated = validateShellCommand(updates.command);
+          if (!validated.ok) {
+            if (data.chatJid) await deps.sendMessage(data.chatJid, `Cannot update task: ${validated.error || "Invalid command."}`);
+            return;
+          }
+          updates.command = validated.command;
+          updates.prompt = validated.command;
+        }
+        if (updates.cwd !== undefined) {
+          const cwdResult = validateShellCwd(updates.cwd);
+          if (!cwdResult.ok) {
+            if (data.chatJid) await deps.sendMessage(data.chatJid, `Cannot update task: ${cwdResult.error || "Invalid cwd."}`);
+            return;
+          }
+          updates.cwd = cwdResult.cwd;
+        }
+        if (updates.model !== undefined && updates.model) {
+          if (data.chatJid) await deps.sendMessage(data.chatJid, "Cannot set model override on shell tasks.");
+          return;
+        }
+      }
+
       // Recalculate next_run if schedule changed.
       if (updates.schedule_type || updates.schedule_value) {
         const sType = updates.schedule_type || t.schedule_type;

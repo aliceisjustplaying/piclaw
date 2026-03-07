@@ -7,6 +7,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../helpers.js";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { applyControlCommand, parseControlCommand } from "../../src/agent-control/index.js";
 

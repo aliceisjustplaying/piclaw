@@ -32,7 +32,8 @@ const TOOL_HINT = [
 // ---------------------------------------------------------------------------
 
 function modelLabel(model: Model<any> | null | undefined): string | null {
-  return model ? `${model.provider}/${model.id}` : null;
+  if (!model?.provider || !model?.id) return null;
+  return `${model.provider}/${model.id}`;
 }
 
 function getAvailableLevels(model: Model<any> | undefined): ThinkingLevel[] {
@@ -110,6 +111,7 @@ export const modelControl: ExtensionFactory = (pi: ExtensionAPI) => {
       ctx.modelRegistry.refresh();
       const seen = new Map<string, Model<any>>();
       for (const m of ctx.modelRegistry.getAvailable()) {
+        if (!m?.provider || !m?.id) continue;
         const key = `${m.provider}/${m.id}`;
         if (!seen.has(key)) seen.set(key, m);
       }

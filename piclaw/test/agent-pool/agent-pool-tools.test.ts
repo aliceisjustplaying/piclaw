@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import "../helpers.js";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { builtinExtensionFactories } from "../../src/extensions/index.js";
 

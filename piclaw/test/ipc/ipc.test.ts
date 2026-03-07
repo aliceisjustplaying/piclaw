@@ -82,7 +82,7 @@ test("IPC message sends to web chat and removes file", async () => {
   expect(readdirSync(messagesDir).length).toBe(0);
 });
 
-test("IPC schedule_task creates a due task", async () => {
+test("IPC schedule_task creates a due agent task", async () => {
   const tasksDir = join(config.DATA_DIR, "ipc", "tasks");
   mkdirSync(tasksDir, { recursive: true });
   const filePath = join(tasksDir, `task_${Date.now()}.json`);
@@ -101,6 +101,49 @@ test("IPC schedule_task creates a due task", async () => {
 
   const due = db.getDueTasks();
   expect(due.length).toBeGreaterThan(0);
+  expect(due[0].task_kind ?? "agent").toBe("agent");
+});
+
+test("IPC schedule_task creates a due shell task", async () => {
+  const tasksDir = join(config.DATA_DIR, "ipc", "tasks");
+  mkdirSync(tasksDir, { recursive: true });
+  const filePath = join(tasksDir, `task_shell_${Date.now()}.json`);
+  writeFileSync(
+    filePath,
+    JSON.stringify({
+      type: "schedule_task",
+      chatJid: "web:default",
+      task_kind: "shell",
+      command: "echo hi",
+      schedule_type: "once",
+      schedule_value: "2020-01-01T00:00:00.000Z",
+    })
+  );
+
+  await waitFor(() => db.getDueTasks().some((t) => t.task_kind === "shell"));
+
+  const due = db.getDueTasks().find((t) => t.task_kind === "shell");
+  expect(due?.command).toBe("echo hi");
+});
+
+test("IPC schedule_task rejects unsafe shell command", async () => {
+  const tasksDir = join(config.DATA_DIR, "ipc", "tasks");
+  mkdirSync(tasksDir, { recursive: true });
+  const filePath = join(tasksDir, `task_shell_bad_${Date.now()}.json`);
+  writeFileSync(
+    filePath,
+    JSON.stringify({
+      type: "schedule_task",
+      chatJid: "web:default",
+      task_kind: "shell",
+      command: "rm -rf /",
+      schedule_type: "once",
+      schedule_value: "2020-01-01T00:00:00.000Z",
+    })
+  );
+
+  await waitFor(() => sentMessages.length > 0);
+  expect(sentMessages[0].text).toContain("Cannot schedule shell task");
 });
 
 test("IPC resume_pending triggers resumePending handler", async () => {

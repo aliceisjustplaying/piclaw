@@ -139,7 +139,9 @@ export function getToolOutput(handle: string): ToolOutputRecord | undefined {
 
 /** Search the FTS index for a tool output, returning snippet strings. */
 export function searchToolOutput(handle: string, query: string, limit = 5): string[] {
-  return searchToolOutputSnippets(handle, query, limit);
+  const trimmed = query?.trim?.() ?? "";
+  if (!trimmed) return [];
+  return searchToolOutputSnippets(handle, trimmed, limit);
 }
 
 /**

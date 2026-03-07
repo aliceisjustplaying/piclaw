@@ -6,43 +6,21 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync } from "fs";
-import { join } from "path";
-import Database from "bun:sqlite";
+import "../helpers.js";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { scheduledTasks } from "../../src/extensions/scheduled-tasks.js";
+import { createTask, getDb, initDatabase } from "../../src/db.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(import.meta.dir, ".tmp-scheduled-tasks-test");
-const DB_PATH = join(TEST_DIR, "messages.db");
-
-function setupDb() {
-  mkdirSync(TEST_DIR, { recursive: true });
-  const db = new Database(DB_PATH);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS scheduled_tasks (
-      id TEXT PRIMARY KEY,
-      chat_jid TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      model TEXT,
-      schedule_type TEXT NOT NULL,
-      schedule_value TEXT NOT NULL,
-      next_run TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
-  return db;
-}
-
-function insertTask(db: Database, overrides: Record<string, string> = {}) {
+function insertTask(overrides: Record<string, any> = {}) {
   const defaults = {
     id: `task-${Date.now()}`,
     chat_jid: "test@chat",
     prompt: "Do something",
+    model: null,
     schedule_type: "cron",
     schedule_value: "0 9 * * *",
     next_run: "2026-03-01T09:00:00Z",
@@ -50,11 +28,7 @@ function insertTask(db: Database, overrides: Record<string, string> = {}) {
     created_at: new Date().toISOString(),
   };
   const row = { ...defaults, ...overrides };
-  db.run(
-    `INSERT INTO scheduled_tasks (id, chat_jid, prompt, schedule_type, schedule_value, next_run, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [row.id, row.chat_jid, row.prompt, row.schedule_type, row.schedule_value, row.next_run, row.status, row.created_at],
-  );
+  createTask(row);
   return row;
 }
 
@@ -62,11 +36,14 @@ type CommandEntry = { name: string; handler: (args: string) => Promise<void> };
 
 function createFakeApi() {
   const commands = new Map<string, CommandEntry>();
+  const tools = new Map<string, any>();
   const messages: Array<{ customType: string; content: string; display: boolean }> = [];
 
   const api: ExtensionAPI = {
     on() {},
-    registerTool() {},
+    registerTool(tool: any) {
+      tools.set(tool.name, tool);
+    },
     registerCommand(name: string, options: any) {
       commands.set(name, { name, handler: options.handler });
     },
@@ -92,7 +69,7 @@ function createFakeApi() {
     unregisterProvider() {},
   } as unknown as ExtensionAPI;
 
-  return { api, commands, messages };
+  return { api, commands, tools, messages };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,25 +77,29 @@ function createFakeApi() {
 // ---------------------------------------------------------------------------
 
 describe("scheduled-tasks extension", () => {
-  let db: Database;
   let fake: ReturnType<typeof createFakeApi>;
 
   beforeEach(() => {
-    process.env.PICLAW_STORE = TEST_DIR;
-    db = setupDb();
+    initDatabase();
     fake = createFakeApi();
     scheduledTasks(fake.api);
   });
 
   afterEach(() => {
-    db.close();
-    rmSync(TEST_DIR, { recursive: true, force: true });
-    delete process.env.PICLAW_STORE;
+    try {
+      getDb().close();
+    } catch {
+      // ignore
+    }
   });
 
   test("registers /tasks and /scheduled commands", () => {
     expect(fake.commands.has("tasks")).toBe(true);
     expect(fake.commands.has("scheduled")).toBe(true);
+  });
+
+  test("registers schedule_task tool", () => {
+    expect(fake.tools.has("schedule_task")).toBe(true);
   });
 
   test("/tasks lists all tasks when empty", async () => {
@@ -129,8 +110,8 @@ describe("scheduled-tasks extension", () => {
   });
 
   test("/tasks lists active tasks", async () => {
-    insertTask(db, { id: "t-1", status: "active", prompt: "Morning check" });
-    insertTask(db, { id: "t-2", status: "paused", prompt: "Paused job" });
+    insertTask({ id: "t-1", status: "active", prompt: "Morning check" });
+    insertTask({ id: "t-2", status: "paused", prompt: "Paused job" });
 
     await fake.commands.get("tasks")!.handler("active");
     expect(fake.messages.length).toBe(1);
@@ -141,9 +122,9 @@ describe("scheduled-tasks extension", () => {
   });
 
   test("/tasks all lists everything", async () => {
-    insertTask(db, { id: "t-a", status: "active" });
-    insertTask(db, { id: "t-p", status: "paused" });
-    insertTask(db, { id: "t-c", status: "completed" });
+    insertTask({ id: "t-a", status: "active" });
+    insertTask({ id: "t-p", status: "paused" });
+    insertTask({ id: "t-c", status: "completed" });
 
     await fake.commands.get("tasks")!.handler("all");
     expect(fake.messages[0].content).toContain("t-a");
@@ -160,7 +141,7 @@ describe("scheduled-tasks extension", () => {
   });
 
   test("/scheduled is an alias for /tasks", async () => {
-    insertTask(db, { id: "t-s", status: "active", prompt: "Scheduled thing" });
+    insertTask({ id: "t-s", status: "active", prompt: "Scheduled thing" });
 
     await fake.commands.get("scheduled")!.handler("");
     expect(fake.messages[0].content).toContain("t-s");
@@ -169,11 +150,28 @@ describe("scheduled-tasks extension", () => {
 
   test("truncates long prompts", async () => {
     const longPrompt = "A".repeat(200);
-    insertTask(db, { id: "t-long", prompt: longPrompt });
+    insertTask({ id: "t-long", prompt: longPrompt });
 
     await fake.commands.get("tasks")!.handler("");
     // Should be truncated (default 140 chars + ellipsis)
     expect(fake.messages[0].content).not.toContain(longPrompt);
     expect(fake.messages[0].content).toContain("…");
+  });
+
+  test("schedule_task tool creates shell task", async () => {
+    const tool = fake.tools.get("schedule_task");
+    expect(tool).toBeTruthy();
+
+    const res = await tool.execute("call-1", {
+      chat_jid: "test@chat",
+      task_kind: "shell",
+      command: "echo hi",
+      schedule_type: "once",
+      schedule_value: "2020-01-01T00:00:00.000Z",
+    });
+
+    expect(res.content?.[0]?.text).toContain("Scheduled shell task");
+    const tasks = getDb().query("SELECT * FROM scheduled_tasks WHERE task_kind = 'shell'").all() as any[];
+    expect(tasks.length).toBeGreaterThan(0);
   });
 });

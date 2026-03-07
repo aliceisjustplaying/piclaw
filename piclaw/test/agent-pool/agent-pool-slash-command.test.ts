@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../helpers.js";
 
 import { executeSlashCommand } from "../../src/agent-pool/slash-command.js";
 

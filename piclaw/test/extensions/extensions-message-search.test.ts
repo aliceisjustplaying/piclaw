@@ -235,4 +235,39 @@ describe("message-search extension", () => {
     const result = await executeWithContext(tool, "c1", { query: "foo(bar)" });
     expect(result.details.count).toBe(1);
   });
+
+  test("filters by role", async () => {
+    insertMessage("User says hello", { sender: "user" });
+    insertMessage("Assistant says hello", { sender: "assistant", is_bot_message: true, sender_name: "Pi" });
+
+    const tool = await getSearchTool();
+    const userOnly = await executeWithContext(tool, "c1", { query: "hello", role: "user" });
+    expect(userOnly.details.count).toBe(1);
+    expect(userOnly.details.results[0].is_bot_message).toBe(0);
+
+    const assistantOnly = await executeWithContext(tool, "c1", { query: "hello", role: "assistant" });
+    expect(assistantOnly.details.count).toBe(1);
+    expect(assistantOnly.details.results[0].is_bot_message).toBe(1);
+  });
+
+  test("chat_jid all includes assistant messages", async () => {
+    insertMessage("Local user message");
+
+    storeChatMetadata("web:other", new Date().toISOString(), "Web");
+    storeMessage({
+      id: `msg-other-${Math.random()}`,
+      chat_jid: "web:other",
+      sender: "assistant",
+      sender_name: "Pi",
+      content: "Assistant in other chat unique",
+      timestamp: new Date().toISOString(),
+      is_from_me: true,
+      is_bot_message: true,
+    });
+
+    const tool = await getSearchTool();
+    const result = await executeWithContext(tool, "c1", { query: "other chat unique", chat_jid: "all", role: "assistant" });
+    expect(result.details.count).toBe(1);
+    expect(result.details.results[0].chat_jid).toBe("web:other");
+  });
 });

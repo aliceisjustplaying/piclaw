@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../helpers.js";
 
 import { killTrackedProcesses, listTrackedProcesses, registerProcess, unregisterProcess } from "../../src/utils/process-tracker.js";
 

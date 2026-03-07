@@ -49,3 +49,57 @@ test("cli keychain set and delete", async () => {
 
   await expect(getKeychainEntry("cli/foo/bar")).rejects.toThrow("Keychain entry not found");
 });
+
+test("cli keychain list orders entries", async () => {
+  await handleCliOptions([
+    "keychain",
+    "set",
+    "cli/zeta",
+    "--secret",
+    "secret-z",
+  ]);
+  await handleCliOptions([
+    "keychain",
+    "set",
+    "cli/alpha",
+    "--secret",
+    "secret-a",
+  ]);
+
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: any[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+
+  try {
+    await handleCliOptions(["keychain", "list"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const output = logs[logs.length - 1] || "[]";
+  const entries = JSON.parse(output);
+  const names = entries.map((entry: any) => entry.name);
+  expect(names).toEqual(["cli/alpha", "cli/zeta"]);
+});
+
+test("cli keychain errors when disabled", async () => {
+  const restoreDisabled = setEnv({ PICLAW_KEYCHAIN_KEY: undefined, PICLAW_KEYCHAIN_KEY_FILE: undefined });
+
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: any[]) => {
+    errors.push(args.map(String).join(" "));
+  };
+
+  try {
+    const handled = await handleCliOptions(["keychain", "get", "cli/alpha"]);
+    expect(handled).toBe(true);
+  } finally {
+    console.error = originalError;
+    restoreDisabled();
+  }
+
+  expect(errors.some((line) => line.includes("Keychain is disabled"))).toBe(true);
+});

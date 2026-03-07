@@ -6,6 +6,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import "../../helpers.js";
 import { UiBridge } from "../../../src/channels/web/ui-bridge.js";
 import { bindSessionUiContext, createUiContext } from "../../../src/channels/web/ui-context.js";
 

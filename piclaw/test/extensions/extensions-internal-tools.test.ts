@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import "../helpers.js";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 function makeFakeApi(initialTools: Array<{ name: string; description?: string; parameters?: unknown }>) {

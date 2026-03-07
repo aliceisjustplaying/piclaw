@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../helpers.js";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -68,4 +69,55 @@ test("token chart outputs chart first and summary lines", () => {
   expect(yesterdayLine).toContain("650 tokens");
   expect(todayLine).toContain("cached 300");
   expect(yesterdayLine).toContain("cached 150");
+});
+
+test("token chart handles empty sessions directory", () => {
+  const sessionsDir = join(tmpdir(), `piclaw-sessions-empty-${Date.now()}`);
+  mkdirSync(sessionsDir, { recursive: true });
+
+  const proc = Bun.spawnSync([
+    "bun",
+    "/workspace/piclaw/scripts/token-chart.ts",
+    "--days",
+    "1",
+    "--sessions-dir",
+    sessionsDir,
+  ]);
+
+  const output = proc.stdout.toString();
+  expect(output).toContain("total 0");
+  expect(output).toContain("0 tokens");
+});
+
+test("token chart ignores malformed JSONL lines", () => {
+  const sessionsDir = join(tmpdir(), `piclaw-sessions-malformed-${Date.now()}`);
+  mkdirSync(sessionsDir, { recursive: true });
+
+  const now = new Date();
+  const entries = [
+    "{not-json}",
+    JSON.stringify({
+      type: "message",
+      timestamp: now.toISOString(),
+      message: {
+        role: "assistant",
+        usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
+        timestamp: Date.now(),
+      },
+    }),
+  ];
+
+  writeFileSync(join(sessionsDir, "session.jsonl"), entries.join("\n"));
+
+  const proc = Bun.spawnSync([
+    "bun",
+    "/workspace/piclaw/scripts/token-chart.ts",
+    "--days",
+    "1",
+    "--sessions-dir",
+    sessionsDir,
+  ]);
+
+  const output = proc.stdout.toString();
+  expect(output).toContain("150 tokens");
 });

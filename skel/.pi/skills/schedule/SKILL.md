@@ -24,6 +24,27 @@ cat > "$PICLAW_DATA/ipc/tasks/schedule_$(date +%s).json" <<EOF
 EOF
 ```
 
+### Shell command tasks
+
+Schedule a shell command instead of an agent prompt:
+
+```bash
+cat > "$PICLAW_DATA/ipc/tasks/schedule_$(date +%s).json" <<EOF
+{
+  "type": "schedule_task",
+  "chatJid": "$PICLAW_CHAT_JID",
+  "task_kind": "shell",
+  "command": "ls -la /workspace",
+  "cwd": ".",
+  "timeout_sec": 30,
+  "schedule_type": "interval",
+  "schedule_value": "3600000"
+}
+EOF
+```
+
+Shell commands are pre-validated (no newlines, no destructive patterns, cwd must be inside /workspace).
+
 `model` is optional. When provided, the scheduler validates the model before creating the task and switches the session model before running the prompt. After the task completes, the original model is restored. If the model name is ambiguous, use `provider/modelId`.
 
 ## Session Isolation

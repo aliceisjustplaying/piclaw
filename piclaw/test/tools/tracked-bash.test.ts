@@ -40,6 +40,24 @@ test("tracked bash rejects missing working directory", async () => {
   expect(error?.message).toContain("Working directory does not exist");
 });
 
+test("tracked bash times out and cancels", async () => {
+  const ws = getTestWorkspace();
+  const ops = createTrackedBashOperations();
+  let error: Error | null = null;
+  const start = Date.now();
+
+  try {
+    await ops.exec("sleep 2", ws.workspace, { onData: () => {}, timeout: 0.1 });
+  } catch (err) {
+    error = err as Error;
+  }
+
+  const duration = Date.now() - start;
+  expect(error).not.toBeNull();
+  expect(error?.message).toContain("timeout");
+  expect(duration).toBeLessThan(1000);
+});
+
 test("tracked bash resolves keychain env", async () => {
   const ws = getTestWorkspace();
   const restore = setEnv({ PICLAW_KEYCHAIN_KEY: "test-key" });

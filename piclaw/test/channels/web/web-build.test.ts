@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../../helpers.js";
 import { existsSync } from "fs";
 import { join } from "path";
 

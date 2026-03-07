@@ -54,6 +54,9 @@ const shared = getTestWorkspace();
 process.env.PICLAW_WORKSPACE = shared.workspace;
 process.env.PICLAW_STORE = shared.store;
 process.env.PICLAW_DATA = shared.data;
+if (!process.env.PICLAW_DB_IN_MEMORY) {
+  process.env.PICLAW_DB_IN_MEMORY = "1";
+}
 
 /** Temporarily override env vars; returns a restore function. */
 export function setEnv(vars: Record<string, string | undefined>): () => void {

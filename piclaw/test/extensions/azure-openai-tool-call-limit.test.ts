@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import "../helpers.js";
 
 const { applyToolCallLimit } = await import("../../src/utils/azure-tool-call-limit");
 
@@ -93,4 +94,46 @@ test("applyToolCallLimit dedupes tool_output_search calls", () => {
   expect(summary).toBeTruthy();
   expect(summary?.content?.[0]?.text || "").toContain("Earlier tool calls (1)");
   expect(summary?.id || "").toMatch(/^msg_/);
+});
+
+test("applyToolCallLimit honors summaryMax boundaries", () => {
+  const messages = [
+    makeReasoning("rs_old"),
+    makeCall("call1", "fc_old", "bash", { command: "ls" }),
+    makeOutput("call1", "output one"),
+    makeReasoning("rs_mid"),
+    makeCall("call2", "fc_mid", "bash", { command: "pwd" }),
+    makeOutput("call2", "output two"),
+    makeReasoning("rs_keep"),
+    makeCall("call3", "fc_keep", "bash", { command: "whoami" }),
+    makeOutput("call3", "output three"),
+  ];
+
+  const limited = applyToolCallLimit(messages, { ...config, limit: 1, summaryMax: 1 });
+  const summary = limited.messages.find((item) => item?.type === "message" && item?.role === "assistant");
+  const summaryText = summary?.content?.[0]?.text || "";
+  expect(summaryText).toContain("Earlier tool calls (2)");
+  expect(summaryText).toContain("(1 more tool call(s) omitted.)");
+
+  const noSummaryLines = applyToolCallLimit(messages, { ...config, limit: 1, summaryMax: 0 });
+  const summaryNoLines = noSummaryLines.messages.find((item) => item?.type === "message" && item?.role === "assistant");
+  const summaryNoLinesText = summaryNoLines?.content?.[0]?.text || "";
+  expect(summaryNoLinesText).toContain("Earlier tool calls (2)");
+  expect(summaryNoLinesText).not.toContain("•");
+});
+
+test("applyToolCallLimit truncates summary output", () => {
+  const messages = [
+    makeReasoning("rs_old"),
+    makeCall("call1", "fc_old", "bash", { command: "echo" }),
+    makeOutput("call1", "very long output that should be truncated"),
+    makeReasoning("rs_keep"),
+    makeCall("call2", "fc_keep", "bash", { command: "ls" }),
+    makeOutput("call2", "short"),
+  ];
+
+  const result = applyToolCallLimit(messages, { ...config, limit: 1, summaryMax: 1, outputChars: 10 });
+  const summary = result.messages.find((item) => item?.type === "message" && item?.role === "assistant");
+  const summaryText = summary?.content?.[0]?.text || "";
+  expect(summaryText).toContain("…");
 });

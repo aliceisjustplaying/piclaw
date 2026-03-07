@@ -9,6 +9,7 @@
  * - Agent message content length limits
  */
 import { describe, test, expect } from "bun:test";
+import { getTestWorkspace, setEnv } from "../../helpers.js";
 
 // ── Post content length validation ──
 import { parsePostPayload } from "../../../src/channels/web/posts-service.js";
@@ -166,6 +167,25 @@ describe("MediaService.createFromFile", () => {
       expect(e.message).toContain("Database not initialized");
     }
   });
+
+  test("accepts image/svg+xml explicitly", async () => {
+    const data = new TextEncoder().encode("<svg></svg>");
+    const file = new File([data], "vector.svg", { type: "image/svg+xml" });
+    try {
+      const result = await service.createFromFile(file);
+      expect(result.status).toBe(200);
+    } catch (e: any) {
+      expect(e.message).toContain("Database not initialized");
+    }
+  });
+
+  test("rejects unknown content types", async () => {
+    const data = new Uint8Array(10);
+    const file = new File([data], "unknown.bin", { type: "application/x-unknown" });
+    const result = await service.createFromFile(file);
+    expect(result.status).toBe(415);
+    expect((result.body as any).error).toContain("Unsupported");
+  });
 });
 
 // ── SSE client cap ──
@@ -286,8 +306,71 @@ describe("SSE client cap", () => {
   });
 });
 
-// ── Security headers ──
+// ── CSRF origin checks ──
 import { RequestRouterService } from "../../../src/channels/web/request-router-service.js";
+
+describe("CSRF origin checks", () => {
+  class StubChannel {
+    isAuthEnabled() { return false; }
+    isInternalSecretEnabled() { return false; }
+    verifyInternalSecret() { return false; }
+    isAuthenticated() { return false; }
+    serveLoginPage() { return this.json({ ok: false }, 401); }
+    redirectToLogin() { return this.json({ ok: false }, 401); }
+    handlePost() { return this.json({ ok: true }, 200); }
+    clampInt(value: string | null, fallback: number) {
+      const parsed = value ? parseInt(value, 10) : fallback;
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    parseOptionalInt(value: string | null) {
+      if (!value) return null;
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    json(data: unknown, status = 200) {
+      return new Response(JSON.stringify(data), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
+  test("blocks mismatched Origin/Host", async () => {
+    const router = new RequestRouterService(new StubChannel() as any);
+    const req = new Request("http://localhost/post", {
+      method: "POST",
+      headers: {
+        Origin: "https://evil.example",
+        Host: "localhost",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content: "hello" }),
+    });
+
+    const res = await router.handle(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("Origin not allowed");
+  });
+
+  test("allows matching Origin/Host", async () => {
+    const router = new RequestRouterService(new StubChannel() as any);
+    const req = new Request("http://example.com/post", {
+      method: "POST",
+      headers: {
+        Origin: "https://example.com",
+        Host: "example.com",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content: "hello" }),
+    });
+
+    const res = await router.handle(req);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ── Security headers ──
 
 describe("security headers", () => {
   test("expected header names are defined", () => {
@@ -369,5 +452,68 @@ describe("security headers", () => {
     const res = await router.handle(new Request("https://localhost/timeline?limit=1"));
 
     expect(res.headers.get("Strict-Transport-Security")).toContain("max-age=31536000");
+  });
+});
+
+// ── Media download headers ──
+import { handleMedia } from "../../../src/channels/web/handlers/media.js";
+
+describe("media download headers", () => {
+  test("non-image downloads use attachment disposition", async () => {
+    const ws = getTestWorkspace();
+    const restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+    const db = await import("../../../src/db.js");
+    db.initDatabase();
+    const mediaId = db.createMedia(
+      "report.txt",
+      "text/plain",
+      new TextEncoder().encode("report"),
+      null,
+      { size: 6 }
+    );
+
+    class StubChannel {
+      json(data: unknown, status = 200) {
+        return new Response(JSON.stringify(data), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    const res = handleMedia(new StubChannel() as any, mediaId, false);
+    expect(res.headers.get("Content-Disposition")).toBe("attachment");
+
+    restoreEnv();
+  });
+
+  test("inline-safe images omit Content-Disposition", async () => {
+    const ws = getTestWorkspace();
+    const restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+    const db = await import("../../../src/db.js");
+    db.initDatabase();
+    const mediaId = db.createMedia(
+      "vector.svg",
+      "image/svg+xml",
+      new TextEncoder().encode("<svg></svg>"),
+      null,
+      { size: 11 }
+    );
+
+    class StubChannel {
+      json(data: unknown, status = 200) {
+        return new Response(JSON.stringify(data), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    const res = handleMedia(new StubChannel() as any, mediaId, false);
+    expect(res.headers.get("Content-Disposition")).toBeNull();
+
+    restoreEnv();
   });
 });

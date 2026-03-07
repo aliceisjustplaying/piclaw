@@ -32,6 +32,12 @@ test("save and search tool output", async () => {
 
   const snippets = toolOutput.searchToolOutput(saved.id, "searchable", 5);
   expect(snippets.length).toBeGreaterThan(0);
+
+  const none = toolOutput.searchToolOutput(saved.id, "missingword", 5);
+  expect(none.length).toBe(0);
+
+  const empty = toolOutput.searchToolOutput(saved.id, "", 5);
+  expect(empty.length).toBe(0);
 });
 
 test("prune removes old outputs", async () => {

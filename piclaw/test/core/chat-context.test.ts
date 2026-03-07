@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../helpers.js";
 
 import { getChatChannel, getChatContext, getChatJid, withChatContext } from "../../src/core/chat-context.js";
 

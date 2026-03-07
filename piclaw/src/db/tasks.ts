@@ -24,13 +24,20 @@ import { getDb } from "./connection.js";
 export function createTask(task: Omit<ScheduledTask, "last_run" | "last_result">): void {
   const db = getDb();
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, chat_jid, prompt, model, schedule_type, schedule_value, next_run, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO scheduled_tasks (
+      id, chat_jid, prompt, model, task_kind, command, cwd, timeout_sec,
+      schedule_type, schedule_value, next_run, status, created_at
+    )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     task.id,
     task.chat_jid,
     task.prompt,
     task.model ?? null,
+    task.task_kind ?? "agent",
+    task.command ?? null,
+    task.cwd ?? null,
+    task.timeout_sec ?? null,
     task.schedule_type,
     task.schedule_value,
     task.next_run,
@@ -51,13 +58,20 @@ export function getTaskById(id: string): ScheduledTask | undefined {
  */
 export function updateTask(
   id: string,
-  updates: Partial<Pick<ScheduledTask, "prompt" | "model" | "schedule_type" | "schedule_value" | "next_run" | "status">>
+  updates: Partial<Pick<ScheduledTask,
+    "prompt" | "model" | "task_kind" | "command" | "cwd" | "timeout_sec" |
+    "schedule_type" | "schedule_value" | "next_run" | "status">
+  >
 ): void {
   const fields: string[] = [];
   const values: unknown[] = [];
 
   if (updates.prompt !== undefined) { fields.push("prompt = ?"); values.push(updates.prompt); }
   if (updates.model !== undefined) { fields.push("model = ?"); values.push(updates.model); }
+  if (updates.task_kind !== undefined) { fields.push("task_kind = ?"); values.push(updates.task_kind); }
+  if (updates.command !== undefined) { fields.push("command = ?"); values.push(updates.command); }
+  if (updates.cwd !== undefined) { fields.push("cwd = ?"); values.push(updates.cwd); }
+  if (updates.timeout_sec !== undefined) { fields.push("timeout_sec = ?"); values.push(updates.timeout_sec); }
   if (updates.schedule_type !== undefined) { fields.push("schedule_type = ?"); values.push(updates.schedule_type); }
   if (updates.schedule_value !== undefined) { fields.push("schedule_value = ?"); values.push(updates.schedule_value); }
   if (updates.next_run !== undefined) { fields.push("next_run = ?"); values.push(updates.next_run); }

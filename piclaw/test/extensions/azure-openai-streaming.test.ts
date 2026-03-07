@@ -22,6 +22,7 @@
  */
 
 import { expect, test, describe } from "bun:test";
+import "../helpers.js";
 
 // ---------------------------------------------------------------------------
 // 1. sanitizeOpenAIId – ensures IDs are safe for Azure Responses API
@@ -438,7 +439,49 @@ describe("error classification", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. parseSize for image generation
+// 8. response.failed mapping + retry classification
+// ---------------------------------------------------------------------------
+
+function mapResponseFailed(event: { response?: { error?: any; status?: number } }): string {
+  const resp = event.response;
+  const errObj = resp?.error;
+  if (errObj && typeof errObj === "object") {
+    return `${errObj.code || "error"}: ${errObj.message || JSON.stringify(errObj)}`;
+  }
+  if (resp?.status) {
+    return `Azure response failed (status: ${resp.status})`;
+  }
+  return "Azure response failed (no error details returned)";
+}
+
+function isRetryable(detail: string): boolean {
+  const isClientError = /^(400|401|403|404|422)\b/.test(detail) || detail.includes("invalid_request_error");
+  return !isClientError;
+}
+
+describe("response.failed mapping + retry logic", () => {
+  test("maps response.failed with no error object", () => {
+    expect(mapResponseFailed({ response: { error: null } })).toBe("Azure response failed (no error details returned)");
+  });
+
+  test("maps response.failed with status", () => {
+    expect(mapResponseFailed({ response: { status: 500 } })).toBe("Azure response failed (status: 500)");
+  });
+
+  test("retry logic treats non-4xx as retryable", () => {
+    expect(isRetryable("Azure response failed (no error details returned)")).toBe(true);
+    expect(isRetryable("Azure response failed (status: 500)")).toBe(true);
+  });
+
+  test("retry logic treats 4xx as non-retryable", () => {
+    expect(isRetryable("400 Bad Request")).toBe(false);
+    expect(isRetryable("401 Unauthorized")).toBe(false);
+    expect(isRetryable("invalid_request_error: missing")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. parseSize for image generation
 // ---------------------------------------------------------------------------
 
 function parseSize(size?: string): { width: number; height: number } {

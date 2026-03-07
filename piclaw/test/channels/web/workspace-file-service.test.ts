@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from "bun:test";
+import "../../helpers.js";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
