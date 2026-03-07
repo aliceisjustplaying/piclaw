@@ -26,6 +26,7 @@ import { startToolOutputCleanup } from "./tool-output.js";
 import { createUuid } from "./utils/ids.js";
 import { RuntimeState } from "./runtime/state.js";
 import { processMessages, runMessageLoop } from "./runtime/message-loop.js";
+import { getApiProvider, streamSimpleAzureOpenAIResponses, streamSimpleOpenAICompletions } from "@mariozechner/pi-ai";
 const queue = new AgentQueue();
 const agentPool = new AgentPool();
 let whatsapp;
@@ -53,8 +54,9 @@ export async function main() {
     const aoaiToken = process.env.AOAI_API_KEY;
     const aoaiBaseUrl = process.env.AOAI_BASE_URL;
     if (registry && aoaiToken && aoaiBaseUrl) {
-        const hasAzure = registry.getAll?.().some((model) => model.provider === "azure-openai");
-        if (!hasAzure) {
+        const hasAzureModels = registry.getAll?.().some((model) => model.provider === "azure-openai");
+        const azureApiRegistered = Boolean(getApiProvider("azure-openai-responses-mi"));
+        if (!hasAzureModels) {
             const ids = splitCsv(process.env.AOAI_MODEL_IDS);
             const names = splitCsv(process.env.AOAI_MODEL_NAMES);
             const defaultIds = ["gpt-5-2-codex", "gpt-5-3-codex", "gpt-5-1-codex-mini", "gpt-5-1", "gpt-5-mini"];
@@ -73,15 +75,25 @@ export async function main() {
                 baseUrl: aoaiBaseUrl,
                 api: "azure-openai-responses-mi",
                 apiKey: aoaiToken,
+                streamSimple: streamSimpleAzureOpenAIResponses,
                 models,
+            });
+        }
+        else if (!azureApiRegistered) {
+            registry.registerProvider("azure-openai", {
+                baseUrl: aoaiBaseUrl,
+                api: "azure-openai-responses-mi",
+                apiKey: aoaiToken,
+                streamSimple: streamSimpleAzureOpenAIResponses,
             });
         }
     }
     const foundryToken = process.env.FOUNDRY_API_KEY || process.env.AOAI_API_KEY;
     const foundryBaseUrl = process.env.FOUNDRY_BASE_URL;
     if (registry && foundryToken && foundryBaseUrl) {
-        const hasFoundry = registry.getAll?.().some((model) => model.provider === "azure-foundry");
-        if (!hasFoundry) {
+        const hasFoundryModels = registry.getAll?.().some((model) => model.provider === "azure-foundry");
+        const foundryApiRegistered = Boolean(getApiProvider("azure-foundry-openai-completions-mi"));
+        if (!hasFoundryModels) {
             const ids = splitCsv(process.env.FOUNDRY_MODEL_IDS);
             const names = splitCsv(process.env.FOUNDRY_MODEL_NAMES);
             const modelIds = ids.length > 0 ? ids : ["mistral-large-3"];
@@ -99,7 +111,16 @@ export async function main() {
                 baseUrl: foundryBaseUrl,
                 api: "azure-foundry-openai-completions-mi",
                 apiKey: foundryToken,
+                streamSimple: streamSimpleOpenAICompletions,
                 models,
+            });
+        }
+        else if (!foundryApiRegistered) {
+            registry.registerProvider("azure-foundry", {
+                baseUrl: foundryBaseUrl,
+                api: "azure-foundry-openai-completions-mi",
+                apiKey: foundryToken,
+                streamSimple: streamSimpleOpenAICompletions,
             });
         }
     }
