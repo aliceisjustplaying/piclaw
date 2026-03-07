@@ -186,9 +186,24 @@ export class WebChannel {
     }
   }
 
-  async sendMessage(chatJid: string, text: string, threadId?: number | null): Promise<void> {
+  async sendMessage(
+    chatJid: string,
+    text: string,
+    options?: number | null | { threadId?: number | null; forceRoot?: boolean; source?: string }
+  ): Promise<void> {
+    const normalized = typeof options === "number" || options === null
+      ? { threadId: options ?? null }
+      : (options ?? {});
+    const threadId = normalized.threadId ?? null;
+    const forceRoot = Boolean(normalized.forceRoot);
+
     const interaction = this.storeMessage(chatJid, text, true, [], threadId ? { threadId } : undefined);
     if (interaction) {
+      if (forceRoot && !threadId) {
+        // Ensure scheduled messages start new threads (not replies to inflight turns).
+        getDb().prepare("UPDATE messages SET thread_id = ? WHERE rowid = ?").run(interaction.id, interaction.id);
+        interaction.data.thread_id = interaction.id;
+      }
       broadcastAgentResponse(
         this,
         interaction,

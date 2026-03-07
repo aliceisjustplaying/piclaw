@@ -184,6 +184,9 @@ export async function main(): Promise<void> {
   // Recover any runs that were interrupted by a crash or kill signal.
   // Must run after start() (queue is ready) but before new messages arrive.
   web.recoverInflightRuns();
+  // Resume any queued messages that arrived after the last stored cursor.
+  // This ensures pending work is processed after a reload.
+  web.resumePendingChats();
 
   if (PUSHOVER_APP_TOKEN && PUSHOVER_USER_KEY) {
     pushover = new PushoverChannel({
@@ -224,9 +227,13 @@ export async function main(): Promise<void> {
     onChatMetadata: (chatJid, timestamp) => storeChatMetadata(chatJid, timestamp),
   });
 
-  const sendMessage = async (jid: string, text: string) => {
+  const sendMessage = async (
+    jid: string,
+    text: string,
+    options?: { forceRoot?: boolean; threadId?: number | null; source?: string }
+  ) => {
     if (jid.startsWith("web:")) {
-      await web.sendMessage(jid, text);
+      await web.sendMessage(jid, text, options);
       return;
     }
     await whatsapp.sendMessage(jid, text);

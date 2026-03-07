@@ -32,7 +32,7 @@ import { createUuid } from "./utils/ids.js";
  */
 export interface IpcDeps {
   /** Send a text message to a specific chat JID. */
-  sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMessage: (jid: string, text: string, options?: { forceRoot?: boolean; threadId?: number | null; source?: string }) => Promise<void>;
   /** Send a push notification nudge (Pushover). */
   sendNudge?: (text: string) => Promise<void>;
   /** Validate and resolve a model identifier string. */

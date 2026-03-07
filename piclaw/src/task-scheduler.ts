@@ -37,7 +37,7 @@ export interface SchedulerDeps {
   /** The agent pool for running agent turns. */
   agentPool: AgentPool;
   /** Send a text message to a chat. */
-  sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMessage: (jid: string, text: string, options?: { forceRoot?: boolean; threadId?: number | null; source?: string }) => Promise<void>;
   /** Send a push notification nudge (optional). */
   sendNudge?: (text: string) => Promise<void>;
 }
@@ -152,7 +152,7 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
         result = out.result;
         const t = formatOutbound(result, detectChannel(task.chat_jid));
         if (t) {
-          await deps.sendMessage(task.chat_jid, t);
+          await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
           await deps.sendNudge?.(t);
         }
       }
