@@ -84,6 +84,20 @@ const FOUNDRY_TEXT_MODEL_IDS = FOUNDRY_MODEL_IDS.filter(
 const IMDS_URL = "http://169.254.169.254/metadata/identity/oauth2/token";
 const IMDS_API_VERSION = "2018-02-01";
 const RESOURCE = process.env.AOAI_RESOURCE || process.env.FOUNDRY_RESOURCE || "https://cognitiveservices.azure.com/";
+const ARM_RESOURCE = "https://management.azure.com/";
+const ARM_API_VERSION = process.env.AOAI_ARM_API_VERSION || "2023-05-01";
+const AOAI_ACCOUNT_NAME = process.env.AOAI_ACCOUNT_NAME || (() => {
+  try {
+    return new URL(BASE_URL).hostname.split(".")[0];
+  } catch {
+    return "";
+  }
+})();
+const AOAI_RESOURCE_GROUP = process.env.AOAI_RESOURCE_GROUP || "";
+const AOAI_SUBSCRIPTION_ID = process.env.AOAI_SUBSCRIPTION_ID || "";
+const ENABLE_MODEL_CAPS = !/^(0|false|no)$/i.test(process.env.AOAI_ENABLE_MODEL_CAPS || "1");
+const IMDS_METADATA_URL = "http://169.254.169.254/metadata/instance/compute";
+const IMDS_METADATA_VERSION = "2021-02-01";
 const CACHE_DIR = process.env.AOAI_TOKEN_CACHE_DIR || "/workspace/.piclaw/cache";
 const CACHE_FILE = process.env.AOAI_TOKEN_CACHE_FILE || `${CACHE_DIR}/aoai-token.json`;
 const SKEW_SECONDS = Number(process.env.AOAI_TOKEN_SKEW_SECONDS || "300");
@@ -97,6 +111,10 @@ const TOOL_CALL_LIMIT = parseInt(process.env.AOAI_MAX_TOOL_CALLS || "96", 10);
 const TOOL_CALL_SUMMARY_MAX = parseInt(process.env.AOAI_TOOL_CALL_SUMMARY_MAX || "12", 10);
 const TOOL_CALL_OUTPUT_CHARS = parseInt(process.env.AOAI_TOOL_CALL_OUTPUT_CHARS || "200", 10);
 const DEDUPE_TOOL_OUTPUT_SEARCH = !/^(0|false|no)$/i.test(process.env.AOAI_DEDUPE_TOOL_OUTPUT_SEARCH || "1");
+const MODEL_TOOL_CALL_LIMITS: Record<string, number> = {
+  "gpt-5-4": 48,
+  "gpt-5-4-pro": 32,
+};
 const DISABLE_REASONING_MODELS = new Set(
   (process.env.AOAI_DISABLE_REASONING_MODELS || "")
     .split(",")
@@ -111,7 +129,7 @@ const LOG_PHASES = /^(1|true|yes)$/i.test(process.env.AOAI_LOG_PHASES || "");
 //          OpenRouter /api/v1/models (2026-03-07).
 // All GPT-5 series: 400K context (272K input + 128K output), 1.05M coming soon.
 // Mistral Large 3 (25.12): 262K context, 16K max output.
-const MODEL_SPECS: Record<string, { contextWindow?: number; maxTokens?: number; reasoning?: boolean }> = {
+const BASE_MODEL_SPECS: Record<string, { contextWindow?: number; maxTokens?: number; reasoning?: boolean }> = {
   "gpt-5-2-codex":      { contextWindow: 400000, maxTokens: 128000, reasoning: true },
   "gpt-5-3-codex":      { contextWindow: 400000, maxTokens: 128000, reasoning: true },
   "gpt-5-1-codex-mini": { contextWindow: 400000, maxTokens: 100000, reasoning: true },
@@ -137,6 +155,14 @@ const MODEL_SPECS: Record<string, { contextWindow?: number; maxTokens?: number; 
   "mistral-large-3":    { contextWindow: 262144, maxTokens: 16384,  reasoning: false },
   "flux-2-pro":         { contextWindow: 4096,   maxTokens: 4096,   reasoning: false },
 };
+
+type ModelCapability = {
+  responses?: boolean;
+  chatCompletion?: boolean;
+};
+
+let MODEL_SPECS = { ...BASE_MODEL_SPECS };
+const MODEL_CAPABILITIES: Record<string, ModelCapability> = {};
 const DEFAULT_AZURE_SPEC = { contextWindow: 400000, maxTokens: 128000, reasoning: true };
 const DEFAULT_FOUNDRY_SPEC = { contextWindow: 200000, maxTokens: 64000, reasoning: false };
 let extensionLogged = false;
@@ -174,6 +200,226 @@ function sanitizeOpenAIId(value?: string): string | undefined {
   let next = value.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+$/, "");
   if (next.length > 64) next = next.slice(0, 64).replace(/_+$/, "");
   return next;
+}
+
+type ArmContext = {
+  subscriptionId: string;
+  resourceGroup: string;
+  accountName: string;
+};
+
+async function fetchImdsText(path: string): Promise<string> {
+  const url = `${IMDS_METADATA_URL}/${path}?api-version=${IMDS_METADATA_VERSION}&format=text`;
+  const res = await fetch(url, { headers: { Metadata: "true" } });
+  if (!res.ok) {
+    throw new Error(`IMDS metadata request failed (${res.status}): ${path}`);
+  }
+  return (await res.text()).trim();
+}
+
+const IMDS_DETECT_TIMEOUT_MS = Number(process.env.AOAI_IMDS_TIMEOUT_MS || "500");
+let azureEnvironmentCache: boolean | null = null;
+let azureEnvironmentPromise: Promise<boolean> | null = null;
+
+async function detectAzureEnvironment(): Promise<boolean> {
+  if (azureEnvironmentCache !== null) return azureEnvironmentCache;
+  if (azureEnvironmentPromise) return azureEnvironmentPromise;
+
+  azureEnvironmentPromise = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), IMDS_DETECT_TIMEOUT_MS);
+    try {
+      const url = `${IMDS_METADATA_URL}/instanceId?api-version=${IMDS_METADATA_VERSION}&format=text`;
+      const res = await fetch(url, { headers: { Metadata: "true" }, signal: controller.signal });
+      if (!res.ok) return false;
+      const text = (await res.text()).trim();
+      return Boolean(text);
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  })();
+
+  azureEnvironmentCache = await azureEnvironmentPromise;
+  return azureEnvironmentCache;
+}
+
+async function resolveArmContext(): Promise<ArmContext | null> {
+  const accountName = AOAI_ACCOUNT_NAME.trim();
+  if (!accountName) return null;
+  let subscriptionId = AOAI_SUBSCRIPTION_ID.trim();
+  let resourceGroup = AOAI_RESOURCE_GROUP.trim();
+
+  if (!subscriptionId) {
+    try {
+      subscriptionId = await fetchImdsText("subscriptionId");
+    } catch {
+      subscriptionId = "";
+    }
+  }
+
+  if (!resourceGroup) {
+    try {
+      resourceGroup = await fetchImdsText("resourceGroupName");
+    } catch {
+      resourceGroup = "";
+    }
+  }
+
+  if (!subscriptionId || !resourceGroup) return null;
+  return { subscriptionId, resourceGroup, accountName };
+}
+
+async function fetchArmToken(): Promise<string> {
+  const url = `${IMDS_URL}?api-version=${IMDS_API_VERSION}&resource=${encodeURIComponent(ARM_RESOURCE)}`;
+  const response = await fetch(url, {
+    headers: {
+      Metadata: "true",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`IMDS ARM token request failed (${response.status})`);
+  }
+  const data = (await response.json()) as { access_token?: string };
+  if (!data.access_token) {
+    throw new Error("IMDS ARM token response missing access_token");
+  }
+  return data.access_token;
+}
+
+async function fetchManagementJson<T>(url: string, token: string): Promise<T> {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    throw new Error(`Azure management request failed (${res.status}): ${url}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function fetchAzureModels(ctx: ArmContext, token: string): Promise<any[]> {
+  const url = `https://management.azure.com/subscriptions/${ctx.subscriptionId}/resourceGroups/${ctx.resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${ctx.accountName}/models?api-version=${ARM_API_VERSION}`;
+  const payload = await fetchManagementJson<{ value?: any[] }>(url, token);
+  return payload.value || [];
+}
+
+async function fetchAzureDeployments(ctx: ArmContext, token: string): Promise<any[]> {
+  const url = `https://management.azure.com/subscriptions/${ctx.subscriptionId}/resourceGroups/${ctx.resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${ctx.accountName}/deployments?api-version=${ARM_API_VERSION}`;
+  const payload = await fetchManagementJson<{ value?: any[] }>(url, token);
+  return payload.value || [];
+}
+
+function parseCapabilityNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function parseCapabilityBool(value: unknown): boolean | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+  }
+  return undefined;
+}
+
+function applyAzureModelCaps(models: any[], deployments: any[]): number {
+  const capsByModel = new Map<string, { contextWindow?: number; maxTokens?: number; responses?: boolean; chatCompletion?: boolean }>();
+
+  for (const model of models) {
+    const name = model?.name ? String(model.name) : "";
+    const version = model?.version ? String(model.version) : "";
+    if (!name || !version) continue;
+    const caps = model?.capabilities || {};
+    const contextWindow =
+      parseCapabilityNumber(caps.maxContextToken) ??
+      parseCapabilityNumber(caps.maxContextTokens);
+    const maxTokens =
+      parseCapabilityNumber(caps.maxOutputToken) ??
+      parseCapabilityNumber(caps.maxOutputTokens);
+    const responses = parseCapabilityBool(caps.responses);
+    const chatCompletion = parseCapabilityBool(caps.chatCompletion);
+    if (!contextWindow && !maxTokens && responses === undefined && chatCompletion === undefined) continue;
+    capsByModel.set(`${name}|${version}`, { contextWindow, maxTokens, responses, chatCompletion });
+  }
+
+  let updated = 0;
+  for (const deployment of deployments) {
+    const deploymentName = deployment?.name ? String(deployment.name) : "";
+    const modelName = deployment?.properties?.model?.name ? String(deployment.properties.model.name) : "";
+    const modelVersion = deployment?.properties?.model?.version ? String(deployment.properties.model.version) : "";
+    if (!deploymentName || !modelName || !modelVersion) continue;
+
+    const caps = capsByModel.get(`${modelName}|${modelVersion}`);
+    if (!caps) continue;
+
+    const existing = MODEL_SPECS[deploymentName] || {};
+    const next = { ...existing } as { contextWindow?: number; maxTokens?: number; reasoning?: boolean };
+
+    if (caps.contextWindow) next.contextWindow = caps.contextWindow;
+    if (caps.maxTokens) next.maxTokens = caps.maxTokens;
+
+    const existingCaps = MODEL_CAPABILITIES[deploymentName] || {};
+    const nextCaps: ModelCapability = { ...existingCaps };
+    if (caps.responses !== undefined) nextCaps.responses = caps.responses;
+    if (caps.chatCompletion !== undefined) nextCaps.chatCompletion = caps.chatCompletion;
+
+    const specChanged =
+      next.contextWindow !== existing.contextWindow ||
+      next.maxTokens !== existing.maxTokens;
+    const capsChanged =
+      nextCaps.responses !== existingCaps.responses ||
+      nextCaps.chatCompletion !== existingCaps.chatCompletion;
+
+    if (specChanged) {
+      MODEL_SPECS[deploymentName] = next;
+    }
+    if (capsChanged) {
+      MODEL_CAPABILITIES[deploymentName] = nextCaps;
+    }
+    if (specChanged || capsChanged) {
+      updated += 1;
+    }
+  }
+
+  return updated;
+}
+
+let modelCapsLoaded = false;
+let modelCapsPromise: Promise<void> | null = null;
+
+async function ensureAzureModelCaps(): Promise<void> {
+  if (!ENABLE_MODEL_CAPS || STATIC_API_KEY) return;
+  if (modelCapsLoaded) return;
+  if (modelCapsPromise) return modelCapsPromise;
+
+  modelCapsPromise = (async () => {
+    const onAzure = await detectAzureEnvironment();
+    if (!onAzure) return;
+
+    const ctx = await resolveArmContext();
+    if (!ctx) return;
+
+    const token = await fetchArmToken();
+    const [models, deployments] = await Promise.all([
+      fetchAzureModels(ctx, token),
+      fetchAzureDeployments(ctx, token),
+    ]);
+
+    const updated = applyAzureModelCaps(models, deployments);
+    if (updated > 0) {
+      console.error(`[azure-openai] Updated ${updated} model spec(s) from Azure catalog.`);
+    }
+  })()
+    .catch((error) => {
+      console.error("[azure-openai] Failed to load Azure model caps:", error);
+    })
+    .finally(() => {
+      modelCapsLoaded = true;
+    });
+
+  return modelCapsPromise;
 }
 
 function logStreamFailureEvent(event: any, requestSummary?: Record<string, unknown>, loggedRef?: { logged: boolean }): void {
@@ -732,8 +978,9 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       const phaseById = collectMessagePhases(context.messages || []);
       const rawMessages = convertResponsesMessages(model, context, TOOL_CALL_PROVIDERS);
       applyPhasesToResponseInput(rawMessages as Array<any>, phaseById);
+      const toolCallLimit = MODEL_TOOL_CALL_LIMITS[model.id] ?? TOOL_CALL_LIMIT;
       const toolCallTrim = applyToolCallLimit(rawMessages as Array<any>, {
-        limit: TOOL_CALL_LIMIT,
+        limit: toolCallLimit,
         summaryMax: TOOL_CALL_SUMMARY_MAX,
         outputChars: TOOL_CALL_OUTPUT_CHARS,
         dedupeToolOutputSearch: DEDUPE_TOOL_OUTPUT_SEARCH,
@@ -757,7 +1004,7 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         messageTypes: messageTypeCounts,
         toolCount: toolsEnabled && context.tools ? context.tools.length : 0,
         hasToolCalls: messages.some((item: any) => item?.type === "function_call"),
-        toolCallLimit: TOOL_CALL_LIMIT,
+        toolCallLimit: toolCallLimit,
         toolCallTotal: toolCallTrim.toolCallTotal,
         toolCallKept: toolCallTrim.toolCallKept,
         toolCallRemoved: toolCallTrim.toolCallRemoved,
@@ -975,18 +1222,25 @@ function streamSimpleFoundryOpenAICompletions(model: any, context: any, options:
 }
 
 export function registerAzureProviders(register: (name: string, config: any) => void, token: string) {
-  const openaiModels = MODEL_IDS.map((id, idx) => {
+  const openaiModels = MODEL_IDS.flatMap((id, idx) => {
     const spec = MODEL_SPECS[id] || DEFAULT_AZURE_SPEC;
-    return {
-      id,
-      name: MODEL_NAMES[idx] || (id === MODEL_ID ? MODEL_NAME : `Azure ${id}`),
-      api: AZURE_API,
-      reasoning: spec.reasoning ?? true,
-      input: ["text"],
-      contextWindow: spec.contextWindow ?? 200000,
-      maxTokens: spec.maxTokens ?? 64000,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    };
+    const caps = MODEL_CAPABILITIES[id];
+    if (caps?.responses === false) {
+      console.error(`[azure-openai] Skipping ${id}: responses not supported by this deployment.`);
+      return [];
+    }
+    return [
+      {
+        id,
+        name: MODEL_NAMES[idx] || (id === MODEL_ID ? MODEL_NAME : `Azure ${id}`),
+        api: AZURE_API,
+        reasoning: spec.reasoning ?? true,
+        input: ["text"],
+        contextWindow: spec.contextWindow ?? 200000,
+        maxTokens: spec.maxTokens ?? 64000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    ];
   });
 
   register(PROVIDER, {
@@ -1218,6 +1472,7 @@ export default function (pi: ExtensionAPI) {
     }
     const cache = await ensureToken();
     if (cache.accessToken) {
+      await ensureAzureModelCaps();
       registerProvider(pi, cache.accessToken);
     }
     scheduleNext(cache.expiresOnEpoch);
