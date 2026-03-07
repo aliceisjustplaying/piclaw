@@ -74,7 +74,7 @@ function ContextPie({ usage }) {
                 : 'var(--context-green, #22c55e)';
 
     return html`
-        <span class="compose-context-pie" title=${label}>
+        <span class="compose-context-pie icon-btn" title=${label}>
             <svg width="16" height="16" viewBox="0 0 20 20">
                 <circle cx="10" cy="10" r=${r}
                     fill="none"
@@ -178,6 +178,14 @@ export function ComposeBox({
     const notificationActive = notificationPermission === 'granted' && notificationsEnabled;
     const notificationTitle = notificationActive ? 'Disable notifications' : 'Enable notifications';
 
+    const resizeTextarea = (target) => {
+        const textarea = target || textareaRef.current;
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+        textarea.style.overflowY = 'hidden';
+    };
+
 
     /** Update slash autocomplete matches based on current input. */
     const updateSlashAutocomplete = (value) => {
@@ -235,6 +243,7 @@ export function ComposeBox({
             setContent(value);
             updateSlashAutocomplete(value);
         }
+        requestAnimationFrame(() => resizeTextarea());
     };
 
     const appendToValue = (snippet) => {
@@ -552,8 +561,13 @@ export function ComposeBox({
     // Auto-resize textarea
     const handleInput = (e) => {
         const value = e.target.value;
+        resizeTextarea(e.target);
         updateValue(value);
     };
+
+    useEffect(() => {
+        requestAnimationFrame(() => resizeTextarea());
+    }, [content, searchText, searchMode]);
 
 
     return html`
@@ -658,27 +672,25 @@ export function ComposeBox({
                     `}
                 </div>
                 <div class="compose-footer">
-                    ${!searchMode && (activeModel || (contextUsage && contextUsage.percent != null)) && html`
+                    ${!searchMode && activeModel && html`
                         <div class="compose-meta-row">
-                            ${activeModel && html`
-                                <button
-                                    ref=${modelHintRef}
-                                    type="button"
-                                    class="compose-model-hint compose-model-hint-btn"
-                                    title=${switchingModel ? `Switching model…` : `Current model: ${activeModel} (tap to open model picker)`}
-                                    aria-label="Open model picker"
-                                    onClick=${toggleModelPopup}
-                                    disabled=${loading || switchingModel}
-                                >
-                                    ${switchingModel ? 'Switching…' : activeModel}
-                                </button>
-                            `}
-                            ${contextUsage && contextUsage.percent != null && html`
-                                <${ContextPie} usage=${contextUsage} />
-                            `}
+                            <button
+                                ref=${modelHintRef}
+                                type="button"
+                                class="compose-model-hint compose-model-hint-btn"
+                                title=${switchingModel ? `Switching model…` : `Current model: ${activeModel} (tap to open model picker)`}
+                                aria-label="Open model picker"
+                                onClick=${toggleModelPopup}
+                                disabled=${loading || switchingModel}
+                            >
+                                ${switchingModel ? 'Switching…' : activeModel}
+                            </button>
                         </div>
                     `}
                     <div class="compose-actions ${searchMode ? 'search-mode' : ''}">
+                    ${contextUsage && contextUsage.percent != null && html`
+                        <${ContextPie} usage=${contextUsage} />
+                    `}
                     <button
                         class="icon-btn search-toggle"
                         onClick=${searchMode ? onExitSearch : onEnterSearch}
