@@ -66,7 +66,7 @@ export function buildTree(
     return node;
   }
 
-  let entries: ReturnType<typeof listDirEntries> = [];
+  let entries: ReturnType<typeof listDirEntries>;
   try {
     entries = listDirEntries(absPath, options.includeHidden);
   } catch {

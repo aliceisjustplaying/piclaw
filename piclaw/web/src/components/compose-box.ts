@@ -325,7 +325,12 @@ export function ComposeBox({
     };
 
     const handleSubmit = async (overrideContent) => {
-        const currentContent = overrideContent !== undefined ? overrideContent : content;
+        const inferred = typeof overrideContent === 'string'
+            ? overrideContent
+            : (overrideContent && typeof overrideContent?.target?.value === 'string'
+                ? overrideContent.target.value
+                : content);
+        const currentContent = typeof inferred === 'string' ? inferred : '';
         if (!currentContent.trim() && mediaFiles.length === 0 && fileRefs.length === 0) return;
 
         setLoading(true);
@@ -395,41 +400,48 @@ export function ComposeBox({
         }
         // Slash autocomplete navigation
         if (showSlash && slashMatches.length > 0) {
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                setSlashIndex(i => (i + 1) % slashMatches.length);
-                return;
-            }
-            if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setSlashIndex(i => (i - 1 + slashMatches.length) % slashMatches.length);
-                return;
-            }
-            if (e.key === 'Tab') {
-                e.preventDefault();
-                acceptSlashCommand(slashMatches[slashIndex]);
-                return;
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-                const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
-                const hasArgs = currentValue.includes(' ');
-                if (!hasArgs) {
-                    e.preventDefault();
-                    const cmd = slashMatches[slashIndex];
-                    setShowSlash(false);
-                    setSlashMatches([]);
-                    // If the user hits Enter with only a command fragment, accept
-                    // the match and submit in one step to avoid double-Enter.
-                    handleSubmit(cmd.name);
-                    return;
-                }
-                // When args are present, allow Enter to fall through to submit.
-            }
-            if (e.key === 'Escape') {
-                e.preventDefault();
+            const slashValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
+            if (!String(slashValue || '').startsWith('/')) {
+                // Stale slash popup; hide and continue with normal key handling.
                 setShowSlash(false);
                 setSlashMatches([]);
-                return;
+            } else {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSlashIndex(i => (i + 1) % slashMatches.length);
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSlashIndex(i => (i - 1 + slashMatches.length) % slashMatches.length);
+                    return;
+                }
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    acceptSlashCommand(slashMatches[slashIndex]);
+                    return;
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
+                    const hasArgs = currentValue.includes(' ');
+                    if (!hasArgs) {
+                        e.preventDefault();
+                        const cmd = slashMatches[slashIndex];
+                        setShowSlash(false);
+                        setSlashMatches([]);
+                        // If the user hits Enter with only a command fragment, accept
+                        // the match and submit in one step to avoid double-Enter.
+                        void handleSubmit(cmd.name);
+                        return;
+                    }
+                    // When args are present, allow Enter to fall through to submit.
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setShowSlash(false);
+                    setSlashMatches([]);
+                    return;
+                }
             }
         }
         if (!searchMode && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
@@ -482,7 +494,7 @@ export function ComposeBox({
                     onSearch?.(currentValue.trim());
                 }
             } else {
-                handleSubmit(currentValue);
+                void handleSubmit(currentValue);
             }
         }
     };
@@ -783,7 +795,8 @@ export function ComposeBox({
                         </label>
                         <button 
                             class="icon-btn send-btn" 
-                            onClick=${handleSubmit}
+                            type="button"
+                            onClick=${() => { void handleSubmit(); }}
                             disabled=${!canSend}
                             title="Send (Ctrl+Enter)"
                         >
