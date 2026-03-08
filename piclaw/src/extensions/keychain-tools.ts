@@ -4,13 +4,13 @@
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 
-import { getKeychainEntry, listKeychainEntries, setKeychainEntry } from "../secure/keychain.js";
+import { deleteKeychainEntry, getKeychainEntry, listKeychainEntries, setKeychainEntry } from "../secure/keychain.js";
 
 const KeychainToolSchema = Type.Object({
-  action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("set")], {
-    description: "Operation to perform: list entries, get a value, or store/update an entry.",
+  action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("set"), Type.Literal("delete")], {
+    description: "Operation to perform: list entries, get a value, store/update an entry, or delete an entry.",
   }),
-  name: Type.Optional(Type.String({ description: "Keychain entry name (required for action=get/set)." })),
+  name: Type.Optional(Type.String({ description: "Keychain entry name (required for action=get/set/delete)." })),
   field: Type.Optional(
     Type.Union([Type.Literal("secret"), Type.Literal("username")], {
       description: "Field to return for action=get (default: secret).",
@@ -36,6 +36,7 @@ function clampLimit(value: number | undefined, fallback = 100): number {
 const KEYCHAIN_HINT = [
   "## Keychain",
   "Use keychain for listing available key names and retrieving entry secrets/usernames.",
+  "You can also store/update entries and delete obsolete ones.",
   "Only reveal secrets to the user when explicitly requested.",
 ].join("\n");
 
@@ -48,7 +49,7 @@ export const keychainTools: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool({
     name: "keychain",
     label: "keychain",
-    description: "List keychain entries, retrieve values, or store/update keychain entries.",
+    description: "List keychain entries, retrieve values, store/update entries, or delete entries.",
     parameters: KeychainToolSchema,
     async execute(_toolCallId, params) {
       if (params.action === "list") {
@@ -107,6 +108,21 @@ export const keychainTools: ExtensionFactory = (pi: ExtensionAPI) => {
         } catch (error) {
           return {
             content: [{ type: "text", text: (error as Error).message || "Failed to store keychain entry." }],
+            details: { count: 0, entries: [], name, field: "", type: "" },
+          };
+        }
+      }
+
+      if (params.action === "delete") {
+        try {
+          const removed = deleteKeychainEntry(name);
+          return {
+            content: [{ type: "text", text: removed ? `Deleted keychain entry ${name}.` : `Keychain entry not found: ${name}` }],
+            details: { count: removed ? 1 : 0, entries: [], name, field: "", type: "" },
+          };
+        } catch (error) {
+          return {
+            content: [{ type: "text", text: (error as Error).message || "Failed to delete keychain entry." }],
             details: { count: 0, entries: [], name, field: "", type: "" },
           };
         }

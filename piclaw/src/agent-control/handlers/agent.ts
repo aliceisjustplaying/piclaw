@@ -7,9 +7,11 @@
  * Consumers: agent-control-handlers.ts dispatches to these handlers.
  */
 
+import { statSync } from "fs";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentControlCommand, AgentControlResult } from "../agent-control-types.js";
 import { ASSISTANT_AVATAR, ASSISTANT_NAME, setAssistantAvatar, setAssistantName } from "../../core/config.js";
+import { ensureAvatarCache } from "../../channels/web/avatar-service.js";
 import { updateAssistantConfig } from "../agent-control-helpers.js";
 
 type AgentNameCommand = Extract<AgentControlCommand, { type: "agent_name" }>;
@@ -50,8 +52,30 @@ export async function handleAgentAvatar(_session: AgentSession, command: AgentAv
   const effective = updated.avatar || fallback;
   setAssistantAvatar(effective);
 
+  if (!nextAvatar) {
+    return {
+      status: "success",
+      message: "Agent avatar reset to default.",
+    };
+  }
+
+  // Keep a local cached copy for web/icon usage and report cached size.
+  let cacheSuffix: string;
+  try {
+    const cached = await ensureAvatarCache("agent", effective || nextAvatar);
+    if (cached?.file) {
+      const bytes = statSync(cached.file).size;
+      cacheSuffix = ` Cached locally (${bytes} bytes).`;
+    } else {
+      cacheSuffix = " Avatar set; local cache pending first successful fetch.";
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    cacheSuffix = ` Avatar set; cache warning: ${message}.`;
+  }
+
   return {
     status: "success",
-    message: nextAvatar ? `Agent avatar set to ${effective || "(default)"}.` : "Agent avatar reset to default.",
+    message: `Agent avatar set to ${effective || "(default)"}.${cacheSuffix}`,
   };
 }

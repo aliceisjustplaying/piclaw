@@ -343,7 +343,10 @@ export function Post({ post, onClick, onHashtagClick, agentName, agentAvatarUrl,
         : '';
     const clearUserBackground = !isAgent && avatarInfo.image
         && (normalizedUserBackground === 'clear' || normalizedUserBackground === 'transparent');
-    const avatarStyle = `background-color: ${clearUserBackground ? 'transparent' : avatarInfo.color}`;
+    // Keep agent avatars with transparent background when an image is set,
+    // matching user avatar behavior when background is cleared.
+    const clearAgentBackground = isAgent && Boolean(avatarInfo.image);
+    const avatarStyle = `background-color: ${(clearUserBackground || clearAgentBackground) ? 'transparent' : avatarInfo.color}`;
 
     const contentMeta = data.content_meta;
     const isTruncated = Boolean(contentMeta?.truncated);

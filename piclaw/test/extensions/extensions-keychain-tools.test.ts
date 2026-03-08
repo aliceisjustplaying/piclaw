@@ -120,13 +120,26 @@ describe("keychain-tools extension", () => {
     expect(userResult.content[0].text).toBe("root@pam!piclaw");
   });
 
-  test("set action validates required fields", async () => {
+  test("deletes a keychain entry", async () => {
     const tool = await getTool();
 
-    const missingName = await tool.execute("k7", { action: "set", secret: "abc" });
-    expect(missingName.content[0].text).toContain("Provide name for action=set");
+    const removed = await tool.execute("k7", { action: "delete", name: "ssh/piclaw" });
+    expect(removed.content[0].text).toContain("Deleted keychain entry ssh/piclaw.");
 
-    const missingSecret = await tool.execute("k8", { action: "set", name: "foo/bar" });
+    const missing = await tool.execute("k8", { action: "delete", name: "ssh/piclaw" });
+    expect(missing.content[0].text).toContain("Keychain entry not found: ssh/piclaw");
+  });
+
+  test("set/delete actions validate required fields", async () => {
+    const tool = await getTool();
+
+    const missingNameSet = await tool.execute("k9", { action: "set", secret: "abc" });
+    expect(missingNameSet.content[0].text).toContain("Provide name for action=set");
+
+    const missingSecret = await tool.execute("k10", { action: "set", name: "foo/bar" });
     expect(missingSecret.content[0].text).toContain("Provide secret for action=set");
+
+    const missingNameDelete = await tool.execute("k11", { action: "delete" });
+    expect(missingNameDelete.content[0].text).toContain("Provide name for action=delete");
   });
 });
