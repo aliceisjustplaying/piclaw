@@ -5,15 +5,12 @@ import {
   handleAgentStatusRequest,
   type AgentStatusContext,
 } from "../../../src/channels/web/agent-status.js";
+import { createJsonResponder } from "./helpers/http.js";
 
 function createContext(overrides: Partial<AgentStatusContext> = {}): AgentStatusContext {
   return {
     defaultChatJid: "web:default",
-    json: (payload, status = 200) =>
-      new Response(JSON.stringify(payload), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
+    json: createJsonResponder(),
     getAgentStatus: () => null,
     getBuffer: () => undefined,
     getContextUsageForChat: async () => null,
