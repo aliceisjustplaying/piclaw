@@ -16,7 +16,7 @@
 import { AgentQueue } from "../queue.js";
 import type { AgentPool } from "../agent-pool.js";
 import { initTheme, type AgentSession } from "@mariozechner/pi-coding-agent";
-import { randomSessionToken, verifyTotp } from "./web/auth.js";
+import { handleAuthVerifyRequest, type TotpAuthContext } from "./web/totp-auth.js";
 import {
   buildSessionCookieHeader,
   isRequestAuthenticated,
@@ -49,7 +49,6 @@ import {
   WEB_TLS_KEY,
   WEB_SESSION_TTL,
   WEB_TOTP_SECRET,
-  WEB_TOTP_WINDOW,
   WEB_INTERNAL_SECRET,
   WEB_PASSKEY_MODE,
 } from "../core/config.js";
@@ -72,8 +71,6 @@ import {
   getMessageRowIdById,
   getMessagesSince,
   replaceMessageContent,
-  createWebSession,
-  DEFAULT_WEB_USER_ID,
   getAllChatCursors,
   getChatCursor,
   setChatCursor,
@@ -523,50 +520,20 @@ export class WebChannel {
     };
   }
 
+  private getTotpAuthContext(): TotpAuthContext {
+    return {
+      isAuthEnabled: () => this.isAuthEnabled(),
+      isTotpEnabled: () => this.isTotpEnabled(),
+      json: (payload, status = 200) => this.json(payload, status),
+      getClientKey: (req) => this.getClientKey(req),
+      logAuthEvent: (req, event) => this.logAuthEvent(req, event),
+      buildSessionCookie: (token, req) => this.buildSessionCookie(token, req),
+      failureTracker: this.totpFailureTracker,
+    };
+  }
+
   async handleAuthVerify(req: Request): Promise<Response> {
-    if (!this.isAuthEnabled() || !this.isTotpEnabled()) return this.json({ error: "Auth disabled" }, 404);
-    let body: { code?: string };
-    try {
-      body = await req.json();
-    } catch {
-      return this.json({ error: "Invalid JSON" }, 400);
-    }
-    const code = (body.code || "").trim();
-    const windowSteps = Number.isFinite(WEB_TOTP_WINDOW) ? Math.max(0, WEB_TOTP_WINDOW) : 1;
-    if (!code) return this.json({ error: "Missing code" }, 400);
-
-    const now = Date.now();
-    const clientKey = this.getClientKey(req);
-    if (this.totpFailureTracker.isLocked(clientKey, now)) {
-      this.logAuthEvent(req, "TOTP lockout active");
-      return this.json({ error: "Too many failed attempts. Try again later." }, 429);
-    }
-
-    if (!verifyTotp(WEB_TOTP_SECRET, code, windowSteps)) {
-      const failure = this.totpFailureTracker.recordFailure(clientKey, now);
-      if (failure.locked) {
-        this.logAuthEvent(req, `TOTP lockout triggered (${failure.failures} failures)`);
-        return this.json({ error: "Too many failed attempts. Try again later." }, 429);
-      }
-      this.logAuthEvent(req, `TOTP failed (${failure.failures}/${this.totpFailureTracker.getFailureLimit()})`);
-      return this.json({ error: "Invalid code" }, 401);
-    }
-
-    this.totpFailureTracker.clear(clientKey);
-
-    const rawTtl = Number.isFinite(WEB_SESSION_TTL) ? WEB_SESSION_TTL : 0;
-    const ttlSeconds = Math.max(60, rawTtl || 0);
-    const token = randomSessionToken();
-    createWebSession(token, DEFAULT_WEB_USER_ID, ttlSeconds, "totp");
-
-    const payload = JSON.stringify({ ok: true });
-    return new Response(payload, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": this.buildSessionCookie(token, req),
-      },
-    });
+    return await handleAuthVerifyRequest(req, this.getTotpAuthContext());
   }
 
   async handleWebauthnLoginStart(req: Request): Promise<Response> {
