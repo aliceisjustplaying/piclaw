@@ -8,7 +8,10 @@
  */
 
 import type { InteractionRow } from "../../db.js";
-import type { WebChannel } from "../web.js";
+
+export interface InteractionBroadcastChannel {
+  broadcastEvent(eventType: string, data: unknown): void;
+}
 
 /** Decorate an interaction payload with agent name and avatar. */
 export function withAgentProfile(
@@ -37,7 +40,7 @@ export function withAgentProfile(
 
 /** Broadcast a completed agent interaction to SSE clients. */
 export function broadcastAgentResponse(
-  channel: WebChannel,
+  channel: InteractionBroadcastChannel,
   interaction: InteractionRow,
   agentName: string,
   agentAvatar?: string | null,
@@ -53,7 +56,7 @@ export function broadcastAgentResponse(
 
 /** Broadcast an updated interaction (edit, link preview) to SSE clients. */
 export function broadcastInteractionUpdated(
-  channel: WebChannel,
+  channel: InteractionBroadcastChannel,
   interaction: InteractionRow,
   agentName: string,
   agentAvatar?: string | null,
