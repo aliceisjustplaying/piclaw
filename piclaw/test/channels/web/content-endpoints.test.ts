@@ -8,15 +8,13 @@ import {
   handleTimelineRequest,
   type ContentEndpointsContext,
 } from "../../../src/channels/web/content-endpoints.js";
+import { initDatabase } from "../../../src/db.js";
+import { createJsonResponder } from "./helpers/http.js";
 
 function createContext(overrides: Partial<ContentEndpointsContext> = {}): ContentEndpointsContext {
   return {
     defaultChatJid: "web:default",
-    json: (payload, status = 200) =>
-      new Response(JSON.stringify(payload), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
+    json: createJsonResponder(),
     getBuffer: () => undefined,
     ...overrides,
   };
@@ -24,6 +22,7 @@ function createContext(overrides: Partial<ContentEndpointsContext> = {}): Conten
 
 describe("web content endpoint helpers", () => {
   test("timeline/hashtag/search/thread helpers return service responses", async () => {
+    initDatabase();
     const ctx = createContext();
 
     const timeline = handleTimelineRequest(20, undefined, ctx);

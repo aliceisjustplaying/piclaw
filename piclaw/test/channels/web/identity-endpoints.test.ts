@@ -6,6 +6,7 @@ import {
   type AgentsEndpointContext,
   type AvatarEndpointContext,
 } from "../../../src/channels/web/identity-endpoints.js";
+import { createJsonResponder } from "./helpers/http.js";
 
 describe("web identity endpoint helpers", () => {
   test("handleAgentsRequest delegates to agents service payload", async () => {
@@ -22,11 +23,7 @@ describe("web identity endpoint helpers", () => {
       userName: "User",
       userAvatar: "/avatar/user",
       userAvatarBackground: "#123456",
-      json: (payload, status = 200) =>
-        new Response(JSON.stringify(payload), {
-          status,
-          headers: { "Content-Type": "application/json" },
-        }),
+      json: createJsonResponder(),
     };
 
     const res = await handleAgentsRequest(ctx);
@@ -41,11 +38,7 @@ describe("web identity endpoint helpers", () => {
     const ctx: AvatarEndpointContext = {
       assistantAvatar: null,
       userAvatar: null,
-      json: (payload, status = 200) =>
-        new Response(JSON.stringify(payload), {
-          status,
-          headers: { "Content-Type": "application/json" },
-        }),
+      json: createJsonResponder(),
     };
 
     const res = await handleAvatarRequest("agent", new Request("https://example.com/avatar/agent"), ctx);
