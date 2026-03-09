@@ -130,7 +130,7 @@ import {
   handleWorkspaceVisibilityRequest,
   type UiEndpointsContext,
 } from "./web/ui-endpoints.js";
-import { broadcastAgentResponse, broadcastInteractionUpdated } from "./web/interaction-service.js";
+import { createInteractionBroadcaster, type InteractionBroadcaster } from "./web/interaction-broadcaster.js";
 import { RemoteInteropService } from "../remote/service.js";
 import { getClientKey as getRequestClientKey } from "./web/http/client.js";
 
@@ -159,6 +159,7 @@ export class WebChannel {
   workspaceShowHidden = false;
   pendingSteeringStore = new PendingSteeringStore();
   agentStatusStore: AgentStatusStore;
+  interactionBroadcaster: InteractionBroadcaster;
   lastCommandInteractionId: number | null = null;
   webauthnChallenges = new WebauthnChallengeTracker();
   totpFailureTracker = new TotpFailureTracker();
@@ -170,6 +171,13 @@ export class WebChannel {
     this.uiBridge = new UiBridge(this);
     this.remoteInterop = new RemoteInteropService(this.agentPool);
     this.agentStatusStore = new AgentStatusStore(this.state);
+    this.interactionBroadcaster = createInteractionBroadcaster(this, {
+      agentName: ASSISTANT_NAME,
+      agentAvatar: resolveAvatarUrl("agent", ASSISTANT_AVATAR),
+      userName: USER_NAME || null,
+      userAvatar: resolveAvatarUrl("user", USER_AVATAR),
+      userAvatarBackground: USER_AVATAR_BACKGROUND || null,
+    });
     bindWebUiSessionBinder(this.agentPool, (session, chatJid) =>
       this.uiBridge.bindSession(session, chatJid)
     );
@@ -225,15 +233,7 @@ export class WebChannel {
         getDb().prepare("UPDATE messages SET thread_id = ? WHERE rowid = ?").run(interaction.id, interaction.id);
         interaction.data.thread_id = interaction.id;
       }
-      broadcastAgentResponse(
-        this,
-        interaction,
-        ASSISTANT_NAME,
-        resolveAvatarUrl("agent", ASSISTANT_AVATAR),
-        USER_NAME || null,
-        resolveAvatarUrl("user", USER_AVATAR),
-        USER_AVATAR_BACKGROUND || null
-      );
+      this.interactionBroadcaster.broadcastAgentResponse(interaction);
     }
   }
 
@@ -243,15 +243,7 @@ export class WebChannel {
 
     this.state.enqueueFollowupPlaceholder(chatJid, interaction.id);
 
-    broadcastAgentResponse(
-      this,
-      interaction,
-      ASSISTANT_NAME,
-      resolveAvatarUrl("agent", ASSISTANT_AVATAR),
-      USER_NAME || null,
-      resolveAvatarUrl("user", USER_AVATAR),
-      USER_AVATAR_BACKGROUND || null
-    );
+    this.interactionBroadcaster.broadcastAgentResponse(interaction);
 
     return interaction;
   }
@@ -293,15 +285,7 @@ export class WebChannel {
     updated.data.agent_id = DEFAULT_AGENT_ID;
     if (threadId) updated.data.thread_id = threadId;
 
-    broadcastInteractionUpdated(
-      this,
-      updated,
-      ASSISTANT_NAME,
-      resolveAvatarUrl("agent", ASSISTANT_AVATAR),
-      USER_NAME || null,
-      resolveAvatarUrl("user", USER_AVATAR),
-      USER_AVATAR_BACKGROUND || null
-    );
+    this.interactionBroadcaster.broadcastInteractionUpdated(updated);
 
     return updated;
   }
@@ -484,28 +468,12 @@ export class WebChannel {
         getDb().prepare("UPDATE messages SET thread_id = ? WHERE rowid = ?").run(threadId, messageId);
       },
       broadcastInteractionUpdated: (interaction) => {
-        broadcastInteractionUpdated(
-          this,
-          interaction,
-          ASSISTANT_NAME,
-          resolveAvatarUrl("agent", ASSISTANT_AVATAR),
-          USER_NAME || null,
-          resolveAvatarUrl("user", USER_AVATAR),
-          USER_AVATAR_BACKGROUND || null
-        );
+        this.interactionBroadcaster.broadcastInteractionUpdated(interaction);
       },
       storeMessage: (chatJid, content, isBot, mediaIds, options = {}) =>
         this.storeMessage(chatJid, content, isBot, mediaIds, options),
       broadcastAgentResponse: (interaction) => {
-        broadcastAgentResponse(
-          this,
-          interaction,
-          ASSISTANT_NAME,
-          resolveAvatarUrl("agent", ASSISTANT_AVATAR),
-          USER_NAME || null,
-          resolveAvatarUrl("user", USER_AVATAR),
-          USER_AVATAR_BACKGROUND || null
-        );
+        this.interactionBroadcaster.broadcastAgentResponse(interaction);
       },
     };
   }
