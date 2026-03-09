@@ -51,6 +51,7 @@ Scope reviewed: `piclaw/piclaw/src`, `piclaw/piclaw/extensions`, `piclaw/piclaw/
 
 ### Recent commit sequence (latest first)
 
+- `da4d198` Extract web UI endpoint helpers and tighten UI bridge typing
 - `46dc1ab` Extract web agent status helpers and harden session binder typing
 - `05deb0b` Extract post mutation endpoint orchestration from web channel
 - `fc8a95e` Extract web manifest response helper from web channel
