@@ -53,9 +53,9 @@ import {
     indentationMarkers,
     githubLight,
     githubDark,
-} from '../vendor/codemirror.js';
-import { getWorkspaceFile, updateWorkspaceFile } from '../api.js';
-import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability } from './pane-types.js';
+} from './vendor/codemirror.js';
+import { getWorkspaceFile, updateWorkspaceFile } from '../../web/src/api.js';
+import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability } from '../../web/src/panes/pane-types.js';
 
 // ── Constants ───────────────────────────────────────────────────
 
