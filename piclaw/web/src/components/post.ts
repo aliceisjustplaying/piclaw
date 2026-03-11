@@ -359,7 +359,7 @@ function highlightHtml(html, query) {
 /**
  * Single post component
  */
-export function Post({ post, onClick, onHashtagClick, onMessageRef, agentName, agentAvatarUrl, userName, userAvatarUrl, userAvatarBackground, onDelete, isThreadReply, isRemoving, highlightQuery }) {
+export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMessage, agentName, agentAvatarUrl, userName, userAvatarUrl, userAvatarBackground, onDelete, isThreadReply, isRemoving, highlightQuery }) {
     const [zoomedImage, setZoomedImage] = useState(null);
     const contentRef = useRef(null);
 
@@ -564,11 +564,15 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, agentName, a
                             const scrollToRef = (e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                const el = document.getElementById('post-' + id);
-                                if (el) {
-                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    el.classList.add('post-highlight');
-                                    setTimeout(() => el.classList.remove('post-highlight'), 2000);
+                                if (onScrollToMessage) {
+                                    onScrollToMessage(id);
+                                } else {
+                                    const el = document.getElementById('post-' + id);
+                                    if (el) {
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        el.classList.add('post-highlight');
+                                        setTimeout(() => el.classList.remove('post-highlight'), 2000);
+                                    }
                                 }
                             };
                             return html`
