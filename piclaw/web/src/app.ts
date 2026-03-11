@@ -297,6 +297,39 @@ function App() {
         setMessageRefs((prev) => (prev.includes(id) ? prev : [...prev, id]));
     }, []);
 
+    /** Scroll to a message by ID; fetch and inject if not in current timeline. */
+    const scrollToMessage = useCallback(async (id) => {
+        // Helper to highlight after scroll
+        const highlight = (el) => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('post-highlight');
+            setTimeout(() => el.classList.remove('post-highlight'), 2000);
+        };
+        // Try to find it in the DOM first
+        const existing = document.getElementById('post-' + id);
+        if (existing) { highlight(existing); return; }
+        // Not in DOM — fetch via API and inject into posts
+        try {
+            const result = await api.getThread(id);
+            const msg = result?.thread?.[0];
+            if (!msg) return;
+            setPosts((prev) => {
+                if (!prev) return [msg];
+                if (prev.some((p) => p.id === msg.id)) return prev;
+                return [...prev, msg];
+            });
+            // Wait for render, then scroll
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    const el = document.getElementById('post-' + id);
+                    if (el) highlight(el);
+                }, 50);
+            });
+        } catch (err) {
+            console.error('[scrollToMessage] Failed to fetch message', id, err);
+        }
+    }, []);
+
     const removeMessageRef = useCallback((id) => {
         setMessageRefs((prev) => prev.filter((item) => item !== id));
     }, []);
@@ -1249,15 +1282,11 @@ function App() {
         if (!posts || posts.length === 0) return;
         const hash = location.hash;
         if (!hash || !hash.startsWith('#msg-')) return;
-        const el = document.getElementById(hash.slice(1).replace('msg-', 'post-'));
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.add('post-highlight');
-            setTimeout(() => el.classList.remove('post-highlight'), 2000);
-            // Clear hash after scroll so it doesn't re-trigger
-            history.replaceState(null, '', location.pathname + location.search);
-        }
-    }, [posts]);
+        const msgId = hash.slice(5); // strip '#msg-'
+        scrollToMessage(msgId);
+        // Clear hash after scroll so it doesn't re-trigger
+        history.replaceState(null, '', location.pathname + location.search);
+    }, [posts, scrollToMessage]);
 
     // Adaptive backstop poller — SSE is the primary event source; this is
     // a safety net only. 15 s when a turn is active (keeps compaction status
@@ -1404,6 +1433,7 @@ function App() {
                     timelineRef=${timelineRef}
                     onHashtagClick=${handleHashtagClick}
                     onMessageRef=${addMessageRef}
+                    onScrollToMessage=${scrollToMessage}
                     onPostClick=${undefined}
                     onDeletePost=${handleDeletePost}
                     emptyMessage=${currentHashtag ? `No posts with #${currentHashtag}` : searchQuery ? `No results for "${searchQuery}"` : undefined}
