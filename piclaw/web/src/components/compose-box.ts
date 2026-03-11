@@ -114,6 +114,9 @@ export function ComposeBox({
     fileRefs = [],
     onRemoveFileRef,
     onClearFileRefs,
+    messageRefs = [],
+    onRemoveMessageRef,
+    onClearMessageRefs,
     activeModel = null,
     thinkingLevel = null,
     supportsThinking = false,
@@ -171,7 +174,7 @@ export function ComposeBox({
     const historyRef = useRef(loadHistory());
     const historyIndexRef = useRef(-1);
     const historyDraftRef = useRef('');
-    const canSend = !loading && (content.trim() || mediaFiles.length > 0 || fileRefs.length > 0);
+    const canSend = !loading && (content.trim() || mediaFiles.length > 0 || fileRefs.length > 0 || messageRefs.length > 0);
     const canShareLocation = typeof window !== 'undefined'
         && typeof navigator !== 'undefined'
         && Boolean(navigator.geolocation)
@@ -333,7 +336,7 @@ export function ComposeBox({
                 ? overrideContent.target.value
                 : content);
         const currentContent = typeof inferred === 'string' ? inferred : '';
-        if (!currentContent.trim() && mediaFiles.length === 0 && fileRefs.length === 0) return;
+        if (!currentContent.trim() && mediaFiles.length === 0 && fileRefs.length === 0 && messageRefs.length === 0) return;
 
         setLoading(true);
         try {
@@ -348,6 +351,9 @@ export function ComposeBox({
             const fileBlock = fileRefs.length
                 ? `Files:\n${fileRefs.map((path) => `- ${path}`).join('\n')}`
                 : '';
+            const messageRefBlock = messageRefs.length
+                ? `Referenced messages:\n${messageRefs.map((id) => `- message:${id}`).join('\n')}`
+                : '';
             const mediaBlock = mediaIds.length
                 ? `Images:\n${mediaIds.map((id, index) => {
                     const file = mediaFiles[index];
@@ -355,7 +361,7 @@ export function ComposeBox({
                     return `- attachment:${id} (${label})`;
                 }).join('\n')}`
                 : '';
-            const message = [baseContent, fileBlock, mediaBlock].filter(Boolean).join('\n\n');
+            const message = [baseContent, fileBlock, messageRefBlock, mediaBlock].filter(Boolean).join('\n\n');
 
             // Send to agent by default
             const response = await sendAgentMessage('default', message, null, mediaIds);
@@ -383,6 +389,7 @@ export function ComposeBox({
             setContent('');
             setMediaFiles([]);
             onClearFileRefs?.();
+            onClearMessageRefs?.();
             onPost?.();
         } catch (error) {
             console.error('Failed to post:', error);
@@ -651,8 +658,21 @@ export function ComposeBox({
                 onDrop=${handleDrop}
             >
                 <div class="compose-input-main">
-                    ${!searchMode && (fileRefs.length > 0 || mediaFiles.length > 0) && html`
+                    ${!searchMode && (fileRefs.length > 0 || mediaFiles.length > 0 || messageRefs.length > 0) && html`
                         <div class="compose-file-refs">
+                            ${messageRefs.map((id) => {
+                                return html`
+                                    <${FilePill}
+                                        key=${'msg-' + id}
+                                        prefix="compose"
+                                        label=${'msg:' + id}
+                                        title=${'Message reference: ' + id}
+                                        removeTitle="Remove reference"
+                                        icon="message"
+                                        onRemove=${() => onRemoveMessageRef?.(id)}
+                                    />
+                                `;
+                            })}
                             ${fileRefs.map((path) => {
                                 const label = path.split('/').pop() || path;
                                 return html`

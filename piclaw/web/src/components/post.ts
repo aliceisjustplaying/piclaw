@@ -228,6 +228,40 @@ function extractFileRefs(content) {
     return { content: cleaned, fileRefs: refs };
 }
 
+function extractMessageRefs(content) {
+    if (!content) return { content, messageRefs: [] };
+    const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = normalized.split('\n');
+    let start = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+        if (lines[i].trim() === 'Referenced messages:' && lines[i + 1] && /^\s*-\s+/.test(lines[i + 1])) {
+            start = i;
+            break;
+        }
+    }
+    if (start === -1) return { content, messageRefs: [] };
+    const refs = [];
+    let end = start + 1;
+    for (; end < lines.length; end += 1) {
+        const line = lines[end];
+        if (/^\s*-\s+/.test(line)) {
+            const val = line.replace(/^\s*-\s+/, '').trim();
+            const match = val.match(/^message:(\S+)$/i);
+            if (match) refs.push(match[1]);
+        } else if (!line.trim()) {
+            break;
+        } else {
+            break;
+        }
+    }
+    if (refs.length === 0) return { content, messageRefs: [] };
+    const before = lines.slice(0, start);
+    const after = lines.slice(end);
+    let cleaned = [...before, ...after].join('\n');
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+    return { content: cleaned, messageRefs: refs };
+}
+
 function extractAttachmentRefs(content) {
     if (!content) return { content, attachments: [] };
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -325,7 +359,7 @@ function highlightHtml(html, query) {
 /**
  * Single post component
  */
-export function Post({ post, onClick, onHashtagClick, agentName, agentAvatarUrl, userName, userAvatarUrl, userAvatarBackground, onDelete, isThreadReply, isRemoving, highlightQuery }) {
+export function Post({ post, onClick, onHashtagClick, onMessageRef, agentName, agentAvatarUrl, userName, userAvatarUrl, userAvatarBackground, onDelete, isThreadReply, isRemoving, highlightQuery }) {
     const [zoomedImage, setZoomedImage] = useState(null);
     const contentRef = useRef(null);
 
@@ -364,7 +398,8 @@ export function Post({ post, onClick, onHashtagClick, agentName, agentAvatarUrl,
     // Keep original message text even when link previews are available.
     let displayContent = getDisplayContent(data.content, data.link_previews);
     const { content: cleanedContent, fileRefs } = extractFileRefs(displayContent);
-    const { content: cleanedWithAttachments, attachments } = extractAttachmentRefs(cleanedContent);
+    const { content: cleanedWithMsgRefs, messageRefs } = extractMessageRefs(cleanedContent);
+    const { content: cleanedWithAttachments, attachments } = extractAttachmentRefs(cleanedWithMsgRefs);
     displayContent = cleanedWithAttachments;
     const shouldRenderContent = Boolean(displayContent) && !isHardTruncated;
     const highlightQueryText = typeof highlightQuery === 'string' ? highlightQuery.trim() : '';
@@ -500,7 +535,11 @@ export function Post({ post, onClick, onHashtagClick, agentName, agentAvatarUrl,
                 </button>
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
-                    <span class="post-time">${formatTime(post.timestamp)}</span>
+                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (onMessageRef) onMessageRef(post.id);
+                    }}>${formatTime(post.timestamp)}</a>
                 </div>
                 ${isHardTruncated && truncatedInfo && html`
                     <div class="post-content truncated">
@@ -519,8 +558,22 @@ export function Post({ post, onClick, onHashtagClick, agentName, agentAvatarUrl,
                         </div>
                     </div>
                 `}
-                ${(fileRefs.length > 0 || attachmentPills.length > 0) && html`
+                ${(fileRefs.length > 0 || messageRefs.length > 0 || attachmentPills.length > 0) && html`
                     <div class="post-file-refs">
+                        ${messageRefs.map((id) => {
+                            return html`
+                                <a href=${`#msg-${id}`} class="post-msg-pill-link" onClick=${(e) => {
+                                    e.stopPropagation();
+                                }}>
+                                    <${FilePill}
+                                        prefix="post"
+                                        label=${'msg:' + id}
+                                        title=${'Message ' + id}
+                                        icon="message"
+                                    />
+                                </a>
+                            `;
+                        })}
                         ${fileRefs.map((ref) => {
                             const label = ref.split('/').pop() || ref;
                             return html`
