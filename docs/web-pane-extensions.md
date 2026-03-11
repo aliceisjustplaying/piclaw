@@ -166,6 +166,24 @@ If `resolve()` returns no match, the host falls back to the built-in editor.
 5. User saves → pane calls `onSaveRequest(content)` → host writes file
 6. Tab closed → host calls `instance.dispose()` → pane cleans up
 
+## Manual test notes
+
+### Pane disposal
+Verify no leaked listeners or DOM nodes after pane lifecycle:
+
+1. Open a file tab → tab appears, editor mounts
+2. Close the tab → verify no orphaned DOM in `.editor-pane-container`
+3. Open 5 files, close all → verify memory (DevTools → Heap snapshot)
+4. Open a file, switch tabs 10× → verify no accumulated event listeners
+   (DevTools → Performance monitor → Event Listeners count)
+5. Toggle dock open/close 10× → verify no DOM leaks
+
+### Dock splitter
+1. Open dock (Ctrl+`) → drag splitter up and down
+2. Verify height persists after page reload
+3. Test on iPad: touch-drag the splitter
+4. Verify editor and dock both re-layout smoothly
+
 ## Built-in panes
 
 | ID | Placement | Priority | Description |

@@ -1142,6 +1142,22 @@ body {
 }
 
 /* Dock panel layout (bottom panel) */
+/* Dock splitter — horizontal drag handle between editor and dock */
+.dock-splitter {
+    height: 4px;
+    cursor: row-resize;
+    background: var(--border-color);
+    flex-shrink: 0;
+    transition: background-color var(--ui-transition-fast);
+    position: relative;
+    z-index: 2;
+}
+
+.dock-splitter:hover,
+.dock-splitter.dragging {
+    background: var(--accent-color);
+}
+
 .dock-panel {
     border-top: 1px solid var(--border-color);
     background: var(--bg-primary);
