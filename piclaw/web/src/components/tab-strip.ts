@@ -7,7 +7,7 @@
  * - Dirty indicator (filled circle)
  * - Close button per tab (× icon, replaced by dirty dot when dirty)
  * - Middle-click to close
- * - Context menu: Close, Close Others, Close All, Pin/Unpin
+ * - Context menu: Close, Close Others, Close All, Pin/Unpin, Preview (markdown)
  * - Keyboard shortcuts: Ctrl+Tab (next), Ctrl+Shift+Tab (prev), Ctrl+W (close)
  */
 
@@ -24,10 +24,12 @@ import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vend
  * @param {(id: string) => void} props.onCloseOthers
  * @param {() => void} props.onCloseAll
  * @param {(id: string) => void} props.onTogglePin
+ * @param {(id: string) => void} [props.onTogglePreview] - Toggle markdown preview for a tab.
+ * @param {Set<string>} [props.previewTabs] - Set of tab ids with preview open.
  * @param {() => void} [props.onToggleDock] - Toggle terminal dock visibility.
  * @param {boolean} [props.dockVisible] - Whether the terminal dock is currently visible.
  */
-export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, onCloseAll, onTogglePin, onToggleDock, dockVisible }) {
+export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, onCloseAll, onTogglePin, onTogglePreview, previewTabs, onToggleDock, dockVisible }) {
     const [contextMenu, setContextMenu] = useState(null);
     const stripRef = useRef(null);
 
@@ -171,6 +173,12 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
                 <button onClick=${() => { onTogglePin?.(contextMenu.id); setContextMenu(null); }}>
                     ${tabs.find(t => t.id === contextMenu.id)?.pinned ? 'Unpin' : 'Pin'}
                 </button>
+                ${onTogglePreview && /\.(md|mdx|markdown)$/i.test(contextMenu.id) && html`
+                    <hr />
+                    <button onClick=${() => { onTogglePreview(contextMenu.id); setContextMenu(null); }}>
+                        ${previewTabs?.has(contextMenu.id) ? 'Hide Preview' : 'Preview'}
+                    </button>
+                `}
             </div>
         `}
     `;

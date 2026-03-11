@@ -989,6 +989,60 @@ body {
     border-top: 1px solid var(--border-color);
 }
 
+/* ── Markdown Preview Panel ── */
+.md-preview-panel {
+    display: flex;
+    flex-direction: column;
+    height: var(--preview-split, 40%);
+    min-height: 60px;
+    max-height: 70%;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.md-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 8px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.md-preview-title {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.md-preview-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+}
+
+.md-preview-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.md-preview-body {
+    flex: 1;
+    overflow: auto;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 .editor-status-row {
     display: flex;
     align-items: center;

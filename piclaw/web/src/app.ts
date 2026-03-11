@@ -21,6 +21,7 @@ import { AgentRequestModal, AgentStatus, ConnectionStatus } from './components/s
 import { Timeline } from './components/timeline.js';
 import { WorkspaceExplorer } from './components/workspace-explorer.js';
 import { TabStrip } from './components/tab-strip.js';
+import { MarkdownPreview } from './components/markdown-preview.js';
 import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, tabStore } from './panes/index.js';
 import { getLocalStorageBoolean, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
 import { useSseConnection } from './ui/use-sse-connection.js';
@@ -135,11 +136,11 @@ function App() {
 
     // Editor state hook (file load/save, tabs, dirty, view state, SSE sync)
     const {
-        editorOpen, tabStripTabs, tabStripActiveId,
+        editorOpen, tabStripTabs, tabStripActiveId, previewTabs,
         openEditor, closeEditor, handleTabClose, handleTabActivate,
         handleTabCloseOthers, handleTabCloseAll, handleTabTogglePin,
-        revealInExplorer,
-    } = useEditorState();
+        handleTabTogglePreview, revealInExplorer,
+    } = useEditorState({ onTabClosed: removeFileRef });
 
     // Editor extension container ref + instance tracking
     const editorContainerRef = useRef(null);
@@ -1351,10 +1352,19 @@ function App() {
                         onCloseOthers=${handleTabCloseOthers}
                         onCloseAll=${handleTabCloseAll}
                         onTogglePin=${handleTabTogglePin}
+                        onTogglePreview=${handleTabTogglePreview}
+                        previewTabs=${previewTabs}
                         onToggleDock=${hasDockPanes ? toggleDock : undefined}
                         dockVisible=${hasDockPanes && dockVisible}
                     />
                     <div class="editor-pane-host" ref=${editorContainerRef}></div>
+                    ${tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
+                        <${MarkdownPreview}
+                            getContent=${() => editorInstanceRef.current?.getContent?.()}
+                            path=${tabStripActiveId}
+                            onClose=${() => handleTabTogglePreview(tabStripActiveId)}
+                        />
+                    `}
                     ${hasDockPanes && dockVisible && html`<div class="dock-splitter" onMouseDown=${handleDockSplitterMouseDown} onTouchStart=${handleDockSplitterTouchStart}></div>`}
                     ${hasDockPanes && html`<div class=${`dock-panel${dockVisible ? '' : ' hidden'}`}>
                         <div class="dock-panel-header">

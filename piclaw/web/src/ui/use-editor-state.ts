@@ -17,7 +17,7 @@ import { paneRegistry, tabStore } from '../panes/index.js';
  *
  * @returns Tab state, handlers, and active tab info.
  */
-export function useEditorState() {
+export function useEditorState({ onTabClosed } = {}) {
     // ── Tab strip state (driven by tabStore) ────────────────────
     const [tabStripTabs, setTabStripTabs] = useState(() => tabStore.getTabs());
     const [tabStripActiveId, setTabStripActiveId] = useState(() => tabStore.getActiveId());
@@ -63,8 +63,10 @@ export function useEditorState() {
                 if (!confirmed) return;
             }
             tabStore.close(activeId);
+            cleanupPreviewTab(activeId);
+            onTabClosed?.(activeId);
         }
-    }, []);
+    }, [onTabClosed]);
 
     /** Close a specific tab (from tab strip). */
     const handleTabClose = useCallback((id) => {
@@ -74,7 +76,9 @@ export function useEditorState() {
             if (!confirmed) return;
         }
         tabStore.close(id);
-    }, []);
+        cleanupPreviewTab(id);
+        onTabClosed?.(id);
+    }, [onTabClosed, cleanupPreviewTab]);
 
     /** Activate a tab by id. */
     const handleTabActivate = useCallback((id) => {
@@ -89,8 +93,10 @@ export function useEditorState() {
             const confirmed = window.confirm(`${dirtyCount} unsaved tab${dirtyCount > 1 ? 's' : ''} will be closed. Continue?`);
             if (!confirmed) return;
         }
+        const closedIds = others.map(t => t.id);
         tabStore.closeOthers(id);
-    }, []);
+        closedIds.forEach(cid => { cleanupPreviewTab(cid); onTabClosed?.(cid); });
+    }, [onTabClosed, cleanupPreviewTab]);
 
     /** Close all tabs. */
     const handleTabCloseAll = useCallback(() => {
@@ -100,8 +106,10 @@ export function useEditorState() {
             const confirmed = window.confirm(`${dirtyCount} unsaved tab${dirtyCount > 1 ? 's' : ''} will be closed. Continue?`);
             if (!confirmed) return;
         }
+        const closedIds = tabs.map(t => t.id);
         tabStore.closeAll();
-    }, []);
+        closedIds.forEach(cid => { cleanupPreviewTab(cid); onTabClosed?.(cid); });
+    }, [onTabClosed, cleanupPreviewTab]);
 
     /** Toggle pin on a tab. */
     const handleTabTogglePin = useCallback((id) => {
@@ -114,6 +122,31 @@ export function useEditorState() {
         if (activeId) {
             window.dispatchEvent(new CustomEvent('workspace-reveal-path', { detail: { path: activeId } }));
         }
+    }, []);
+
+    // ── Markdown preview state ────────────────────────────────
+    const [previewTabs, setPreviewTabs] = useState(() => new Set());
+
+    const handleTabTogglePreview = useCallback((id) => {
+        setPreviewTabs((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    // Clean up preview state when tabs close
+    const cleanupPreviewTab = useCallback((id) => {
+        setPreviewTabs((prev) => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
     }, []);
 
     // ── SSE rename sync ─────────────────────────────────────────
@@ -153,6 +186,7 @@ export function useEditorState() {
         editorOpen,
         tabStripTabs,
         tabStripActiveId,
+        previewTabs,
         // Handlers
         openEditor,
         closeEditor,
@@ -161,6 +195,7 @@ export function useEditorState() {
         handleTabCloseOthers,
         handleTabCloseAll,
         handleTabTogglePin,
+        handleTabTogglePreview,
         revealInExplorer,
     };
 }
