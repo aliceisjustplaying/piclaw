@@ -79,6 +79,7 @@ function App() {
     const [searchQuery, setSearchQuery] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
     const [fileRefs, setFileRefs] = useState([]);
+    const [messageRefs, setMessageRefs] = useState([]);
     const {
         agentStatus,
         setAgentStatus,
@@ -194,6 +195,19 @@ function App() {
 
     const clearFileRefs = useCallback(() => {
         setFileRefs([]);
+    }, []);
+
+    const addMessageRef = useCallback((id) => {
+        if (!id) return;
+        setMessageRefs((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    }, []);
+
+    const removeMessageRef = useCallback((id) => {
+        setMessageRefs((prev) => prev.filter((item) => item !== id));
+    }, []);
+
+    const clearMessageRefs = useCallback(() => {
+        setMessageRefs([]);
     }, []);
 
     const noteAgentActivity = useCallback((options = {}) => {
@@ -1133,6 +1147,21 @@ function App() {
     // Set up SSE connection
     useSseConnection({ handleSseEvent, handleConnectionStatusChange, loadPosts });
 
+    // Scroll to hash-linked message on load (e.g. #msg-123)
+    useEffect(() => {
+        if (!posts || posts.length === 0) return;
+        const hash = location.hash;
+        if (!hash || !hash.startsWith('#msg-')) return;
+        const el = document.getElementById(hash.slice(1).replace('msg-', 'post-'));
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('post-highlight');
+            setTimeout(() => el.classList.remove('post-highlight'), 2000);
+            // Clear hash after scroll so it doesn't re-trigger
+            history.replaceState(null, '', location.pathname + location.search);
+        }
+    }, [posts]);
+
     // Adaptive backstop poller — SSE is the primary event source; this is
     // a safety net only. 15 s when a turn is active (keeps compaction status
     // visible and catches any SSE-gap missed turn completion). 60 s when
@@ -1404,6 +1433,7 @@ function App() {
                     onLoadMore=${loadMore}
                     timelineRef=${timelineRef}
                     onHashtagClick=${handleHashtagClick}
+                    onMessageRef=${addMessageRef}
                     onPostClick=${undefined}
                     onDeletePost=${handleDeletePost}
                     emptyMessage=${currentHashtag ? `No posts with #${currentHashtag}` : searchQuery ? `No results for "${searchQuery}"` : undefined}
@@ -1433,6 +1463,9 @@ function App() {
                     fileRefs=${fileRefs}
                     onRemoveFileRef=${removeFileRef}
                     onClearFileRefs=${clearFileRefs}
+                    messageRefs=${messageRefs}
+                    onRemoveMessageRef=${removeMessageRef}
+                    onClearMessageRefs=${clearMessageRefs}
                     activeModel=${activeModel}
                     thinkingLevel=${activeThinkingLevel}
                     supportsThinking=${supportsThinking}
