@@ -196,6 +196,147 @@ export function getDisplayContent(content, _linkPreviews) {
     return typeof content === 'string' ? content : '';
 }
 
+const CODE_COPY_RESET_MS = 1800;
+const COPY_ICON_SVG = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="9" y="9" width="10" height="10" rx="2"></rect>
+        <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
+    </svg>`;
+const COPY_SUCCESS_SVG = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M20 6L9 17l-5-5"></path>
+    </svg>`;
+const COPY_ERROR_SVG = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M9 9l6 6M15 9l-6 6"></path>
+    </svg>`;
+
+async function copyCodeText(text) {
+    const value = typeof text === 'string' ? text : '';
+    if (!value) return false;
+
+    if (navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(value);
+            return true;
+        } catch {
+            // Fall through to execCommand fallback.
+        }
+    }
+
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.style.pointerEvents = 'none';
+        document.body.appendChild(textarea);
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        const copied = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return copied;
+    } catch {
+        return false;
+    }
+}
+
+function enhanceCodeBlocks(container) {
+    if (!container) return () => {};
+
+    const blocks = Array.from(container.querySelectorAll('pre')).filter((pre) => pre.querySelector('code'));
+    if (blocks.length === 0) return () => {};
+
+    const resetTimers = new Map();
+    const cleanups = [];
+
+    const setTouchActive = (activePre) => {
+        blocks.forEach((pre) => {
+            pre.classList.toggle('code-copy-touch-active', pre === activePre);
+        });
+    };
+
+    const setButtonState = (button, state) => {
+        const nextState = state || 'idle';
+        button.dataset.copyState = nextState;
+        if (nextState === 'success') {
+            button.innerHTML = COPY_SUCCESS_SVG;
+            button.setAttribute('aria-label', 'Copied');
+            button.setAttribute('title', 'Copied');
+            button.classList.add('is-success');
+            button.classList.remove('is-error');
+        } else if (nextState === 'error') {
+            button.innerHTML = COPY_ERROR_SVG;
+            button.setAttribute('aria-label', 'Copy failed');
+            button.setAttribute('title', 'Copy failed');
+            button.classList.add('is-error');
+            button.classList.remove('is-success');
+        } else {
+            button.innerHTML = COPY_ICON_SVG;
+            button.setAttribute('aria-label', 'Copy code');
+            button.setAttribute('title', 'Copy code');
+            button.classList.remove('is-success', 'is-error');
+        }
+    };
+
+    blocks.forEach((pre) => {
+        pre.classList.add('post-code-block');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'post-code-copy-btn';
+        setButtonState(button, 'idle');
+        pre.appendChild(button);
+
+        const handleCopyClick = async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const code = pre.querySelector('code');
+            const text = code?.textContent || '';
+            const ok = await copyCodeText(text);
+            setButtonState(button, ok ? 'success' : 'error');
+            const existingTimer = resetTimers.get(button);
+            if (existingTimer) clearTimeout(existingTimer);
+            const timer = setTimeout(() => {
+                setButtonState(button, 'idle');
+                resetTimers.delete(button);
+            }, CODE_COPY_RESET_MS);
+            resetTimers.set(button, timer);
+        };
+
+        const handleTouchPointerDown = (event) => {
+            if (event.pointerType === 'touch') {
+                setTouchActive(pre);
+            }
+        };
+
+        button.addEventListener('click', handleCopyClick);
+        pre.addEventListener('pointerdown', handleTouchPointerDown);
+        cleanups.push(() => {
+            button.removeEventListener('click', handleCopyClick);
+            pre.removeEventListener('pointerdown', handleTouchPointerDown);
+            const timer = resetTimers.get(button);
+            if (timer) clearTimeout(timer);
+            button.remove();
+            pre.classList.remove('post-code-block', 'code-copy-touch-active');
+        });
+    });
+
+    const handleDocumentPointerDown = (event) => {
+        if (event.pointerType !== 'touch') return;
+        const targetPre = event.target?.closest?.('.post-code-block');
+        setTouchActive(targetPre || null);
+    };
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    cleanups.push(() => document.removeEventListener('pointerdown', handleDocumentPointerDown));
+
+    return () => {
+        cleanups.forEach((cleanup) => cleanup());
+    };
+}
+
 function extractFileRefs(content) {
     if (!content) return { content, fileRefs: [] };
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -511,12 +652,12 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
             label: entry.name || `attachment-${idx + 1}`,
         }));
 
-    // Render mermaid diagrams after content is mounted
+    // Render mermaid diagrams and enhance code blocks after content is mounted
     useEffect(() => {
-        if (contentRef.current) {
-            renderMermaidDiagrams(contentRef.current);
-        }
-    }, [displayContent]);
+        if (!contentRef.current) return undefined;
+        renderMermaidDiagrams(contentRef.current);
+        return enhanceCodeBlocks(contentRef.current);
+    }, [renderedHtml]);
 
     return html`
         <div id=${`post-${post.id}`} class="post ${isAgent ? 'agent-post' : ''} ${isThreadReply ? 'thread-reply' : ''} ${isThreadPrev ? 'thread-prev' : ''} ${isThreadNext ? 'thread-next' : ''} ${isRemoving ? 'removing' : ''}" onClick=${onClick}>
