@@ -93,9 +93,11 @@ export async function getPostsByHashtag(hashtag, limit = 50, offset = 0, chatJid
 /**
  * Search posts
  */
-export async function searchPosts(query, limit = 50, offset = 0, chatJid = null) {
+export async function searchPosts(query, limit = 50, offset = 0, chatJid = null, scope = 'current', rootChatJid = null) {
     const chatQuery = chatJid ? `&chat_jid=${encodeURIComponent(chatJid)}` : '';
-    return request(`/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${chatQuery}`);
+    const scopeQuery = scope ? `&scope=${encodeURIComponent(scope)}` : '';
+    const rootQuery = rootChatJid ? `&root_chat_jid=${encodeURIComponent(rootChatJid)}` : '';
+    return request(`/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${chatQuery}${scopeQuery}${rootQuery}`);
 }
 
 /**
@@ -109,8 +111,9 @@ export async function getThread(threadId, chatJid = null) {
 /**
  * Create a new post
  */
-export async function createPost(content, mediaIds = []) {
-    return request('/post', {
+export async function createPost(content, mediaIds = [], chatJid = null) {
+    const query = chatJid ? `?chat_jid=${encodeURIComponent(chatJid)}` : '';
+    return request(`/post${query}`, {
         method: 'POST',
         body: JSON.stringify({ content, media_ids: mediaIds }),
     });
@@ -119,8 +122,9 @@ export async function createPost(content, mediaIds = []) {
 /**
  * Reply to a thread
  */
-export async function createReply(threadId, content, mediaIds = []) {
-    return request('/reply', {
+export async function createReply(threadId, content, mediaIds = [], chatJid = null) {
+    const query = chatJid ? `?chat_jid=${encodeURIComponent(chatJid)}` : '';
+    return request(`/reply${query}`, {
         method: 'POST',
         body: JSON.stringify({ thread_id: threadId, content, media_ids: mediaIds }),
     });
@@ -129,8 +133,9 @@ export async function createReply(threadId, content, mediaIds = []) {
 /**
  * Delete a post (optionally cascade replies)
  */
-export async function deletePost(postId, cascade = false) {
-    const url = `/post/${postId}?cascade=${cascade ? 'true' : 'false'}`;
+export async function deletePost(postId, cascade = false, chatJid = null) {
+    const chatQuery = chatJid ? `&chat_jid=${encodeURIComponent(chatJid)}` : '';
+    const url = `/post/${postId}?cascade=${cascade ? 'true' : 'false'}${chatQuery}`;
     return request(url, { method: 'DELETE' });
 }
 
@@ -153,6 +158,14 @@ export async function getActiveChatAgents() {
 }
 
 /**
+ * List known branch/session records from the branch registry.
+ */
+export async function getChatBranches(rootChatJid = null) {
+    const query = rootChatJid ? `?root_chat_jid=${encodeURIComponent(rootChatJid)}` : '';
+    return request(`/agent/branches${query}`);
+}
+
+/**
  * Create a first-class forked branch from an existing chat branch.
  */
 export async function forkChatBranch(sourceChatJid, options = {}) {
@@ -163,6 +176,30 @@ export async function forkChatBranch(sourceChatJid, options = {}) {
             ...(options?.agentName ? { agent_name: options.agentName } : {}),
             ...(options?.displayName ? { display_name: options.displayName } : {}),
         }),
+    });
+}
+
+/**
+ * Rename a registry-backed chat branch / agent identity.
+ */
+export async function renameChatBranch(chatJid, options = {}) {
+    return request('/agent/branch-rename', {
+        method: 'POST',
+        body: JSON.stringify({
+            chat_jid: chatJid,
+            ...(options && Object.prototype.hasOwnProperty.call(options, 'agentName') ? { agent_name: options.agentName } : {}),
+            ...(options && Object.prototype.hasOwnProperty.call(options, 'displayName') ? { display_name: options.displayName } : {}),
+        }),
+    });
+}
+
+/**
+ * Archive/prune a registry-backed chat branch / agent identity.
+ */
+export async function pruneChatBranch(chatJid) {
+    return request('/agent/branch-prune', {
+        method: 'POST',
+        body: JSON.stringify({ chat_jid: chatJid }),
     });
 }
 
@@ -285,11 +322,11 @@ export async function uploadMedia(file) {
 /**
  * Respond to an agent request (permission, choice)
  */
-export async function respondToAgentRequest(requestId, outcome) {
+export async function respondToAgentRequest(requestId, outcome, chatJid = null) {
     const response = await fetch(API_BASE + '/agent/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: requestId, outcome }),
+        body: JSON.stringify({ request_id: requestId, outcome, chat_jid: chatJid || undefined }),
     });
     
     if (!response.ok) {
@@ -586,9 +623,10 @@ export function getWorkspaceDownloadUrl(path, showHidden = false) {
  * SSE client for live updates
  */
 export class SSEClient {
-    constructor(onEvent, onStatusChange) {
+    constructor(onEvent, onStatusChange, options = {}) {
         this.onEvent = onEvent;
         this.onStatusChange = onStatusChange;
+        this.chatJid = typeof options?.chatJid === 'string' && options.chatJid.trim() ? options.chatJid.trim() : null;
         this.eventSource = null;
         this.reconnectTimeout = null;
         this.reconnectDelay = 1000;
@@ -606,7 +644,8 @@ export class SSEClient {
             this.eventSource.close();
         }
         
-        this.eventSource = new EventSource(API_BASE + '/sse/stream');
+        const query = this.chatJid ? `?chat_jid=${encodeURIComponent(this.chatJid)}` : '';
+        this.eventSource = new EventSource(API_BASE + '/sse/stream' + query);
         
         this.eventSource.onopen = () => {
             this.connecting = false;

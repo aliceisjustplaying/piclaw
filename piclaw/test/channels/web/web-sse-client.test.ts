@@ -47,13 +47,39 @@ test("SSEClient reconnectIfNeeded respects cooldown", () => {
   expect(connected).toBe(false);
 });
 
-test("streamSidePrompt parses SSE event frames and returns the final payload", async () => {
+test("SSEClient connects to a chat-scoped SSE stream when chatJid is provided", () => {
+  const OriginalEventSource = globalThis.EventSource;
+  const opened: string[] = [];
+
+  class FakeEventSource {
+    onopen: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    constructor(url: string) {
+      opened.push(url);
+    }
+    addEventListener() {}
+    close() {}
+  }
+
+  globalThis.EventSource = FakeEventSource as any;
+  try {
+    const client = new SSEClient(() => {}, () => {}, { chatJid: "web:branch-a" });
+    client.connect();
+    expect(opened[0]).toBe("/sse/stream?chat_jid=web%3Abranch-a");
+  } finally {
+    globalThis.EventSource = OriginalEventSource;
+  }
+});
+
+test("streamSidePrompt parses SSE event frames, returns the final payload, and forwards the active chat_jid", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => {
+  let seenBody: any = null;
+  globalThis.fetch = (async (_url, init) => {
+    seenBody = init?.body ? JSON.parse(String(init.body)) : null;
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(encoder.encode('event: side_prompt_start\ndata: {"chat_jid":"web:default"}\n\n'));
+        controller.enqueue(encoder.encode('event: side_prompt_start\ndata: {"chat_jid":"web:branch-a"}\n\n'));
         controller.enqueue(encoder.encode('event: side_prompt_thinking_delta\ndata: {"delta":"plan"}\n\n'));
         controller.enqueue(encoder.encode('event: side_prompt_text_delta\ndata: {"delta":"answer"}\n\n'));
         controller.enqueue(encoder.encode('event: side_prompt_done\ndata: {"status":"success","result":"answer","thinking":"plan","model":"openai/gpt-test"}\n\n'));
@@ -68,10 +94,15 @@ test("streamSidePrompt parses SSE event frames and returns the final payload", a
 
   const seen: Array<string> = [];
   const result = await streamSidePrompt("What changed?", {
+    chatJid: "web:branch-a",
     onThinkingDelta: (delta) => seen.push(`thinking:${delta}`),
     onTextDelta: (delta) => seen.push(`text:${delta}`),
   });
 
+  expect(seenBody).toEqual({
+    prompt: "What changed?",
+    chat_jid: "web:branch-a",
+  });
   expect(seen).toEqual(["thinking:plan", "text:answer"]);
   expect(result).toEqual({
     status: "success",

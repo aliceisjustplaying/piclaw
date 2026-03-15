@@ -766,6 +766,7 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                         await submitAdaptiveCardAction({
                             post_id: post.id,
                             thread_id: data.thread_id || post.id,
+                            chat_jid: post.chat_jid || null,
                             card_id: block.card_id,
                             action: {
                                 type: action.type,
@@ -834,7 +835,7 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                                 e.preventDefault();
                                 e.stopPropagation();
                                 if (onScrollToMessage) {
-                                    onScrollToMessage(id);
+                                    onScrollToMessage(id, post.chat_jid || null);
                                 } else {
                                     const el = document.getElementById('post-' + id);
                                     if (el) {

@@ -31,7 +31,7 @@ describe("web content endpoint helpers", () => {
     const hashtag = handleHashtagRequest("dev", 20, 0, undefined, ctx);
     expect(hashtag.status).toBe(200);
 
-    const searchBad = handleSearchRequest("", 20, 0, undefined, ctx);
+    const searchBad = handleSearchRequest("", 20, 0, undefined, undefined, undefined, ctx);
     expect(searchBad.status).toBe(400);
 
     const threadMissing = handleThreadRequest(null, undefined, ctx);

@@ -46,9 +46,12 @@ export function handleSearchRequest(
   limit: number,
   offset: number,
   chatJid: string | undefined,
+  searchScope: "current" | "root" | "all" | undefined,
+  rootChatJid: string | undefined,
   ctx: ContentEndpointsContext
 ): Response {
-  const result = getSearchResponse(chatJid || ctx.defaultChatJid, query, limit, offset);
+  const normalizedScope = searchScope === "root" || searchScope === "all" ? searchScope : "current";
+  const result = getSearchResponse(chatJid || ctx.defaultChatJid, query, limit, offset, normalizedScope, rootChatJid || null);
   return ctx.json(result.body, result.status);
 }
 

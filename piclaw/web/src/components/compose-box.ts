@@ -3,6 +3,7 @@ import { html, useRef, useState, useEffect, useCallback } from '../vendor/preact
 import { getAgentModels, sendAgentMessage, uploadMedia } from '../api.js';
 import { getLocalStorageItem, setLocalStorageItem } from '../utils/storage.js';
 import { buildMentionValue, filterMentionAgents, getVisibleMentionAgents, parseMentionAutocompleteQuery } from '../ui/agent-mentions.js';
+import { shouldShowComposeAgentAffordance } from '../ui/compose-layout.js';
 import { FilePill } from './file-pill.js';
 
 /**
@@ -112,7 +113,9 @@ export function ComposeBox({
     onPost,
     onFocus,
     searchMode,
+    searchScope = 'current',
     onSearch,
+    onSearchScopeChange,
     onEnterSearch,
     onExitSearch,
     fileRefs = [],
@@ -158,11 +161,13 @@ export function ComposeBox({
     const [showModelPopup, setShowModelPopup] = useState(false);
     const [modelOptions, setModelOptions] = useState([]);
     const [loadingModels, setLoadingModels] = useState(false);
+    const [footerWidth, setFooterWidth] = useState(0);
     const textareaRef = useRef(null);
     const slashRef = useRef(null);
     const mentionRef = useRef(null);
     const modelPopupRef = useRef(null);
     const modelHintRef = useRef(null);
+    const footerRef = useRef(null);
     const dragCounterRef = useRef(0);
     const historyMax = 200;
     const normaliseHistory = (items) => {
@@ -208,6 +213,11 @@ export function ComposeBox({
 
     const visibleMentionAgents = getVisibleMentionAgents(activeChatAgents, { currentChatJid, limit: 4 });
     const hasVisibleMentionAgents = visibleMentionAgents.length > 0;
+    const showAgentAffordance = !searchMode && shouldShowComposeAgentAffordance({
+        footerWidth,
+        visibleAgentCount: visibleMentionAgents.length,
+        hasContextIndicator: Boolean(contextUsage && contextUsage.percent != null),
+    });
     const modelHintLabel = activeModel || '';
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
@@ -669,7 +679,7 @@ export function ComposeBox({
             const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
             if (searchMode) {
                 if (currentValue.trim()) {
-                    onSearch?.(currentValue.trim());
+                    onSearch?.(currentValue.trim(), searchScope);
                 }
             } else {
                 void handleSubmit(currentValue, "steer");
@@ -682,7 +692,7 @@ export function ComposeBox({
             const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
             if (searchMode) {
                 if (currentValue.trim()) {
-                    onSearch?.(currentValue.trim());
+                    onSearch?.(currentValue.trim(), searchScope);
                 }
             } else {
                 void handleSubmit(currentValue);
@@ -823,6 +833,33 @@ export function ComposeBox({
         document.addEventListener('pointerdown', onPointerDown);
         return () => document.removeEventListener('pointerdown', onPointerDown);
     }, [showModelPopup]);
+
+    useEffect(() => {
+        const updateFooterWidth = () => {
+            const width = footerRef.current?.clientWidth || 0;
+            setFooterWidth((current) => (current === width ? current : width));
+        };
+
+        updateFooterWidth();
+
+        const footer = footerRef.current;
+        let observer = null;
+        if (footer && typeof ResizeObserver !== 'undefined') {
+            observer = new ResizeObserver(() => updateFooterWidth());
+            observer.observe(footer);
+        }
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', updateFooterWidth);
+        }
+
+        return () => {
+            observer?.disconnect?.();
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('resize', updateFooterWidth);
+            }
+        };
+    }, [searchMode, activeModel, visibleMentionAgents.length, contextUsage?.percent]);
 
     // Auto-resize textarea
     const handleInput = (e) => {
@@ -1026,7 +1063,7 @@ export function ComposeBox({
                         </div>
                     `}
                 </div>
-                <div class="compose-footer">
+                <div class="compose-footer" ref=${footerRef}>
                     ${!searchMode && activeModel && html`
                     <div class="compose-meta-row">
                         ${!searchMode && activeModel && html`
@@ -1048,30 +1085,44 @@ export function ComposeBox({
                                             ${modelUsageSectionLabel}
                                         </span>
                                     `}
-                                    ${!searchMode && hasVisibleMentionAgents && html`
-                                        <div class="compose-agent-hints" title="Active chat agents you can mention with @name">
-                                            <span class="compose-agent-hints-label">Agents</span>
-                                            ${visibleMentionAgents.map((agent) => html`
-                                                <button
-                                                    key=${agent.chat_jid || agent.agent_name}
-                                                    type="button"
-                                                    class=${`compose-agent-chip${agent.is_active ? ' active' : ''}`}
-                                                    onClick=${() => acceptMention(agent)}
-                                                    title=${`${agent.display_name || agent.chat_jid || 'Active agent'} — insert @${agent.agent_name}`}
-                                                >
-                                                    <span class="compose-agent-chip-handle">@${agent.agent_name}</span>
-                                                </button>
-                                            `)}
-                                        </div>
-                                    `}
                                 </div>
                             </div>
                         `}
                     </div>
                     `}
                     <div class="compose-actions ${searchMode ? 'search-mode' : ''}">
+                    ${showAgentAffordance && html`
+                        <div class="compose-agent-hints compose-agent-hints-inline" title="Active chat agents you can mention with @name">
+                            <span class="compose-agent-hints-label">Agents</span>
+                            ${visibleMentionAgents.map((agent) => html`
+                                <button
+                                    key=${agent.chat_jid || agent.agent_name}
+                                    type="button"
+                                    class=${`compose-agent-chip${agent.is_active ? ' active' : ''}`}
+                                    onClick=${() => acceptMention(agent)}
+                                    title=${`${agent.display_name || agent.chat_jid || 'Active agent'} — insert @${agent.agent_name}`}
+                                >
+                                    <span class="compose-agent-chip-handle">@${agent.agent_name}</span>
+                                </button>
+                            `)}
+                        </div>
+                    `}
                     ${!searchMode && contextUsage && contextUsage.percent != null && html`
                         <${ContextPie} usage=${contextUsage} />
+                    `}
+                    ${searchMode && html`
+                        <label class="compose-search-scope-wrap" title="Search scope">
+                            <span class="compose-search-scope-label">Scope</span>
+                            <select
+                                class="compose-search-scope-select"
+                                value=${searchScope}
+                                onChange=${(e) => onSearchScopeChange?.(e.currentTarget.value)}
+                            >
+                                <option value="current">Current</option>
+                                <option value="root">Branch family</option>
+                                <option value="all">All chats</option>
+                            </select>
+                        </label>
                     `}
                     <button
                         class="icon-btn search-toggle"

@@ -23,7 +23,9 @@ export async function handleContentPrimaryRoutes(channel, req, pathname, url) {
         const limit = channel.clampInt(url.searchParams.get("limit"), 50, 1, 100);
         const offset = channel.clampInt(url.searchParams.get("offset"), 0, 0, Number.MAX_SAFE_INTEGER);
         const chatJid = url.searchParams.get("chat_jid")?.trim() || undefined;
-        return channel.handleSearch(query, limit, offset, chatJid);
+        const searchScope = url.searchParams.get("scope")?.trim();
+        const rootChatJid = url.searchParams.get("root_chat_jid")?.trim() || undefined;
+        return channel.handleSearch(query, limit, offset, chatJid, searchScope, rootChatJid);
     }
     if (req.method === "POST" && pathname === "/post") {
         return await channel.handlePost(req, false);
@@ -49,7 +51,7 @@ export async function handleContentSecondaryRoutes(channel, req, pathname, url) 
     if (req.method === "DELETE" && pathname.startsWith("/post/")) {
         const id = channel.parseOptionalInt(pathname.replace("/post/", ""));
         const cascade = url.searchParams.get("cascade") === "true" || url.searchParams.get("cascade") === "1";
-        return channel.handleDeletePost(id, cascade);
+        return channel.handleDeletePost(req, id, cascade);
     }
     if (req.method === "POST" && pathname === "/internal/post") {
         return await channel.handleInternalPost(req);

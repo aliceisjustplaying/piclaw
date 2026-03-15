@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import "../../test/helpers.js";
 
-import { buildBtwInjectionText, parseBtwCommand, shouldShowBtwAnswer, shouldShowBtwControls } from "../../web/src/ui/btw.ts";
+import { buildBtwInjectionText, parseBtwCommand, resolveBtwChatJid, shouldShowBtwAnswer, shouldShowBtwControls } from "../../web/src/ui/btw.ts";
 
 test("parseBtwCommand parses ask/clear/help variants", () => {
   expect(parseBtwCommand("/btw hello there")).toEqual({ type: "ask", question: "hello there" });
@@ -14,6 +14,13 @@ test("buildBtwInjectionText formats question and answer", () => {
   expect(buildBtwInjectionText({ question: "What changed?", answer: "A short answer." })).toBe(
     "BTW side conversation\n\nQuestion: What changed?\n\nAnswer:\nA short answer.",
   );
+});
+
+test("resolveBtwChatJid prefers the active branch chat and falls back to the default chat", () => {
+  expect(resolveBtwChatJid("web:branch-a")).toBe("web:branch-a");
+  expect(resolveBtwChatJid("  web:branch-b  ")).toBe("web:branch-b");
+  expect(resolveBtwChatJid("")).toBe("web:default");
+  expect(resolveBtwChatJid(null)).toBe("web:default");
 });
 
 test("shouldShowBtwAnswer only shows the final answer after BTW is done", () => {

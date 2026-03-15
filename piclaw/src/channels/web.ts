@@ -466,7 +466,7 @@ export class WebChannel implements WebChannelLike {
   private getResumeChatContext(): ResumeChatContext {
     return {
       defaultAgentId: DEFAULT_AGENT_ID,
-      enqueue: (task, key) => this.queue.enqueue(task, key),
+      enqueue: (task, key, laneKey) => this.queue.enqueue(task, key, laneKey),
       processChat: (chatJid, agentId, threadRootId) => this.processChat(chatJid, agentId, threadRootId),
       getChatCursor: (chatJid) => getChatCursor(chatJid),
     };
@@ -484,7 +484,7 @@ export class WebChannel implements WebChannelLike {
     return {
       assistantName: ASSISTANT_NAME,
       defaultAgentId: DEFAULT_AGENT_ID,
-      enqueue: (task, key) => this.queue.enqueue(task, key),
+      enqueue: (task, key, laneKey) => this.queue.enqueue(task, key, laneKey),
       processChat: (chatJid, agentId, threadRootId) => this.processChat(chatJid, agentId, threadRootId),
     };
   }
@@ -614,8 +614,15 @@ export class WebChannel implements WebChannelLike {
     return handleHashtagRequest(tag, limit, offset, chatJid, this.endpointContexts.content());
   }
 
-  handleSearch(query: string, limit: number, offset: number, chatJid?: string): Response {
-    return handleSearchRequest(query, limit, offset, chatJid, this.endpointContexts.content());
+  handleSearch(
+    query: string,
+    limit: number,
+    offset: number,
+    chatJid?: string,
+    searchScope?: "current" | "root" | "all",
+    rootChatJid?: string,
+  ): Response {
+    return handleSearchRequest(query, limit, offset, chatJid, searchScope, rootChatJid, this.endpointContexts.content());
   }
 
   handleThread(id: number | null, chatJid?: string): Response {
@@ -630,10 +637,12 @@ export class WebChannel implements WebChannelLike {
     return await handleThoughtVisibilityRequest(req, this.endpointContexts.ui());
   }
 
-  handleDeletePost(id: number | null, cascade = false): Response {
-    const result = deletePostResponse(DEFAULT_CHAT_JID, id, cascade);
+  handleDeletePost(req: Request, id: number | null, cascade = false): Response {
+    const url = new URL(req.url);
+    const chatJid = url.searchParams.get("chat_jid")?.trim() || DEFAULT_CHAT_JID;
+    const result = deletePostResponse(chatJid, id, cascade);
     if (result.deletedIds.length > 0) {
-      this.broadcastEvent("interaction_deleted", { ids: result.deletedIds });
+      this.broadcastEvent("interaction_deleted", { chat_jid: chatJid, ids: result.deletedIds });
     }
     return this.json(result.body, result.status);
   }
@@ -656,8 +665,8 @@ export class WebChannel implements WebChannelLike {
     return await handleInternalPostRequest(req, this.endpointContexts.postMutations());
   }
 
-  handleSse(): Response {
-    return this.sse.handleRequest();
+  handleSse(req: Request): Response {
+    return this.sse.handleRequest(req);
   }
 
   handleTerminalSession(req: Request): Response {
@@ -680,7 +689,9 @@ export class WebChannel implements WebChannelLike {
   }
 
   async handlePost(req: Request, isReply: boolean): Promise<Response> {
-    return handlePostRequest(this, req, isReply, DEFAULT_CHAT_JID);
+    const url = new URL(req.url);
+    const chatJid = url.searchParams.get("chat_jid")?.trim() || DEFAULT_CHAT_JID;
+    return handlePostRequest(this, req, isReply, chatJid);
   }
 
   handleAgentStatus(req: Request): Response {
@@ -864,7 +875,7 @@ export class WebChannel implements WebChannelLike {
 
       this.queue.enqueue(async () => {
         await this.processChat(chatJid, DEFAULT_AGENT_ID, interaction.data?.thread_id ?? interaction.id);
-      }, `chat:${chatJid}:${interaction.id}`);
+      }, `chat:${chatJid}:${interaction.id}`, `chat:${chatJid}`);
 
       return this.json({
         removed: true,
@@ -887,6 +898,18 @@ export class WebChannel implements WebChannelLike {
   /** GET /agent/active-chats — enumerate live chat agents/branches currently in the pool. */
   async handleAgentActiveChats(_req: Request): Promise<Response> {
     return this.json({ chats: this.agentPool.listActiveChats() }, 200);
+  }
+
+  /** GET /agent/branches — enumerate known branch/session records from the registry. */
+  async handleAgentBranches(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    const rootChatJid = typeof url.searchParams.get("root_chat_jid") === "string"
+      ? url.searchParams.get("root_chat_jid")!.trim()
+      : "";
+    const chats = typeof (this.agentPool as AgentPool & { listKnownChats?: (rootChatJid?: string | null) => unknown[] }).listKnownChats === "function"
+      ? (this.agentPool as AgentPool & { listKnownChats: (rootChatJid?: string | null) => unknown[] }).listKnownChats(rootChatJid || null)
+      : this.agentPool.listActiveChats();
+    return this.json({ chats }, 200);
   }
 
   /** POST /agent/branch-fork — create a first-class forked branch with its own session identity. */
@@ -918,6 +941,71 @@ export class WebChannel implements WebChannelLike {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to fork branch.");
       return this.json({ error: message || "Failed to fork branch." }, 400);
+    }
+  }
+
+  /** POST /agent/branch-rename — rename a registry-backed branch agent/display identity. */
+  async handleAgentBranchRename(req: Request): Promise<Response> {
+    let payload: { chat_jid?: string; agent_name?: string; display_name?: string };
+    try {
+      payload = await req.json();
+    } catch {
+      return this.json({ error: "Invalid JSON" }, 400);
+    }
+
+    const chatJid = typeof payload?.chat_jid === "string" && payload.chat_jid.trim()
+      ? payload.chat_jid.trim()
+      : DEFAULT_CHAT_JID;
+    const hasAgentName = typeof payload?.agent_name === "string";
+    const hasDisplayName = typeof payload?.display_name === "string";
+    if (!hasAgentName && !hasDisplayName) {
+      return this.json({ error: "Missing agent_name or display_name" }, 400);
+    }
+
+    try {
+      const branch = await (this.agentPool as AgentPool & {
+        renameChatBranch?: (chatJid: string, options?: { agentName?: string | null; displayName?: string | null }) => Promise<unknown>;
+      }).renameChatBranch?.(chatJid, {
+        ...(hasAgentName ? { agentName: payload.agent_name ?? null } : {}),
+        ...(hasDisplayName ? { displayName: payload.display_name ?? null } : {}),
+      });
+      if (!branch) {
+        return this.json({ error: "Branch renaming is not available." }, 501);
+      }
+      return this.json({ branch }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || "Failed to rename branch.");
+      return this.json({ error: message || "Failed to rename branch." }, 400);
+    }
+  }
+
+  /** POST /agent/branch-prune — archive a registry-backed branch agent and remove it from active discovery. */
+  async handleAgentBranchPrune(req: Request): Promise<Response> {
+    let payload: { chat_jid?: string };
+    try {
+      payload = await req.json();
+    } catch {
+      return this.json({ error: "Invalid JSON" }, 400);
+    }
+
+    const chatJid = typeof payload?.chat_jid === "string" && payload.chat_jid.trim()
+      ? payload.chat_jid.trim()
+      : "";
+    if (!chatJid) {
+      return this.json({ error: "Missing chat_jid" }, 400);
+    }
+
+    try {
+      const branch = await (this.agentPool as AgentPool & {
+        pruneChatBranch?: (chatJid: string) => Promise<unknown>;
+      }).pruneChatBranch?.(chatJid);
+      if (!branch) {
+        return this.json({ error: "Branch pruning is not available." }, 501);
+      }
+      return this.json({ branch }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || "Failed to prune branch.");
+      return this.json({ error: message || "Failed to prune branch." }, 400);
     }
   }
 

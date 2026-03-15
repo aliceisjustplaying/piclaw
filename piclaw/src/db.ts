@@ -14,6 +14,9 @@ export {
   ensureChatBranch,
   getChatBranchByChatJid,
   getChatBranchByAgentName,
+  listChatBranches,
+  renameChatBranchIdentity,
+  archiveChatBranch,
 } from "./db/chat-branches.js";
 export {
   storeChatMetadata,
@@ -27,6 +30,7 @@ export {
   hasOlderMessages,
   getMessagesByHashtag,
   searchMessages,
+  searchMessagesAcrossChats,
   getNewMessages,
   getMessagesSince,
   updateMessageLinkPreviews,

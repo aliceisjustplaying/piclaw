@@ -44,8 +44,18 @@ import {
     useTimestampRefresh,
 } from './ui/app-helpers.js';
 import { resolveFilePillOpenAction } from './ui/file-pill-open.js';
-import { parseBtwCommand, buildBtwInjectionText } from './ui/btw.js';
-import { buildChatWindowUrl, getChatWindowOpenOptions, isStandaloneWebAppMode } from './ui/chat-window.js';
+import { parseBtwCommand, buildBtwInjectionText, resolveBtwChatJid } from './ui/btw.js';
+import {
+    buildBranchLoaderUrl,
+    buildChatWindowUrl,
+    closeProvisionalChatWindow,
+    describeBranchOpenError,
+    getChatWindowOpenOptions,
+    isStandaloneWebAppMode,
+    navigateProvisionalChatWindow,
+    openProvisionalChatWindow,
+    primeProvisionalChatWindow,
+} from './ui/chat-window.js';
 import { isCompactionStatus } from './ui/status-duration.js';
 
 function missingApi(name, fallback) {
@@ -56,6 +66,12 @@ function missingApi(name, fallback) {
 }
 
 const BTW_SESSION_KEY = 'piclaw_btw_session';
+
+function describeSearchScope(scope) {
+    if (scope === 'root') return 'Branch family';
+    if (scope === 'all') return 'All chats';
+    return 'Current branch';
+}
 
 function loadStoredBtwSession() {
     const raw = getLocalStorageItem(BTW_SESSION_KEY);
@@ -98,6 +114,15 @@ const getAgentModels = typeof api.getAgentModels === 'function'
 const getActiveChatAgents = typeof api.getActiveChatAgents === 'function'
     ? api.getActiveChatAgents
     : missingApi('getActiveChatAgents', { chats: [] });
+const getChatBranches = typeof api.getChatBranches === 'function'
+    ? api.getChatBranches
+    : missingApi('getChatBranches', { chats: [] });
+const renameChatBranch = typeof api.renameChatBranch === 'function'
+    ? api.renameChatBranch
+    : missingApi('renameChatBranch', null);
+const pruneChatBranch = typeof api.pruneChatBranch === 'function'
+    ? api.pruneChatBranch
+    : missingApi('pruneChatBranch', null);
 const getAgentQueueState = typeof api.getAgentQueueState === 'function'
     ? api.getAgentQueueState
     : missingApi('getAgentQueueState', { count: 0 });
@@ -132,11 +157,7 @@ preloadEditorBundle();
 // Terminal dock pane is now part of the default web UI surface.
 paneRegistry.register(terminalPaneExtension);
 
-function App() {
-    const locationParams = useMemo(() => {
-        if (typeof window === 'undefined') return new URLSearchParams();
-        return new URL(window.location.href).searchParams;
-    }, []);
+function MainApp({ locationParams }) {
     const currentChatJid = useMemo(() => {
         const raw = locationParams.get('chat_jid');
         return raw && raw.trim() ? raw.trim() : 'web:default';
@@ -145,12 +166,21 @@ function App() {
         const raw = (locationParams.get('chat_only') || locationParams.get('chat-only') || '').trim().toLowerCase();
         return raw === '1' || raw === 'true' || raw === 'yes';
     }, [locationParams]);
+    const branchLoaderMode = useMemo(() => {
+        const raw = (locationParams.get('branch_loader') || '').trim().toLowerCase();
+        return raw === '1' || raw === 'true' || raw === 'yes';
+    }, [locationParams]);
+    const branchLoaderSourceChatJid = useMemo(() => {
+        const raw = locationParams.get('branch_source_chat_jid');
+        return raw && raw.trim() ? raw.trim() : currentChatJid;
+    }, [currentChatJid, locationParams]);
 
     const [connectionStatus, setConnectionStatus] = useState('disconnected');
     const [isWebAppMode, setIsWebAppMode] = useState(() => isStandaloneWebAppMode());
     const [currentHashtag, setCurrentHashtag] = useState(null);
     const [searchQuery, setSearchQuery] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
+    const [searchScope, setSearchScope] = useState('current');
     const [fileRefs, setFileRefs] = useState([]);
     const [messageRefs, setMessageRefs] = useState([]);
     const [intentToast, setIntentToast] = useState(null);
@@ -187,6 +217,7 @@ function App() {
     const [supportsThinking, setSupportsThinking] = useState(false);
     const [activeModelUsage, setActiveModelUsage] = useState(null);
     const [activeChatAgents, setActiveChatAgents] = useState([]);
+    const [currentChatBranches, setCurrentChatBranches] = useState([]);
     const [contextUsage, setContextUsage] = useState(null);
     const [followupQueueItems, setFollowupQueueItems] = useState([]);
     const [isAgentTurnActive, setIsAgentTurnActive] = useState(false);
@@ -195,6 +226,16 @@ function App() {
         () => activeChatAgents.find((chat) => chat?.chat_jid === currentChatJid) || null,
         [activeChatAgents, currentChatJid],
     );
+    const currentBranchRecord = useMemo(
+        () => currentChatBranches.find((chat) => chat?.chat_jid === currentChatJid) || currentChatAgent || null,
+        [currentChatAgent, currentChatBranches, currentChatJid],
+    );
+    const currentRootChatJid = currentBranchRecord?.root_chat_jid || currentChatAgent?.root_chat_jid || currentChatJid;
+    const activeSearchScopeLabel = describeSearchScope(searchScope);
+    const [branchLoaderState, setBranchLoaderState] = useState(() => ({
+        status: branchLoaderMode ? 'running' : 'idle',
+        message: branchLoaderMode ? 'Preparing a new chat branch…' : '',
+    }));
     const followupQueueCount = followupQueueItems.length;
     const followupQueueRowIdsRef = useRef(new Set());
     const followupQueueItemsRef = useRef([]);
@@ -334,6 +375,9 @@ function App() {
     const hasConnectedOnceRef = useRef(false);
     const wasAgentActiveRef = useRef(false); // tracks active→idle transition for timeline refresh
     const agentStatusRef = useRef(null);
+    const activeChatJidRef = useRef(currentChatJid);
+    const chatPaneStateByChatRef = useRef(new Map());
+    const paneStateOwnerChatJidRef = useRef(currentChatJid);
     const draftThrottleRef = useRef(0);
     const thoughtThrottleRef = useRef(0);
     const agentsRef = useRef({});
@@ -441,6 +485,10 @@ function App() {
     }, [agents]);
 
     useEffect(() => {
+        activeChatJidRef.current = currentChatJid;
+    }, [currentChatJid]);
+
+    useEffect(() => {
         userProfileRef.current = userProfile || { name: 'You', avatar_url: null, avatar_background: null };
     }, [userProfile]);
 
@@ -522,7 +570,7 @@ function App() {
     }, []);
 
     /** Scroll to a message by ID; fetch and inject if not in current timeline. */
-    const scrollToMessage = useCallback(async (id) => {
+    const scrollToMessage = useCallback(async (id, targetChatJid = null) => {
         // Helper to highlight after scroll
         const highlight = (el) => {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -534,7 +582,10 @@ function App() {
         if (existing) { highlight(existing); return; }
         // Not in DOM - fetch via API and inject into posts
         try {
-            const result = await api.getThread(id, currentChatJid);
+            const resolvedChatJid = typeof targetChatJid === 'string' && targetChatJid.trim()
+                ? targetChatJid.trim()
+                : currentChatJid;
+            const result = await api.getThread(id, resolvedChatJid);
             const msg = result?.thread?.[0];
             if (!msg) return;
             setPosts((prev) => {
@@ -552,7 +603,7 @@ function App() {
         } catch (err) {
             console.error('[scrollToMessage] Failed to fetch message', id, err);
         }
-    }, []);
+    }, [currentChatJid]);
 
     const removeMessageRef = useCallback((id) => {
         setMessageRefs((prev) => prev.filter((item) => item !== id));
@@ -634,6 +685,114 @@ function App() {
         thoughtExpandedRef.current = false;
         draftExpandedRef.current = false;
     }, [clearLastActivityTimer, setCurrentTurnId, setSteerQueuedTurnId, setIsAgentTurnActive]);
+
+    const createEmptyChatPaneState = useCallback(() => ({
+        agentStatus: null,
+        agentDraft: { text: '', totalLines: 0 },
+        agentPlan: '',
+        agentThought: { text: '', totalLines: 0 },
+        pendingRequest: null,
+        currentTurnId: null,
+        steerQueuedTurnId: null,
+        isAgentTurnActive: false,
+        followupQueueItems: [],
+        activeModel: null,
+        activeThinkingLevel: null,
+        supportsThinking: false,
+        activeModelUsage: null,
+        contextUsage: null,
+        isAgentRunning: false,
+        wasAgentActive: false,
+        draftBuffer: '',
+        thoughtBuffer: '',
+        lastAgentEvent: null,
+        lastSilenceNotice: 0,
+        lastAgentResponse: null,
+        currentTurnIdRef: null,
+        steerQueuedTurnIdRef: null,
+        thoughtExpanded: false,
+        draftExpanded: false,
+        agentStatusRef: null,
+        silentRecovery: { inFlight: false, lastAttemptAt: 0, turnId: null },
+    }), []);
+
+    const snapshotCurrentChatPaneState = useCallback(() => ({
+        agentStatus,
+        agentDraft: agentDraft ? { ...agentDraft } : { text: '', totalLines: 0 },
+        agentPlan: agentPlan || '',
+        agentThought: agentThought ? { ...agentThought } : { text: '', totalLines: 0 },
+        pendingRequest,
+        currentTurnId,
+        steerQueuedTurnId,
+        isAgentTurnActive: Boolean(isAgentTurnActive),
+        followupQueueItems: Array.isArray(followupQueueItems) ? followupQueueItems.map((item) => ({ ...item })) : [],
+        activeModel,
+        activeThinkingLevel,
+        supportsThinking: Boolean(supportsThinking),
+        activeModelUsage,
+        contextUsage,
+        isAgentRunning: Boolean(isAgentRunningRef.current),
+        wasAgentActive: Boolean(wasAgentActiveRef.current),
+        draftBuffer: draftBufferRef.current || '',
+        thoughtBuffer: thoughtBufferRef.current || '',
+        lastAgentEvent: lastAgentEventRef.current || null,
+        lastSilenceNotice: lastSilenceNoticeRef.current || 0,
+        lastAgentResponse: lastAgentResponseRef.current || null,
+        currentTurnIdRef: currentTurnIdRef.current || null,
+        steerQueuedTurnIdRef: steerQueuedTurnIdRef.current || null,
+        thoughtExpanded: Boolean(thoughtExpandedRef.current),
+        draftExpanded: Boolean(draftExpandedRef.current),
+        agentStatusRef: agentStatusRef.current || null,
+        silentRecovery: { ...(silentRecoveryRef.current || { inFlight: false, lastAttemptAt: 0, turnId: null }) },
+    }), [
+        activeModel,
+        activeModelUsage,
+        activeThinkingLevel,
+        agentDraft,
+        agentPlan,
+        agentStatus,
+        agentThought,
+        contextUsage,
+        currentTurnId,
+        followupQueueItems,
+        isAgentTurnActive,
+        pendingRequest,
+        steerQueuedTurnId,
+        supportsThinking,
+    ]);
+
+    const restoreChatPaneState = useCallback((snapshot) => {
+        const next = snapshot || createEmptyChatPaneState();
+        clearLastActivityTimer();
+        isAgentRunningRef.current = Boolean(next.isAgentRunning);
+        wasAgentActiveRef.current = Boolean(next.wasAgentActive);
+        setIsAgentTurnActive(Boolean(next.isAgentTurnActive));
+        lastAgentEventRef.current = next.lastAgentEvent || null;
+        lastSilenceNoticeRef.current = Number(next.lastSilenceNotice || 0);
+        draftBufferRef.current = next.draftBuffer || '';
+        thoughtBufferRef.current = next.thoughtBuffer || '';
+        pendingRequestRef.current = next.pendingRequest || null;
+        lastAgentResponseRef.current = next.lastAgentResponse || null;
+        currentTurnIdRef.current = next.currentTurnIdRef || null;
+        steerQueuedTurnIdRef.current = next.steerQueuedTurnIdRef || null;
+        agentStatusRef.current = next.agentStatusRef || null;
+        silentRecoveryRef.current = next.silentRecovery || { inFlight: false, lastAttemptAt: 0, turnId: null };
+        thoughtExpandedRef.current = Boolean(next.thoughtExpanded);
+        draftExpandedRef.current = Boolean(next.draftExpanded);
+        setAgentStatus(next.agentStatus || null);
+        setAgentDraft(next.agentDraft ? { ...next.agentDraft } : { text: '', totalLines: 0 });
+        setAgentPlan(next.agentPlan || '');
+        setAgentThought(next.agentThought ? { ...next.agentThought } : { text: '', totalLines: 0 });
+        setPendingRequest(next.pendingRequest || null);
+        setCurrentTurnId(next.currentTurnId || null);
+        setSteerQueuedTurnId(next.steerQueuedTurnId || null);
+        setFollowupQueueItems(Array.isArray(next.followupQueueItems) ? next.followupQueueItems.map((item) => ({ ...item })) : []);
+        setActiveModel(next.activeModel || null);
+        setActiveThinkingLevel(next.activeThinkingLevel || null);
+        setSupportsThinking(Boolean(next.supportsThinking));
+        setActiveModelUsage(next.activeModelUsage ?? null);
+        setContextUsage(next.contextUsage ?? null);
+    }, [clearLastActivityTimer, createEmptyChatPaneState, setCurrentTurnId, setFollowupQueueItems, setIsAgentTurnActive, setSteerQueuedTurnId]);
 
     const setActiveTurn = useCallback((turnId) => {
         if (!turnId) return;
@@ -896,8 +1055,10 @@ function App() {
 
 
     const refreshQueueState = useCallback(() => {
-        getAgentQueueState(currentChatJid)
+        const targetChatJid = currentChatJid;
+        getAgentQueueState(targetChatJid)
             .then((payload) => {
+                if (activeChatJidRef.current !== targetChatJid) return;
                 const dismissed = dismissedQueueRowIdsRef.current;
                 const items = Array.isArray(payload?.items)
                     ? payload.items
@@ -917,22 +1078,28 @@ function App() {
                 setFollowupQueueItems((prev) => prev.length === 0 ? prev : []);
             })
             .catch(() => {
+                if (activeChatJidRef.current !== targetChatJid) return;
                 setFollowupQueueItems((prev) => prev.length === 0 ? prev : []);
             });
-    }, [setFollowupQueueItems]);
+    }, [currentChatJid, setFollowupQueueItems]);
 
     const refreshContextUsage = useCallback(async () => {
+        const targetChatJid = currentChatJid;
         try {
-            const ctx = await getAgentContext(currentChatJid);
+            const ctx = await getAgentContext(targetChatJid);
+            if (activeChatJidRef.current !== targetChatJid) return;
             if (ctx) setContextUsage(ctx);
         } catch (err) {
+            if (activeChatJidRef.current !== targetChatJid) return;
             console.warn('Failed to fetch agent context:', err);
         }
     }, [currentChatJid]);
 
     const refreshAgentStatus = useCallback(async () => {
+        const targetChatJid = currentChatJid;
         try {
-            const res = await getAgentStatus(currentChatJid);
+            const res = await getAgentStatus(targetChatJid);
+            if (activeChatJidRef.current !== targetChatJid) return null;
             if (!res || res.status !== 'active' || !res.data) {
                 // If the agent just transitioned active → idle, refresh the timeline
                 // to catch any final response that arrived while SSE was gapped.
@@ -1102,25 +1269,28 @@ function App() {
     }, [loadPosts]);
 
     // Handle search
-    const handleSearch = useCallback(async (query) => {
+    const handleSearch = useCallback(async (query, scope = searchScope) => {
         if (!query || !query.trim()) return;
+        const normalizedScope = scope === 'root' || scope === 'all' ? scope : 'current';
+        setSearchScope(normalizedScope);
         setSearchQuery(query.trim());
         setCurrentHashtag(null);
         setPosts(null);
         try {
-            const result = await searchPosts(query.trim(), 50, 0, currentChatJid);
+            const result = await searchPosts(query.trim(), 50, 0, currentChatJid, normalizedScope, currentRootChatJid);
             setPosts(result.results);
             setHasMore(false);
         } catch (error) {
             console.error('Failed to search:', error);
             setPosts([]);
         }
-    }, [currentChatJid]);
+    }, [currentChatJid, currentRootChatJid, searchScope]);
 
     const enterSearchMode = useCallback(() => {
         setSearchOpen(true);
         setSearchQuery(null);
         setCurrentHashtag(null);
+        setSearchScope('current');
         setPosts([]);
     }, []);
 
@@ -1135,6 +1305,9 @@ function App() {
     const handleDeletePost = useCallback(async (post) => {
         if (!post) return;
         const postId = post.id;
+        const targetChatJid = typeof post?.chat_jid === 'string' && post.chat_jid.trim()
+            ? post.chat_jid.trim()
+            : currentChatJid;
         const replyCount = posts?.filter((item) => item?.data?.thread_id === postId && item?.id !== postId).length || 0;
         if (replyCount > 0) {
             const confirmed = window.confirm(`Delete this message and its ${replyCount} replies?`);
@@ -1165,7 +1338,7 @@ function App() {
         };
 
         try {
-            const result = await deletePost(postId, replyCount > 0);
+            const result = await deletePost(postId, replyCount > 0, targetChatJid);
             if (result?.ids?.length) {
                 scheduleRemoval(result.ids);
             }
@@ -1174,7 +1347,7 @@ function App() {
             if (replyCount === 0 && errorMessage.includes('Replies exist')) {
                 const confirmed = window.confirm('Delete this message and its replies?');
                 if (!confirmed) return;
-                const result = await deletePost(postId, true);
+                const result = await deletePost(postId, true, targetChatJid);
                 if (result?.ids?.length) {
                     scheduleRemoval(result.ids);
                 }
@@ -1183,7 +1356,7 @@ function App() {
             console.error('Failed to delete post:', error);
             alert(`Failed to delete message: ${errorMessage}`);
         }
-    }, [posts, preserveTimelineScrollTop]);
+    }, [currentChatJid, posts, preserveTimelineScrollTop]);
 
     const loadAgents = useCallback(async () => {
         try {
@@ -1199,16 +1372,16 @@ function App() {
                 if (prev.name === nextName && prev.avatar_url === nextAvatar && prev.avatar_background === nextBg) return prev;
                 return { name: nextName, avatar_url: nextAvatar, avatar_background: nextBg };
             });
-            // Pick up the current model from the default agent entry
             const defaultAgent = (data?.agents || []).find((a) => a.id === 'default');
-            if (defaultAgent?.model) setActiveModel(defaultAgent.model);
             applyBranding(defaultAgent?.name, defaultAgent?.avatar_url);
         } catch (e) {
             console.warn('Failed to load agents:', e);
         }
         // Fetch initial context usage for the pie chart indicator
         try {
-            const ctx = await getAgentContext(currentChatJid);
+            const targetChatJid = currentChatJid;
+            const ctx = await getAgentContext(targetChatJid);
+            if (activeChatJidRef.current !== targetChatJid) return;
             if (ctx) setContextUsage(ctx);
         } catch {}
     }, [applyBranding, currentChatJid]);
@@ -1307,12 +1480,14 @@ function App() {
     }, []);
 
     const refreshModelState = useCallback(() => {
-        getAgentModels()
+        const targetChatJid = currentChatJid;
+        getAgentModels(targetChatJid)
             .then((payload) => {
+                if (activeChatJidRef.current !== targetChatJid) return;
                 if (payload) applyModelState(payload);
             })
             .catch(() => {});
-    }, [applyModelState]);
+    }, [applyModelState, currentChatJid]);
 
     const refreshActiveChatAgents = useCallback(() => {
         getActiveChatAgents()
@@ -1324,6 +1499,16 @@ function App() {
             })
             .catch(() => {});
     }, []);
+    const refreshCurrentChatBranches = useCallback(() => {
+        getChatBranches(currentRootChatJid)
+            .then((payload) => {
+                const chats = Array.isArray(payload?.chats)
+                    ? payload.chats.filter((chat) => chat && typeof chat.chat_jid === 'string' && typeof chat.agent_name === 'string')
+                    : [];
+                setCurrentChatBranches(chats);
+            })
+            .catch(() => {});
+    }, [currentRootChatJid]);
     const handleInjectQueuedFollowup = useCallback((queuedItem) => {
         const rowId = queuedItem?.row_id;
         if (rowId == null) return;
@@ -1370,6 +1555,7 @@ function App() {
         if (!response || typeof response !== "object") return;
 
         refreshActiveChatAgents();
+        refreshCurrentChatBranches();
 
         if (response?.queued === "followup" || response?.queued === "steer") {
             refreshQueueState();
@@ -1382,7 +1568,7 @@ function App() {
         )) {
             refreshQueueState();
         }
-    }, [refreshActiveChatAgents, refreshQueueState]);
+    }, [refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState]);
 
     const closeBtwPanel = useCallback(() => {
         if (btwAbortRef.current) {
@@ -1417,6 +1603,7 @@ function App() {
         try {
             const finalResult = await streamSidePrompt(trimmed, {
                 signal: controller.signal,
+                chatJid: resolveBtwChatJid(currentChatJid),
                 systemPrompt: 'Answer the user briefly and directly. This is a side conversation that should not affect the main chat until explicitly injected.',
                 onEvent: (eventType, data) => {
                     if (eventType === 'side_prompt_start') {
@@ -1452,7 +1639,7 @@ function App() {
             }
         }
         return true;
-    }, [showIntentToast]);
+    }, [currentChatJid, showIntentToast]);
 
     const handleBtwIntercept = useCallback(async ({ content }) => {
         const parsed = parseBtwCommand(content);
@@ -1505,25 +1692,93 @@ function App() {
     const refreshModelAndQueueState = useCallback(() => {
         refreshModelState();
         refreshActiveChatAgents();
+        refreshCurrentChatBranches();
         refreshQueueState();
         refreshContextUsage();
-    }, [refreshModelState, refreshActiveChatAgents, refreshQueueState, refreshContextUsage]);
+    }, [refreshModelState, refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState, refreshContextUsage]);
 
     useEffect(() => {
         refreshModelAndQueueState();
         const interval = setInterval(() => {
             refreshModelState();
             refreshActiveChatAgents();
+            refreshCurrentChatBranches();
             refreshQueueState();
         }, 60_000);
         return () => clearInterval(interval);
-    }, [refreshModelAndQueueState, refreshModelState, refreshActiveChatAgents, refreshQueueState]);
+    }, [refreshModelAndQueueState, refreshModelState, refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState]);
+
+    useEffect(() => {
+        refreshCurrentChatBranches();
+    }, [refreshCurrentChatBranches]);
+
+    useEffect(() => {
+        let cancelled = false;
+        setPosts(null);
+        if (currentHashtag) {
+            void loadPosts(currentHashtag);
+            return () => {
+                cancelled = true;
+            };
+        }
+        if (searchQuery) {
+            searchPosts(searchQuery, 50, 0, currentChatJid, searchScope, currentRootChatJid)
+                .then((result) => {
+                    if (cancelled) return;
+                    setPosts(result.results);
+                    setHasMore(false);
+                })
+                .catch((error) => {
+                    if (cancelled) return;
+                    console.error('Failed to search:', error);
+                    setPosts([]);
+                    setHasMore(false);
+                });
+            return () => {
+                cancelled = true;
+            };
+        }
+        void loadPosts();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentChatJid, currentHashtag, searchQuery, searchScope, currentRootChatJid, loadPosts, setHasMore, setPosts]);
+
+    useEffect(() => {
+        const ownerChatJid = paneStateOwnerChatJidRef.current || currentChatJid;
+        chatPaneStateByChatRef.current.set(ownerChatJid, snapshotCurrentChatPaneState());
+    }, [currentChatJid, snapshotCurrentChatPaneState]);
+
+    useEffect(() => {
+        const ownerChatJid = paneStateOwnerChatJidRef.current || currentChatJid;
+        if (ownerChatJid === currentChatJid) return;
+        chatPaneStateByChatRef.current.set(ownerChatJid, snapshotCurrentChatPaneState());
+        paneStateOwnerChatJidRef.current = currentChatJid;
+        dismissedQueueRowIdsRef.current.clear();
+        restoreChatPaneState(chatPaneStateByChatRef.current.get(currentChatJid) || null);
+        void refreshQueueState();
+        void refreshAgentStatus();
+        void refreshContextUsage();
+    }, [currentChatJid, refreshAgentStatus, refreshContextUsage, refreshQueueState, restoreChatPaneState, snapshotCurrentChatPaneState]);
+
+    const refreshCurrentView = useCallback(() => {
+        const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current || {};
+        if (!activeHashtag && !activeSearch) {
+            refreshTimeline();
+        }
+        refreshModelAndQueueState();
+    }, [refreshModelAndQueueState, refreshTimeline]);
 
     const handleSseEvent = useCallback((eventType, data) => {
         const turnId = data?.turn_id;
+        const eventChatJid = typeof data?.chat_jid === 'string' && data.chat_jid.trim() ? data.chat_jid.trim() : null;
+        const isGlobalUiEvent = eventType === 'connected' || eventType === 'workspace_update';
+        const isCurrentChatEvent = eventChatJid ? eventChatJid === currentChatJid : isGlobalUiEvent;
 
-        updateAgentProfile(data);
-        updateUserProfile(data);
+        if (isCurrentChatEvent) {
+            updateAgentProfile(data);
+            updateUserProfile(data);
+        }
 
         if (eventType === 'ui_theme') {
             applyThemeFromEvent(data);
@@ -1551,8 +1806,10 @@ function App() {
             pendingRequestRef.current = null;
             clearAgentRunState();
 
-            getAgentStatus(currentChatJid)
+            const targetChatJid = currentChatJid;
+            getAgentStatus(targetChatJid)
                 .then((res) => {
+                    if (activeChatJidRef.current !== targetChatJid) return;
                     if (!res || res.status !== 'active' || !res.data) return;
                     const payload = res.data;
                     const activeTurn = payload.turn_id || payload.turnId;
@@ -1585,6 +1842,13 @@ function App() {
         }
 
         if (eventType === 'agent_status') {
+            if (!isCurrentChatEvent) {
+                if (data?.type === 'done' || data?.type === 'error') {
+                    void refreshActiveChatAgents();
+                    void refreshCurrentChatBranches();
+                }
+                return;
+            }
             if (data.type === 'done' || data.type === 'error') {
                 if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                     return;
@@ -1640,6 +1904,7 @@ function App() {
         }
 
         if (eventType === 'agent_steer_queued') {
+            if (!isCurrentChatEvent) return;
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
             }
@@ -1651,6 +1916,7 @@ function App() {
         }
 
         if (eventType === 'agent_followup_queued') {
+            if (!isCurrentChatEvent) return;
             const rowId = data?.row_id;
             const content = data?.content;
             if (rowId != null && typeof content === 'string' && content.trim()) {
@@ -1674,6 +1940,7 @@ function App() {
         }
 
         if (eventType === 'agent_followup_consumed') {
+            if (!isCurrentChatEvent) return;
             const rowId = data?.row_id;
             if (rowId != null) {
                 setFollowupQueueItems((current) => current.filter((item) => item.row_id !== rowId));
@@ -1686,6 +1953,7 @@ function App() {
         }
 
         if (eventType === 'agent_followup_removed') {
+            if (!isCurrentChatEvent) return;
             const rowId = data?.row_id;
             if (rowId != null) {
                 dismissedQueueRowIdsRef.current.add(rowId);
@@ -1696,6 +1964,7 @@ function App() {
         }
 
         if (eventType === 'agent_draft_delta') {
+            if (!isCurrentChatEvent) return;
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
             }
@@ -1729,6 +1998,7 @@ function App() {
         }
 
         if (eventType === 'agent_draft') {
+            if (!isCurrentChatEvent) return;
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
             }
@@ -1753,6 +2023,7 @@ function App() {
         }
 
         if (eventType === 'agent_thought_delta') {
+            if (!isCurrentChatEvent) return;
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
             }
@@ -1781,6 +2052,7 @@ function App() {
         }
 
         if (eventType === 'agent_thought') {
+            if (!isCurrentChatEvent) return;
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
             }
@@ -1801,6 +2073,7 @@ function App() {
 
         // Handle agent requests (permission, choices)
         if (eventType === 'agent_request') {
+            if (!isCurrentChatEvent) return;
             console.log('Agent request:', data);
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
@@ -1813,6 +2086,7 @@ function App() {
         }
 
         if (eventType === 'agent_request_timeout') {
+            if (!isCurrentChatEvent) return;
             console.log('Agent request timeout:', data);
             if (turnId && currentTurnIdRef.current && turnId !== currentTurnIdRef.current) {
                 return;
@@ -1825,11 +2099,18 @@ function App() {
         }
 
         if (eventType === 'model_changed') {
+            if (!isCurrentChatEvent) return;
             if (data?.model !== undefined) setActiveModel(data.model);
             if (data?.thinking_level !== undefined) setActiveThinkingLevel(data.thinking_level ?? null);
             if (data?.supports_thinking !== undefined) setSupportsThinking(Boolean(data.supports_thinking));
             // Refresh context usage - the context window size changes with the model
-            getAgentContext(currentChatJid).then((ctx) => { if (ctx) setContextUsage(ctx); }).catch(() => {});
+            const targetChatJid = currentChatJid;
+            getAgentContext(targetChatJid)
+                .then((ctx) => {
+                    if (activeChatJidRef.current !== targetChatJid) return;
+                    if (ctx) setContextUsage(ctx);
+                })
+                .catch(() => {});
             return;
         }
 
@@ -1843,13 +2124,14 @@ function App() {
         // Add new posts/replies to timeline (only when on main timeline) - append at end for chat style
         const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current;
         if (eventType === 'agent_response') {
+            if (!isCurrentChatEvent) return;
             removeStalledPost();
             lastAgentResponseRef.current = {
                 post: data,
                 turnId: currentTurnIdRef.current,
             };
         }
-        if (!activeHashtag && !activeSearch && (eventType === 'new_post' || eventType === 'agent_response')) {
+        if (!activeHashtag && !activeSearch && isCurrentChatEvent && (eventType === 'new_post' || eventType === 'new_reply' || eventType === 'agent_response')) {
             setPosts((prev) => {
                 if (!prev) return [data];
                 if (prev.some((post) => post.id === data.id)) return prev;
@@ -1859,6 +2141,7 @@ function App() {
         }
         // Update existing post (e.g., when link previews are fetched)
         if (eventType === 'interaction_updated') {
+            if (!isCurrentChatEvent) return;
             setPosts(prev => {
                 if (!prev) return prev;
                 if (!prev.some((p) => p.id === data.id)) return prev;
@@ -1866,6 +2149,7 @@ function App() {
             });
         }
         if (eventType === 'interaction_deleted') {
+            if (!isCurrentChatEvent) return;
             const ids = data?.ids || [];
             if (ids.length) {
                 preserveTimelineScrollTop(() => {
@@ -1880,10 +2164,13 @@ function App() {
     }, [
         clearAgentRunState,
         clearLastActivityFlag,
+        currentChatJid,
         loadMoreRef,
         noteAgentActivity,
         notifyForFinalResponse,
         preserveTimelineScrollTop,
+        refreshActiveChatAgents,
+        refreshCurrentChatBranches,
         refreshTimeline,
         removeStalledPost,
         setActiveTurn,
@@ -1918,7 +2205,7 @@ function App() {
     }, [clearAgentRunState, finalizeStalledResponse, handleSseEvent, removeStalledPost]);
 
     // Set up SSE connection
-    useSseConnection({ handleSseEvent, handleConnectionStatusChange, loadPosts });
+    useSseConnection({ handleSseEvent, handleConnectionStatusChange, loadPosts, onWake: refreshCurrentView, chatJid: currentChatJid });
 
     // Scroll to hash-linked message on load (e.g. #msg-123)
     useEffect(() => {
@@ -1992,8 +2279,126 @@ function App() {
         setWorkspaceOpen((prev) => !prev);
     }, []);
 
+    const handleBranchPickerChange = useCallback((nextChatJid) => {
+        if (typeof window === 'undefined') return;
+        const normalized = String(nextChatJid || '').trim();
+        if (!normalized || normalized === currentChatJid) return;
+        const url = buildChatWindowUrl(window.location.href, normalized, { chatOnly: chatOnlyMode });
+        window.location.assign(url);
+    }, [chatOnlyMode, currentChatJid]);
+
+    const handleRenameCurrentBranch = useCallback(async () => {
+        if (typeof window === 'undefined' || !currentBranchRecord?.chat_jid) return;
+        const currentHandle = currentBranchRecord.agent_name || '';
+        const currentDisplayName = currentBranchRecord.display_name || '';
+        const nextDisplayName = window.prompt('Branch display name', currentDisplayName);
+        if (nextDisplayName === null) return;
+        const nextAgentName = window.prompt('Agent handle (without @)', currentHandle);
+        if (nextAgentName === null) return;
+
+        try {
+            const response = await renameChatBranch(currentBranchRecord.chat_jid, {
+                displayName: nextDisplayName,
+                agentName: nextAgentName,
+            });
+            await Promise.allSettled([
+                refreshActiveChatAgents(),
+                refreshCurrentChatBranches(),
+            ]);
+            const savedHandle = response?.branch?.agent_name || String(nextAgentName || '').trim() || currentHandle;
+            showIntentToast('Branch renamed', `This chat is now @${savedHandle}.`, 'info', 3500);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || 'Could not rename branch.');
+            showIntentToast('Could not rename branch', message || 'Could not rename branch.', 'warning', 5000);
+        }
+    }, [currentBranchRecord, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
+
+    const handlePruneCurrentBranch = useCallback(async () => {
+        if (typeof window === 'undefined' || !currentBranchRecord?.chat_jid) return;
+        const isRootBranch = currentBranchRecord.chat_jid === (currentBranchRecord.root_chat_jid || currentBranchRecord.chat_jid);
+        if (isRootBranch) {
+            showIntentToast('Cannot prune branch', 'The root chat branch cannot be pruned.', 'warning', 4000);
+            return;
+        }
+
+        const label = currentBranchRecord.display_name || `@${currentBranchRecord.agent_name || currentBranchRecord.chat_jid}`;
+        const confirmed = window.confirm(`Prune ${label}?\n\nThis archives the branch agent and removes it from the branch picker. Chat history is preserved.`);
+        if (!confirmed) return;
+
+        try {
+            await pruneChatBranch(currentBranchRecord.chat_jid);
+            await Promise.allSettled([
+                refreshActiveChatAgents(),
+                refreshCurrentChatBranches(),
+            ]);
+            const fallbackChatJid = currentBranchRecord.root_chat_jid || 'web:default';
+            showIntentToast('Branch pruned', `${label} has been archived.`, 'info', 3000);
+            const nextUrl = buildChatWindowUrl(window.location.href, fallbackChatJid, { chatOnly: chatOnlyMode });
+            window.location.assign(nextUrl);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || 'Could not prune branch.');
+            showIntentToast('Could not prune branch', message || 'Could not prune branch.', 'warning', 5000);
+        }
+    }, [chatOnlyMode, currentBranchRecord, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
+
+    useEffect(() => {
+        if (!branchLoaderMode || typeof window === 'undefined') return;
+        let cancelled = false;
+
+        (async () => {
+            try {
+                setBranchLoaderState({ status: 'running', message: 'Preparing a new chat branch…' });
+                const response = await api.forkChatBranch(branchLoaderSourceChatJid);
+                if (cancelled) return;
+                const branch = response?.branch;
+                const nextChatJid = typeof branch?.chat_jid === 'string' && branch.chat_jid.trim() ? branch.chat_jid.trim() : null;
+                if (!nextChatJid) {
+                    throw new Error('Branch fork did not return a chat id.');
+                }
+                const url = buildChatWindowUrl(window.location.href, nextChatJid, { chatOnly: true });
+                window.location.replace(url);
+            } catch (error) {
+                if (cancelled) return;
+                setBranchLoaderState({
+                    status: 'error',
+                    message: describeBranchOpenError(error),
+                });
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [branchLoaderMode, branchLoaderSourceChatJid]);
+
     const handlePopOutChat = useCallback(async () => {
         if (typeof window === 'undefined' || isWebAppMode) return;
+
+        const initialOpenOptions = getChatWindowOpenOptions(currentChatJid);
+        if (!initialOpenOptions) {
+            showIntentToast('Could not open branch window', 'Opening branch windows is unavailable in standalone webapp mode.', 'warning', 5000);
+            return;
+        }
+
+        if (initialOpenOptions.mode === 'tab') {
+            const loaderUrl = buildBranchLoaderUrl(window.location.href, currentChatJid, { chatOnly: true });
+            const opened = window.open(loaderUrl, initialOpenOptions.target);
+            if (!opened) {
+                showIntentToast('Could not open branch window', 'The browser blocked opening a new tab or window.', 'warning', 5000);
+            }
+            return;
+        }
+
+        const provisionalWindow = openProvisionalChatWindow(initialOpenOptions);
+        if (!provisionalWindow) {
+            showIntentToast('Could not open branch window', 'The browser blocked opening a new tab or window.', 'warning', 5000);
+            return;
+        }
+        primeProvisionalChatWindow(provisionalWindow, {
+            title: 'Opening branch…',
+            message: 'Preparing a new chat branch. This should only take a moment.',
+        });
+
         try {
             const response = await api.forkChatBranch(currentChatJid);
             const branch = response?.branch;
@@ -2005,21 +2410,17 @@ function App() {
                 const active = await api.getActiveChatAgents();
                 setActiveChatAgents(Array.isArray(active?.chats) ? active.chats : []);
             } catch {}
+            try {
+                const branches = await getChatBranches(currentRootChatJid);
+                setCurrentChatBranches(Array.isArray(branches?.chats) ? branches.chats : []);
+            } catch {}
             const url = buildChatWindowUrl(window.location.href, nextChatJid, { chatOnly: true });
-            const openOptions = getChatWindowOpenOptions(branch?.agent_name || nextChatJid);
-            if (!openOptions) {
-                throw new Error('Opening branch windows is unavailable in standalone webapp mode.');
-            }
-            if (openOptions.features) {
-                window.open(url, openOptions.target, openOptions.features);
-            } else {
-                window.open(url, openOptions.target);
-            }
+            navigateProvisionalChatWindow(provisionalWindow, url);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error || 'Failed to fork chat branch.');
-            showIntentToast('Could not open branch window', message || 'Failed to fork chat branch.', 'error', 5000);
+            closeProvisionalChatWindow(provisionalWindow);
+            showIntentToast('Could not open branch window', describeBranchOpenError(error), 'error', 5000);
         }
-    }, [currentChatJid, isWebAppMode, showIntentToast]);
+    }, [currentChatJid, currentRootChatJid, isWebAppMode, showIntentToast]);
 
     useEffect(() => {
         if (!editorOpen) return;
@@ -2054,6 +2455,21 @@ function App() {
     }, [toggleDock, hasDockPanes, chatOnlyMode]);
 
     const steerQueued = Boolean(steerQueuedTurnId && (steerQueuedTurnId === (agentStatus?.turn_id || currentTurnId)));
+
+    if (branchLoaderMode) {
+        return html`
+            <div class="app-shell chat-only">
+                <div class="container" style=${{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '24px' }}>
+                    <div class="card" style=${{ width: 'min(560px, 100%)', padding: '24px' }}>
+                        <h1 style=${{ margin: '0 0 12px', fontSize: '1.1rem' }}>
+                            ${branchLoaderState.status === 'error' ? 'Could not open branch window' : 'Opening branch…'}
+                        </h1>
+                        <p style=${{ margin: 0, lineHeight: 1.6 }}>${branchLoaderState.message}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
 
     return html`
         <div class=${`app-shell${workspaceOpen ? '' : ' workspace-collapsed'}${editorOpen ? ' editor-open' : ''}${chatOnlyMode ? ' chat-only' : ''}`} ref=${appShellRef}>
@@ -2123,11 +2539,51 @@ function App() {
                     <div class="chat-window-header">
                         <div class="chat-window-header-main">
                             <span class="chat-window-header-title">
-                                ${currentChatAgent?.display_name || currentChatAgent?.agent_name ? `@${currentChatAgent?.agent_name || currentChatJid}` : currentChatJid}
+                                ${currentBranchRecord?.display_name || currentBranchRecord?.agent_name ? `@${currentBranchRecord?.agent_name || currentChatJid}` : currentChatJid}
                             </span>
-                            <span class="chat-window-header-subtitle">${currentChatAgent?.display_name || currentChatJid}</span>
+                            <span class="chat-window-header-subtitle">${currentBranchRecord?.display_name || currentChatJid}</span>
                         </div>
-                        <span class="chat-window-header-badge">Chat only</span>
+                        <div class="chat-window-header-actions">
+                            ${currentChatBranches.length > 1 && html`
+                                <label class="chat-window-branch-picker-wrap">
+                                    <span class="chat-window-branch-picker-label">Branch</span>
+                                    <select
+                                        class="chat-window-branch-picker"
+                                        value=${currentChatJid}
+                                        onChange=${(e) => handleBranchPickerChange(e.currentTarget.value)}
+                                    >
+                                        ${currentChatBranches.map((branch) => html`
+                                            <option key=${branch.chat_jid} value=${branch.chat_jid}>
+                                                ${`@${branch.agent_name}${branch.display_name ? ` — ${branch.display_name}` : ''}${branch.is_active ? ' • active' : ''}`}
+                                            </option>
+                                        `)}
+                                    </select>
+                                </label>
+                            `}
+                            ${currentBranchRecord?.chat_jid && html`
+                                <button
+                                    class="chat-window-header-button"
+                                    type="button"
+                                    onClick=${handleRenameCurrentBranch}
+                                    title="Rename this branch"
+                                    aria-label="Rename this branch"
+                                >
+                                    Rename
+                                </button>
+                            `}
+                            ${currentBranchRecord?.chat_jid && currentBranchRecord.chat_jid !== (currentBranchRecord.root_chat_jid || currentBranchRecord.chat_jid) && html`
+                                <button
+                                    class="chat-window-header-button"
+                                    type="button"
+                                    onClick=${handlePruneCurrentBranch}
+                                    title="Prune this branch agent"
+                                    aria-label="Prune this branch agent"
+                                >
+                                    Prune
+                                </button>
+                            `}
+                            <span class="chat-window-header-badge">Chat only</span>
+                        </div>
                     </div>
                 `}
                 ${(currentHashtag || searchQuery) && html`
@@ -2135,7 +2591,7 @@ function App() {
                         <button class="back-btn" onClick=${handleBackToTimeline}>
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
                         </button>
-                        <span>${currentHashtag ? `#${currentHashtag}` : `Search: ${searchQuery}`}</span>
+                        <span>${currentHashtag ? `#${currentHashtag}` : `Search: ${searchQuery} · ${activeSearchScopeLabel}`}</span>
                     </div>
                 `}
                 <${Timeline}
@@ -2177,7 +2633,9 @@ function App() {
                     onPost=${() => { loadPosts(); scrollToBottom(); }}
                     onFocus=${scrollToBottom}
                     searchMode=${searchOpen}
+                    searchScope=${searchScope}
                     onSearch=${handleSearch}
+                    onSearchScopeChange=${setSearchScope}
                     onEnterSearch=${enterSearchMode}
                     onExitSearch=${exitSearchMode}
                     fileRefs=${fileRefs}
@@ -2221,6 +2679,13 @@ function App() {
             </div>
         </div>
     `;
+}
+
+function App() {
+    const locationParams = typeof window === 'undefined'
+        ? new URLSearchParams()
+        : new URL(window.location.href).searchParams;
+    return html`<${MainApp} locationParams=${locationParams} />`;
 }
 
 // Mount the app

@@ -9,8 +9,8 @@
  */
 export { initDatabase, getDb } from "./db/connection.js";
 export { clampWebContent } from "./db/web-content.js";
-export { ensureChatBranch, getChatBranchByChatJid, getChatBranchByAgentName, } from "./db/chat-branches.js";
-export { storeChatMetadata, storeMessage, getMessageByRowId, getMessageRowIdById, getMessageThreadRootIdById, deleteMessageByRowId, deleteThreadByRowId, getTimeline, hasOlderMessages, getMessagesByHashtag, searchMessages, getNewMessages, getMessagesSince, updateMessageLinkPreviews, replaceMessageContent, } from "./db/messages.js";
+export { ensureChatBranch, getChatBranchByChatJid, getChatBranchByAgentName, listChatBranches, renameChatBranchIdentity, archiveChatBranch, } from "./db/chat-branches.js";
+export { storeChatMetadata, storeMessage, getMessageByRowId, getMessageRowIdById, getMessageThreadRootIdById, deleteMessageByRowId, deleteThreadByRowId, getTimeline, hasOlderMessages, getMessagesByHashtag, searchMessages, searchMessagesAcrossChats, getNewMessages, getMessagesSince, updateMessageLinkPreviews, replaceMessageContent, } from "./db/messages.js";
 export { attachMediaToMessage, getMediaIdsForMessage, createMedia, getMediaById, getMediaInfoById, } from "./db/media.js";
 export { createTask, getTaskById, updateTask, deleteTask, getDueTasks, updateTaskAfterRun, logTaskRun, getTaskRunLogs, } from "./db/tasks.js";
 export { storeToolOutput, insertToolOutputChunk, getToolOutputById, deleteToolOutputById, deleteToolOutputsBefore, searchToolOutputSnippets, } from "./db/tool-outputs.js";

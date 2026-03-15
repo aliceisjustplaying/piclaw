@@ -13,8 +13,9 @@ export function handleHashtagRequest(tag, limit, offset, chatJid, ctx) {
     return ctx.json(result.body, result.status);
 }
 /** Return search results for a query in the requested web chat (defaults to the main web chat). */
-export function handleSearchRequest(query, limit, offset, chatJid, ctx) {
-    const result = getSearchResponse(chatJid || ctx.defaultChatJid, query, limit, offset);
+export function handleSearchRequest(query, limit, offset, chatJid, searchScope, rootChatJid, ctx) {
+    const normalizedScope = searchScope === "root" || searchScope === "all" ? searchScope : "current";
+    const result = getSearchResponse(chatJid || ctx.defaultChatJid, query, limit, offset, normalizedScope, rootChatJid || null);
     return ctx.json(result.body, result.status);
 }
 /** Return a thread payload rooted at the provided interaction id. */

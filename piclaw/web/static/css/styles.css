@@ -181,6 +181,13 @@ body {
     background: var(--bg-secondary);
 }
 
+.chat-window-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 0;
+}
+
 .chat-window-header-main {
     display: flex;
     flex-direction: column;
@@ -216,6 +223,54 @@ body {
     font-size: 10.5px;
     line-height: 1;
     white-space: nowrap;
+}
+
+.chat-window-header-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.chat-window-header-button:hover {
+    background: var(--bg-hover);
+}
+
+.chat-window-header-button:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.chat-window-branch-picker-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.chat-window-branch-picker-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.chat-window-branch-picker {
+    min-width: 180px;
+    max-width: min(38vw, 340px);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    font: inherit;
 }
 
 .workspace-sidebar {
@@ -2109,6 +2164,14 @@ body {
     min-width: 0;
 }
 
+.compose-agent-hints-inline {
+    flex-wrap: nowrap;
+    gap: 4px;
+    flex-shrink: 0;
+    max-width: min(34vw, 320px);
+    overflow: hidden;
+}
+
 .compose-agent-hints-label {
     font-size: 10.5px;
     line-height: 1;
@@ -2147,6 +2210,18 @@ body {
 
 .compose-agent-chip-handle {
     font-family: var(--font-mono, monospace);
+}
+
+.compose-agent-hints-inline .compose-agent-chip {
+    flex-shrink: 0;
+}
+
+.compose-agent-hints-inline .compose-agent-hints-label {
+    margin-right: 2px;
+}
+
+.compose-agent-hints-inline + .compose-context-pie {
+    margin-left: 2px;
 }
 
 .compose-footer {
@@ -2463,6 +2538,29 @@ body {
 
 .compose-actions.search-mode .icon-btn {
     color: var(--accent-color);
+}
+
+.compose-search-scope-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 4px;
+}
+
+.compose-search-scope-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.compose-search-scope-select {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 4px 8px;
+    font: inherit;
+    font-size: var(--font-size-sm);
 }
 
 .icon-btn {

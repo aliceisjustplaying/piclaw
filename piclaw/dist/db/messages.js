@@ -73,6 +73,7 @@ function buildInteraction(row, mediaIds = []) {
         data.thread_id = row.thread_id;
     return {
         id: row.rowid,
+        chat_jid: row.chat_jid,
         timestamp: row.timestamp,
         data,
     };
@@ -269,8 +270,14 @@ export function getMessagesByHashtag(chatJid, hashtag, limit, offset) {
  *
  * Used by the web channel's search bar and agent-control /search command.
  */
-export function searchMessages(chatJid, query, limit, offset) {
+function searchMessagesInternal(chatJids, query, limit, offset) {
     const db = getDb();
+    const hasChatFilter = Array.isArray(chatJids);
+    if (hasChatFilter && chatJids.length === 0)
+        return [];
+    const chatClause = hasChatFilter ? `chat_jid IN (${chatJids.map(() => "?").join(",")}) AND ` : "";
+    const ftsChatClause = hasChatFilter ? `messages.chat_jid IN (${chatJids.map(() => "?").join(",")}) AND ` : "";
+    const chatParams = hasChatFilter ? chatJids : [];
     // Hashtag shortcut: use LIKE for simple #tag searches.
     if (query.startsWith("#")) {
         const tag = query.replace(/^#+/, "");
@@ -278,12 +285,10 @@ export function searchMessages(chatJid, query, limit, offset) {
             return [];
         const pattern = `%#${tag}%`;
         const rows = db
-            .prepare(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_jid = ? AND content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`)
-            .all(chatJid, pattern, limit, offset);
+            .prepare(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE ${chatClause}content LIKE ? COLLATE NOCASE ORDER BY rowid DESC LIMIT ? OFFSET ?`)
+            .all(...chatParams, pattern, limit, offset);
         return rows.map((row) => buildInteraction(row, getMediaIdsForMessage(row.rowid)));
     }
-    // Prepare the FTS query: join bare terms with AND unless the user
-    // already includes FTS operators (AND, OR, NOT, NEAR, quotes, etc.).
     const rawQuery = query.trim();
     const hasOperators = /(?:\bAND\b|\bOR\b|\bNOT\b|\bNEAR\b|["():*])/i.test(rawQuery);
     const terms = rawQuery
@@ -296,23 +301,28 @@ export function searchMessages(chatJid, query, limit, offset) {
             .prepare(`SELECT messages.rowid, messages.chat_jid, messages.sender, messages.sender_name, messages.content, messages.content_blocks, messages.link_previews, messages.thread_id, messages.timestamp, messages.is_bot_message
          FROM messages
          JOIN messages_fts ON messages_fts.rowid = messages.rowid
-         WHERE messages.chat_jid = ? AND messages_fts MATCH ?
+         WHERE ${ftsChatClause}messages_fts MATCH ?
          ORDER BY messages.rowid DESC
          LIMIT ? OFFSET ?`)
-            .all(chatJid, ftsQuery, limit, offset);
+            .all(...chatParams, ftsQuery, limit, offset);
         return rows.map((row) => buildInteraction(row, getMediaIdsForMessage(row.rowid)));
     }
     catch {
-        // Fallback to LIKE search when FTS query syntax is invalid.
         const fallbackTerms = terms.length > 0 ? terms : rawQuery ? [rawQuery] : [];
         if (fallbackTerms.length === 0)
             return [];
         const clauses = fallbackTerms.map(() => "content LIKE ? COLLATE NOCASE").join(" AND ");
-        const sql = `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_jid = ? AND ${clauses} ORDER BY rowid DESC LIMIT ? OFFSET ?`;
-        const params = [chatJid, ...fallbackTerms.map((term) => `%${term}%`), limit, offset];
+        const sql = `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE ${chatClause}${clauses} ORDER BY rowid DESC LIMIT ? OFFSET ?`;
+        const params = [...chatParams, ...fallbackTerms.map((term) => `%${term}%`), limit, offset];
         const rows = db.prepare(sql).all(...params);
         return rows.map((row) => buildInteraction(row, getMediaIdsForMessage(row.rowid)));
     }
+}
+export function searchMessages(chatJid, query, limit, offset) {
+    return searchMessagesInternal([chatJid], query, limit, offset);
+}
+export function searchMessagesAcrossChats(chatJids, query, limit, offset) {
+    return searchMessagesInternal(chatJids, query, limit, offset);
 }
 /**
  * Polling query used by the router – fetch all non-bot messages newer than

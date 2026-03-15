@@ -37,7 +37,7 @@ interface InteractionBroadcasterLike {
 }
 
 interface TaskQueueLike {
-  enqueue(task: () => unknown, key: string): unknown;
+  enqueue(task: () => unknown, key: string, laneKey?: string): unknown;
 }
 
 export interface WebChannelLike
@@ -130,18 +130,18 @@ export interface WebChannelLike
   handleRemote(req: Request): Promise<Response>;
   handleManifest(req: Request): Promise<Response>;
   handleAvatar(kind: "agent" | "user", req: Request): Promise<Response>;
-  handleSse(): Response;
+  handleSse(req: Request): Response;
   handleTerminalSession(req: Request): Response;
   handleAgents(): Promise<Response>;
 
   handleWorkspaceVisibility(req: Request): Promise<Response>;
   handleTimeline(limit: number, before?: number, chatJid?: string): Response;
   handleHashtag(tag: string, limit: number, offset: number, chatJid?: string): Response;
-  handleSearch(query: string, limit: number, offset: number, chatJid?: string): Response;
+  handleSearch(query: string, limit: number, offset: number, chatJid?: string, searchScope?: "current" | "root" | "all", rootChatJid?: string): Response;
   handleThread(id: number | null, chatJid?: string): Response;
   handleThought(panel: string | null, turnId: string | null): Response;
   handleThoughtVisibility(req: Request): Promise<Response>;
-  handleDeletePost(id: number | null, cascade: boolean): Response;
+  handleDeletePost(req: Request, id: number | null, cascade: boolean): Response;
   handleUpdatePost(req: Request, id: number | null): Promise<Response>;
   handleInternalPost(req: Request): Promise<Response>;
   handlePost(req: Request, isReply: boolean): Promise<Response>;
@@ -153,7 +153,10 @@ export interface WebChannelLike
   handleAgentQueueSteer(req: Request): Promise<Response>;
   handleAgentModels(req: Request): Promise<Response>;
   handleAgentActiveChats(req: Request): Promise<Response>;
+  handleAgentBranches(req: Request): Promise<Response>;
   handleAgentBranchFork(req: Request): Promise<Response>;
+  handleAgentBranchRename(req: Request): Promise<Response>;
+  handleAgentBranchPrune(req: Request): Promise<Response>;
   handleAgentPeerMessage(req: Request): Promise<Response>;
   handleAgentRespond(req: Request): Promise<Response>;
   handleAdaptiveCardAction(req: Request): Promise<Response>;

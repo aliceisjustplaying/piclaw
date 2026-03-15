@@ -18,7 +18,7 @@ describe("web http content dispatch", () => {
       parseOptionalInt: () => 7,
       handleTimeline: (limit: number, before?: number, chatJid?: string) => new Response(`timeline:${limit}:${String(before)}:${String(chatJid ?? '')}`),
       handleHashtag: (tag: string, _limit?: number, _offset?: number, chatJid?: string) => new Response(`hashtag:${tag}:${String(chatJid ?? '')}`),
-      handleSearch: (query: string, _limit?: number, _offset?: number, chatJid?: string) => new Response(`search:${query}:${String(chatJid ?? '')}`),
+      handleSearch: (query: string, _limit?: number, _offset?: number, chatJid?: string, scope?: string, rootChatJid?: string) => new Response(`search:${query}:${String(chatJid ?? '')}:${String(scope ?? '')}:${String(rootChatJid ?? '')}`),
       handleThread: (id: number | null, chatJid?: string) => new Response(`thread:${String(id)}:${String(chatJid ?? '')}`),
       handlePost: async (_req: Request, isReply: boolean) => new Response(isReply ? "reply" : "post"),
       handleUpdatePost: async (_req: Request, id: number | null) => new Response(`patch:${String(id)}`),
@@ -30,8 +30,8 @@ describe("web http content dispatch", () => {
     const hashtagReq = new Request("https://example.com/hashtag/demo?chat_jid=web%3Abranch", { method: "GET" });
     expect(await (await handleContentPrimaryRoutes(channel, hashtagReq, "/hashtag/demo", new URL(hashtagReq.url)))?.text()).toBe("hashtag:demo:web:branch");
 
-    const searchReq = new Request("https://example.com/search?q=hello&chat_jid=web%3Abranch", { method: "GET" });
-    expect(await (await handleContentPrimaryRoutes(channel, searchReq, "/search", new URL(searchReq.url)))?.text()).toBe("search:hello:web:branch");
+    const searchReq = new Request("https://example.com/search?q=hello&chat_jid=web%3Abranch&scope=root&root_chat_jid=web%3Aroot", { method: "GET" });
+    expect(await (await handleContentPrimaryRoutes(channel, searchReq, "/search", new URL(searchReq.url)))?.text()).toBe("search:hello:web:branch:root:web:root");
 
     const postReq = new Request("https://example.com/post", { method: "POST" });
     expect(await (await handleContentPrimaryRoutes(channel, postReq, "/post", new URL(postReq.url)))?.text()).toBe("post");
@@ -49,7 +49,7 @@ describe("web http content dispatch", () => {
   test("secondary handles delete/internal routes", async () => {
     const channel = {
       parseOptionalInt: () => 42,
-      handleDeletePost: (id: number | null, cascade: boolean) => new Response(`delete:${String(id)}:${cascade}`),
+      handleDeletePost: (_req: Request, id: number | null, cascade: boolean) => new Response(`delete:${String(id)}:${cascade}`),
       handleInternalPost: async () => new Response("internal", { status: 201 }),
     } as any;
 

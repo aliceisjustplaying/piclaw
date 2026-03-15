@@ -19,6 +19,11 @@ export function parseBtwCommand(input) {
     };
 }
 
+export function resolveBtwChatJid(chatJid) {
+    const normalized = String(chatJid || '').trim();
+    return normalized || 'web:default';
+}
+
 export function shouldShowBtwAnswer(session) {
     if (!session) return false;
     const answer = String(session.answer || '').trim();

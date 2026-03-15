@@ -10,11 +10,14 @@
 import {
   deleteMessageByRowId,
   deleteThreadByRowId,
+  getChatBranchByChatJid,
   getMessageByRowId,
   getMessagesByHashtag,
   getTimeline,
   hasOlderMessages,
+  listChatBranches,
   searchMessages,
+  searchMessagesAcrossChats,
 } from "../../db.js";
 
 const QUEUE_PLACEHOLDER_MARKER = "\u2063";
@@ -62,16 +65,49 @@ export function getHashtagResponse(
   return { status: 200, body: { hashtag: tag, posts, limit, offset } };
 }
 
+export type SearchScope = "current" | "root" | "all";
+
+function resolveSearchRootChatJid(chatJid: string, requestedRootChatJid?: string | null): string {
+  const branch = getChatBranchByChatJid(chatJid);
+  const registryRoot = typeof branch?.root_chat_jid === "string" && branch.root_chat_jid.trim()
+    ? branch.root_chat_jid.trim()
+    : null;
+  const requestedRoot = typeof requestedRootChatJid === "string" && requestedRootChatJid.trim()
+    ? requestedRootChatJid.trim()
+    : null;
+  return registryRoot || requestedRoot || chatJid;
+}
+
 /** Build timeline data filtered by search query. */
 export function getSearchResponse(
   chatJid: string,
   query: string,
   limit: number,
-  offset: number
+  offset: number,
+  scope: SearchScope = "current",
+  rootChatJid?: string | null,
 ): { status: number; body: unknown } {
   if (!query) return { status: 400, body: { error: "Missing 'q' parameter" } };
-  const results = searchMessages(chatJid, query, limit, offset);
-  return { status: 200, body: { query, results, limit, offset } };
+
+  const effectiveRootChatJid = scope === "root" ? resolveSearchRootChatJid(chatJid, rootChatJid) : null;
+
+  let results;
+  if (scope === "all") {
+    results = searchMessagesAcrossChats(null, query, limit, offset);
+  } else if (scope === "root") {
+    const branchChatJids = Array.from(new Set(listChatBranches(effectiveRootChatJid).map((branch) => branch.chat_jid)));
+    const scopedChatJids = branchChatJids.length > 0
+      ? branchChatJids
+      : Array.from(new Set([effectiveRootChatJid, chatJid].filter((value): value is string => Boolean(value))));
+    results = searchMessagesAcrossChats(scopedChatJids, query, limit, offset);
+  } else {
+    results = searchMessages(chatJid, query, limit, offset);
+  }
+
+  return {
+    status: 200,
+    body: { query, results, limit, offset, scope, root_chat_jid: effectiveRootChatJid },
+  };
 }
 
 /** Build a single thread's messages for GET /thread/:id. */

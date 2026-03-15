@@ -5,8 +5,10 @@
  * task management, and interaction queries.
  */
 
+import Database from "bun:sqlite";
+import { spawnSync } from "node:child_process";
 import { beforeAll, expect, test } from "bun:test";
-import { getTestWorkspace, setEnv } from "../helpers.js";
+import { createTempWorkspace, getTestWorkspace, setEnv } from "../helpers.js";
 
 let db: typeof import("../../src/db.js");
 
@@ -67,6 +69,164 @@ test("chat branch registry creates first-class branch rows with unique agent han
   expect(db.getChatBranchByAgentName(childB.agent_name)?.chat_jid).toBe(childB.chat_jid);
 });
 
+test("chat branch registry supports deliberate branch renames", () => {
+  const rootChatJid = `web:test-rename-${Date.now()}`;
+  db.storeChatMetadata(rootChatJid, new Date().toISOString(), "Root");
+  const branch = db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:rename`,
+    root_chat_jid: rootChatJid,
+    agent_name: "draft-agent",
+    display_name: "Draft Agent",
+  });
+  const other = db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:other`,
+    root_chat_jid: rootChatJid,
+    agent_name: "taken-name",
+    display_name: "Other",
+  });
+
+  const renamed = db.renameChatBranchIdentity({
+    chat_jid: branch.chat_jid,
+    agent_name: "research-lead",
+    display_name: "Research Lead",
+  });
+
+  expect(renamed.agent_name).toBe("research-lead");
+  expect(renamed.display_name).toBe("Research Lead");
+  expect(db.getChatBranchByAgentName("research-lead")?.chat_jid).toBe(branch.chat_jid);
+  expect(() => db.renameChatBranchIdentity({ chat_jid: branch.chat_jid, agent_name: other.agent_name })).toThrow(
+    `Agent handle is already in use: @${other.agent_name}`,
+  );
+});
+
+test("chat branch registry supports pruning non-root branches", () => {
+  const rootChatJid = `web:test-prune-${Date.now()}`;
+  db.storeChatMetadata(rootChatJid, new Date().toISOString(), "Root");
+  const root = db.getChatBranchByChatJid(rootChatJid);
+  const branch = db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:prune`,
+    root_chat_jid: rootChatJid,
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "prunable",
+    display_name: "Prunable",
+  });
+
+  const archived = db.archiveChatBranch(branch.chat_jid);
+  expect(archived.archived_at).toBeTruthy();
+  expect(db.getChatBranchByAgentName(branch.agent_name)).toBeNull();
+  expect(db.listChatBranches(rootChatJid).map((item) => item.chat_jid)).toEqual([rootChatJid]);
+  expect(() => db.archiveChatBranch(rootChatJid)).toThrow("Cannot prune the root chat branch.");
+});
+
+test("chat branch registry lets pruned agent handles be reused", () => {
+  const rootChatJid = `web:test-prune-reuse-${Date.now()}`;
+  db.storeChatMetadata(rootChatJid, new Date().toISOString(), "Root");
+  const root = db.getChatBranchByChatJid(rootChatJid);
+  const archived = db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:archived`,
+    root_chat_jid: rootChatJid,
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "reusable-handle",
+    display_name: "Archived Branch",
+  });
+  db.archiveChatBranch(archived.chat_jid);
+
+  const reused = db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:replacement`,
+    root_chat_jid: rootChatJid,
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "reusable-handle",
+    display_name: "Replacement Branch",
+  });
+  expect(reused.agent_name).toBe("reusable-handle");
+  expect(db.getChatBranchByAgentName("reusable-handle")?.chat_jid).toBe(reused.chat_jid);
+
+  const renamed = db.renameChatBranchIdentity({
+    chat_jid: archived.chat_jid,
+    agent_name: "archived-handle",
+  });
+  expect(renamed.agent_name).toBe("archived-handle");
+});
+
+test("initDatabase migrates legacy chat branch uniqueness so pruned handles can be reused", () => {
+  const ws = createTempWorkspace("piclaw-chat-branch-migrate-");
+
+  try {
+    const legacyDb = new Database(`${ws.store}/messages.db`);
+    legacyDb.exec(`
+      CREATE TABLE chats (
+        jid TEXT PRIMARY KEY,
+        name TEXT,
+        last_message_time TEXT
+      );
+      CREATE TABLE chat_branches (
+        branch_id TEXT PRIMARY KEY,
+        chat_jid TEXT NOT NULL UNIQUE,
+        root_chat_jid TEXT NOT NULL,
+        parent_branch_id TEXT,
+        agent_name TEXT NOT NULL UNIQUE,
+        display_name TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        archived_at TEXT,
+        FOREIGN KEY (chat_jid) REFERENCES chats(jid)
+      );
+    `);
+
+    const now = new Date().toISOString();
+    legacyDb.prepare("INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)").run("web:default", "Root", now);
+    legacyDb.prepare("INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)").run("web:default:branch:old", "Old", now);
+    legacyDb.prepare("INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)").run("web:default:branch:new", "New", now);
+    legacyDb.prepare(
+      `INSERT INTO chat_branches (
+        branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, display_name, created_at, updated_at, archived_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("branch-root", "web:default", "web:default", null, "root", "Root", now, now, null);
+    legacyDb.prepare(
+      `INSERT INTO chat_branches (
+        branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, display_name, created_at, updated_at, archived_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("branch-old", "web:default:branch:old", "web:default", "branch-root", "reusable", "Old", now, now, now);
+    legacyDb.prepare(
+      `INSERT INTO chat_branches (
+        branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, display_name, created_at, updated_at, archived_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("branch-new", "web:default:branch:new", "web:default", "branch-root", "new-handle", "New", now, now, null);
+    legacyDb.close();
+
+    const script = `
+      const db = await import("./src/db.js");
+      db.initDatabase();
+      const renamed = db.renameChatBranchIdentity({
+        chat_jid: "web:default:branch:new",
+        agent_name: "reusable",
+      });
+      console.log(JSON.stringify({
+        agent_name: renamed.agent_name,
+        resolved_chat_jid: db.getChatBranchByAgentName("reusable")?.chat_jid || null,
+      }));
+    `;
+    const result = spawnSync(process.execPath, ["-e", script], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PICLAW_WORKSPACE: ws.workspace,
+        PICLAW_STORE: ws.store,
+        PICLAW_DATA: ws.data,
+        PICLAW_DB_IN_MEMORY: "0",
+      },
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(0);
+    const output = JSON.parse(result.stdout.trim().split("\n").filter(Boolean).pop() || "{}");
+    expect(output.agent_name).toBe("reusable");
+    expect(output.resolved_chat_jid).toBe("web:default:branch:new");
+  } finally {
+    ws.cleanup();
+  }
+});
+
 test("timeline returns oldest-first and hasOlderMessages works", () => {
   const chatJid = `test:${Date.now()}-timeline`;
   db.storeChatMetadata(chatJid, new Date().toISOString(), "Test");
@@ -77,6 +237,8 @@ test("timeline returns oldest-first and hasOlderMessages works", () => {
 
   const timeline = db.getTimeline(chatJid, 2);
   expect(timeline.length).toBe(2);
+  expect(timeline[0].chat_jid).toBe(chatJid);
+  expect(timeline[1].chat_jid).toBe(chatJid);
   expect(timeline[0].data.content).toBe("second");
   expect(timeline[1].data.content).toBe("third");
 
@@ -97,6 +259,32 @@ test("search and hashtag filters return matching messages", () => {
 
   const results = db.searchMessages(chatJid, "hello", 10, 0);
   expect(results.length).toBe(2);
+});
+
+test("searchMessagesAcrossChats can search across branch families or all chats", () => {
+  const rootChatJid = `web:test-search-root-${Date.now()}`;
+  const branchChatJid = `${rootChatJid}:branch:1`;
+  const otherChatJid = `web:test-search-other-${Date.now()}`;
+  db.storeChatMetadata(rootChatJid, new Date().toISOString(), "Root");
+  db.storeChatMetadata(branchChatJid, new Date().toISOString(), "Branch");
+  db.storeChatMetadata(otherChatJid, new Date().toISOString(), "Other");
+  const root = db.getChatBranchByChatJid(rootChatJid);
+  db.ensureChatBranch({
+    chat_jid: branchChatJid,
+    root_chat_jid: rootChatJid,
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "search-branch",
+  });
+
+  db.storeMessage(makeMessage(rootChatJid, "needle root", "2024-02-02T00:00:00.000Z"));
+  db.storeMessage(makeMessage(branchChatJid, "needle branch", "2024-02-02T00:01:00.000Z"));
+  db.storeMessage(makeMessage(otherChatJid, "needle other", "2024-02-02T00:02:00.000Z"));
+
+  const rootFamily = db.searchMessagesAcrossChats([rootChatJid, branchChatJid], "needle", 10, 0);
+  expect(rootFamily.map((row) => row.data.content)).toEqual(["needle branch", "needle root"]);
+
+  const global = db.searchMessagesAcrossChats(null, "needle", 10, 0);
+  expect(global.map((row) => row.data.content)).toEqual(["needle other", "needle branch", "needle root"]);
 });
 
 test("media attachments are stored and returned", () => {
