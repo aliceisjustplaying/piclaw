@@ -1,10 +1,10 @@
 ---
 id: api-sse-naming-consistency-security-audit
 title: Audit API endpoints and SSE events for naming, consistency, formats, and security
-status: inbox
+status: doing
 priority: medium
 created: 2026-03-14
-updated: 2026-03-14
+updated: 2026-03-15
 target_release: next
 estimate: M
 risk: medium
@@ -163,6 +163,21 @@ fixes or follow-up tickets.
 - `piclaw/piclaw/src/channels/web/terminal/terminal-session-service.ts`
 
 ## Updates
+
+### 2026-03-15
+- Lane change: `00-inbox` → `20-doing` to start the API/SSE audit as the next unblocked follow-on after the post-release audit and shell lifecycle refactor were committed.
+- Initial route inventory pass confirmed that the dominant API naming style is resource-ish path families (`/agent/*`, `/workspace/*`, `/media/*`, `/auth/*`) with kebab-case sub-actions for non-CRUD mutations (`branch-fork`, `queue-steer`, `side-prompt`).
+- Initial SSE audit pass confirmed event names are flat but strongly domain-prefixed (`agent_*`, `workspace_*`, `extension_ui_*`, `ui_theme`, timeline events like `new_post` / `new_reply`).
+- Found a concrete security/rate-limit coverage gap: mutating `POST /agent/thought/visibility`, `POST /agent/respond`, `POST /agent/card-action`, `POST /agent/side-prompt`, and `POST /agent/side-prompt/stream` existed in dispatch but were not covered by explicit data buckets in `src/channels/web/http/rate-limit-rules.ts`.
+- Implemented explicit buckets:
+  - `data/agent_ui` for thought visibility, agent responses, and adaptive-card actions
+  - `data/agent_side_prompt` for side-prompt start/stream requests
+- Added route-classification regression coverage in `piclaw/test/channels/web/http-route-classification.test.ts`.
+- Validation evidence:
+  - `bun test --max-concurrency=1 test/channels/web/http-route-classification.test.ts test/channels/web/security-hardening.test.ts` → passed
+  - `bun run quality` → passed
+- Next step remains the fuller inventory/documentation pass for endpoint and SSE payload naming consistency.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 1, test: 2, deps: 2, risk: 1)
 
 ### 2026-03-14
 - Created from user request to audit API endpoints and SSE events for naming,

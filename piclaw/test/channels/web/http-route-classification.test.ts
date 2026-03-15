@@ -39,6 +39,11 @@ describe("web http route classification", () => {
     expect(getDataRateLimitRule("POST", "/agent/branch-rename")?.bucket).toBe("data/agent_branch");
     expect(getDataRateLimitRule("POST", "/agent/branch-prune")?.bucket).toBe("data/agent_branch");
     expect(getDataRateLimitRule("POST", "/agent/peer-message")?.bucket).toBe("data/agent_peer");
+    expect(getDataRateLimitRule("POST", "/agent/thought/visibility")?.bucket).toBe("data/agent_ui");
+    expect(getDataRateLimitRule("POST", "/agent/respond")?.bucket).toBe("data/agent_ui");
+    expect(getDataRateLimitRule("POST", "/agent/card-action")?.bucket).toBe("data/agent_ui");
+    expect(getDataRateLimitRule("POST", "/agent/side-prompt")?.bucket).toBe("data/agent_side_prompt");
+    expect(getDataRateLimitRule("POST", "/agent/side-prompt/stream")?.bucket).toBe("data/agent_side_prompt");
     expect(getDataRateLimitRule("DELETE", "/workspace/file")?.bucket).toBe("data/write");
     expect(getDataRateLimitRule("PUT", "/workspace/file")?.bucket).toBe("data/write");
     expect(getDataRateLimitRule("GET", "/workspace/file")).toBeNull();
