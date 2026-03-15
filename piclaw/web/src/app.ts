@@ -51,7 +51,6 @@ import {
     closeProvisionalChatWindow,
     describeBranchOpenError,
     getChatWindowOpenOptions,
-    isStandaloneWebAppMode,
     navigateProvisionalChatWindow,
     openProvisionalChatWindow,
     primeProvisionalChatWindow,
@@ -60,6 +59,7 @@ import { resolveQueueActionChatJid, shouldClearQueuedSteerState } from './ui/que
 import { isCompactionStatus } from './ui/status-duration.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
+import { watchReturnToApp, watchStandaloneWebAppMode } from './ui/app-resume.js';
 
 const BTW_SESSION_KEY = 'piclaw_btw_session';
 
@@ -388,48 +388,7 @@ function MainApp({ locationParams }) {
     }, []);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-
-        const refreshWebAppMode = () => {
-            setIsWebAppMode(isStandaloneWebAppMode());
-        };
-
-        refreshWebAppMode();
-
-        const queries = [
-            '(display-mode: standalone)',
-            '(display-mode: minimal-ui)',
-            '(display-mode: fullscreen)',
-        ];
-        const mediaQueries = queries
-            .map((query) => {
-                try {
-                    return window.matchMedia(query);
-                } catch {
-                    return null;
-                }
-            })
-            .filter(Boolean);
-
-        const removers = mediaQueries.map((mql) => {
-            if (typeof mql.addEventListener === 'function') {
-                mql.addEventListener('change', refreshWebAppMode);
-                return () => mql.removeEventListener('change', refreshWebAppMode);
-            }
-            if (typeof mql.addListener === 'function') {
-                mql.addListener(refreshWebAppMode);
-                return () => mql.removeListener(refreshWebAppMode);
-            }
-            return () => {};
-        });
-
-        window.addEventListener('focus', refreshWebAppMode);
-        window.addEventListener('pageshow', refreshWebAppMode);
-        return () => {
-            for (const remove of removers) remove();
-            window.removeEventListener('focus', refreshWebAppMode);
-            window.removeEventListener('pageshow', refreshWebAppMode);
-        };
+        return watchStandaloneWebAppMode(setIsWebAppMode);
     }, []);
 
     useEffect(() => {
@@ -2255,23 +2214,11 @@ function MainApp({ locationParams }) {
     // Returning to the tab/webapp should restore current context-affordance
     // truth immediately instead of waiting for the 15s/60s backstop poller.
     useEffect(() => {
-        if (typeof window === 'undefined' || typeof document === 'undefined') return;
-
-        const handleReturnToApp = () => {
-            if (document.visibilityState && document.visibilityState !== 'visible') return;
+        return watchReturnToApp(() => {
             refreshAgentStatus();
             refreshContextUsage();
             refreshQueueState();
-        };
-
-        window.addEventListener('focus', handleReturnToApp);
-        window.addEventListener('pageshow', handleReturnToApp);
-        document.addEventListener('visibilitychange', handleReturnToApp);
-        return () => {
-            window.removeEventListener('focus', handleReturnToApp);
-            window.removeEventListener('pageshow', handleReturnToApp);
-            document.removeEventListener('visibilitychange', handleReturnToApp);
-        };
+        });
     }, [refreshAgentStatus, refreshContextUsage, refreshQueueState]);
 
     const toggleWorkspace = useCallback(() => {
