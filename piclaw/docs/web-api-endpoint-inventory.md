@@ -155,6 +155,15 @@ The API is already more consistent than expected:
 - binary/static/media endpoints return direct file/binary responses
 - SSE and terminal WebSocket endpoints intentionally use streaming protocols
 
+A small standardisation step is now landed in shared helpers:
+
+- `jsonResponse(data, status)`
+- `okJson(extra?, status)` → `{ status: "ok", ...extra }`
+- `errorJson(message, status)` → `{ error: message }`
+
+Those helpers are now used by the shared response service plus the first low-risk
+web endpoint helpers (`ui-endpoints.ts`, `handlers/workspace.ts`).
+
 ### Current rough response families
 
 1. **resource reads**

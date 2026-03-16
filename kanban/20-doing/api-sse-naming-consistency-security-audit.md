@@ -217,6 +217,11 @@ fixes or follow-up tickets.
   - `web/src/app.ts` bridges those events into browser events for downstream UI consumers
   - `extension_ui_notify` and `extension_ui_error` now surface lightweight intent toasts
   - tests added in `test/web/extension-ui-events.test.ts`
+- Landed the first concrete response-format consistency slice:
+  - added shared `okJson(...)` and `errorJson(...)` helpers in `src/channels/web/http/http-utils.ts`
+  - exposed matching `ok(...)` / `error(...)` helpers from `ResponseService`
+  - switched `src/channels/web/ui-endpoints.ts` and `src/channels/web/handlers/workspace.ts` to use the shared helpers for lightweight success/error envelopes
+  - extended regression coverage in `test/channels/web/web-utils.test.ts` and `test/channels/web/web-response-service.test.ts`
 - Remaining work is still broader response-format consistency analysis plus deciding whether that browser-event bridge is sufficient or whether a richer first-class extension-UI surface is warranted.
 - This ticket remains the active umbrella for that work rather than being closed after incremental guardrail slices.
 

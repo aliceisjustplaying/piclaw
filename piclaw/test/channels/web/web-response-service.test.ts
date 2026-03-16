@@ -18,6 +18,14 @@ test("response service wraps json and static helpers", async () => {
   expect(json.status).toBe(201);
   expect(await json.json()).toEqual({ ok: true });
 
+  const ok = service.ok({ visible: true }, 202);
+  expect(ok.status).toBe(202);
+  expect(await ok.json()).toEqual({ status: "ok", visible: true });
+
+  const err = service.error("Nope", 418);
+  expect(err.status).toBe(418);
+  expect(await err.json()).toEqual({ error: "Nope" });
+
   const clamped = service.clampInt("5", 1, 1, 4);
   expect(clamped).toBe(4);
   expect(service.parseOptionalInt("12")).toBe(12);
