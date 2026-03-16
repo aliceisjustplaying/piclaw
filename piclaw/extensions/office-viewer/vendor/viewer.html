@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
+
+  .canvas-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .loading-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 10;
+    color: #ccc;
+    font-family: system-ui, sans-serif;
+  }
+  .loading-overlay.hidden { display: none; }
+
+  .spinner {
+    border: 8px solid #333;
+    border-top: 8px solid #059669;
+    border-radius: 50%;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    animation: spin 1.5s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #error-text { margin-top: 8px; font-size: 12px; color: #e55; display: none; }
+
+  #qtcanvas {
+    border: 0px none;
+    padding: 0;
+    outline: none;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+  }
+  #qtcanvas.visible {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+
+<div class="canvas-wrapper" onselectstart="event.preventDefault()">
+  <div id="loadingInfo" class="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loading-text">Loading ZetaOffice…</div>
+    <div id="error-text"></div>
+  </div>
+  <canvas
+    id="qtcanvas" contenteditable="true"
+    oncontextmenu="event.preventDefault()"
+    onkeydown="event.preventDefault()">
+  </canvas>
+</div>
+
+<script type="text/javascript">
+'use strict';
+
+var params = new URLSearchParams(location.search);
+var docUrl = params.get('url');
+var docName = params.get('name') || 'document';
+
+var canvas = document.getElementById('qtcanvas');
+var loadingInfo = document.getElementById('loadingInfo');
+var loadingText = document.getElementById('loading-text');
+var errorText = document.getElementById('error-text');
+
+// Cross-origin isolation check — bail early if not secure
+console.log('[ZetaOffice] crossOriginIsolated:', self.crossOriginIsolated);
+console.log('[ZetaOffice] SharedArrayBuffer:', typeof SharedArrayBuffer !== 'undefined');
+console.log('[ZetaOffice] isSecureContext:', window.isSecureContext);
+if (!self.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
+  console.error('[ZetaOffice] NOT cross-origin isolated — cannot start.');
+  loadingText.textContent = '';
+  document.querySelector('.spinner').style.display = 'none';
+  var msg = document.createElement('div');
+  msg.style.cssText = 'text-align:center;padding:24px;';
+  msg.innerHTML = '<div style="font-size:48px;margin-bottom:16px;">🔒</div>'
+    + '<div style="font-size:15px;font-weight:600;color:#e0e0e0;margin-bottom:8px;">Secure Context Required</div>'
+    + '<div style="font-size:13px;color:#999;line-height:1.6;">'
+    + 'ZetaOffice requires <code style="background:#333;padding:1px 5px;border-radius:3px;">SharedArrayBuffer</code><br>'
+    + 'which needs HTTPS + cross-origin isolation headers.<br><br>'
+    + 'Protocol: <strong>' + location.protocol + '</strong><br>'
+    + 'crossOriginIsolated: <strong>' + self.crossOriginIsolated + '</strong>'
+    + '</div>';
+  loadingInfo.innerHTML = '';
+  loadingInfo.appendChild(msg);
+  throw new Error('SharedArrayBuffer not available');
+}
+
+function showError(msg) {
+  errorText.textContent = msg;
+  errorText.style.display = 'block';
+  loadingText.textContent = 'Failed to load';
+}
+
+// ── Canvas sizing ───────────────────────────────────────────────
+function syncCanvasSize() {
+  var w = window.innerWidth;
+  var h = window.innerHeight;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+}
+syncCanvasSize();
+
+var bustCache = '?v=' + Date.now();
+
+var Module = {
+  canvas: canvas,
+  uno_scripts: ['./zeta.js' + bustCache, './office_thread.js' + bustCache],
+  locateFile: function(path, prefix) {
+    return (prefix || './') + path + bustCache;
+  }
+};
+
+var thrPort;
+var docBytes;
+var lastDevicePixelRatio = window.devicePixelRatio;
+
+canvas.addEventListener('wheel', function(e) { e.preventDefault(); }, {passive: false});
+
+// Qt5 DPR workaround from zetajs examples
+window.onresize = function() {
+  syncCanvasSize();
+  setTimeout(function() {
+    if (lastDevicePixelRatio) {
+      if (lastDevicePixelRatio != window.devicePixelRatio) {
+        lastDevicePixelRatio = false;
+        window.dispatchEvent(new Event('resize'));
+      }
+    } else {
+      lastDevicePixelRatio = window.devicePixelRatio;
+      window.dispatchEvent(new Event('resize'));
+    }
+  }, 100);
+};
+
+// ── Boot ────────────────────────────────────────────────────────
+
+(function boot() {
+  if (!docUrl) {
+    showError('No document URL. Use ?url=...&name=...');
+    return;
+  }
+
+  loadingText.textContent = 'Downloading document…';
+
+  fetch(docUrl)
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.arrayBuffer();
+    })
+    .then(function(buf) {
+      docBytes = new Uint8Array(buf);
+      console.log('[main] Document fetched: ' + docName + ' (' + docBytes.length + ' bytes)');
+      loadingText.textContent = 'Loading ZetaOffice engine…';
+
+      var script = document.createElement('script');
+      script.src = './soffice.js?v=' + Date.now();
+      script.onerror = function() { showError('Failed to load soffice.js'); };
+      script.onload = function() {
+        console.log('[main] soffice.js loaded, waiting for uno_main');
+        loadingText.textContent = 'Starting LibreOffice…';
+
+        Module.uno_main.then(function(port) {
+          thrPort = port;
+          console.log('[main] uno_main resolved, setting up message handler');
+          port.onmessage = function(e) {
+            switch (e.data.cmd) {
+              case 'ready':
+                console.log('[main] Office thread ready, writing file to FS');
+                try { FS.mkdir('/tmp/doc'); } catch(ignore) {}
+                FS.writeFile('/tmp/doc/' + docName, docBytes);
+                console.log('[main] Sending open command');
+                port.postMessage({cmd: 'open', filename: docName});
+                break;
+              case 'ui_ready':
+                console.log('[main] ui_ready — triggering resize + reveal');
+                syncCanvasSize();
+                window.dispatchEvent(new Event('resize'));
+                setTimeout(function() {
+                  syncCanvasSize();
+                  window.dispatchEvent(new Event('resize'));
+                }, 300);
+                setTimeout(function() {
+                  syncCanvasSize();
+                  window.dispatchEvent(new Event('resize'));
+                  loadingInfo.classList.add('hidden');
+                  canvas.classList.add('visible');
+                  canvas.focus();
+                }, 800);
+                break;
+              case 'error':
+                showError('Office error: ' + e.data.message);
+                break;
+            }
+          };
+        });
+      };
+      document.body.appendChild(script);
+    })
+    .catch(function(err) {
+      showError('Failed to load document: ' + err.message);
+    });
+})();
+</script>
+</body>
+</html>
