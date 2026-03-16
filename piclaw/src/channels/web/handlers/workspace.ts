@@ -7,16 +7,10 @@
  * Consumers: web/http/dispatch-workspace.ts routes workspace paths here.
  */
 
+import { errorJson, jsonResponse } from "../http/http-utils.js";
 import { WorkspaceService } from "../workspace/service.js";
 
 const workspaceService = new WorkspaceService();
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 /** Contract required by the workspace watcher bridge. */
 export interface WorkspaceWatcherChannel {
@@ -61,11 +55,11 @@ export async function handleWorkspaceUpdate(req: Request): Promise<Response> {
   try {
     data = await req.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON" }, 400);
+    return errorJson("Invalid JSON", 400);
   }
 
   if (!data?.path) {
-    return jsonResponse({ error: "Missing path" }, 400);
+    return errorJson("Missing path", 400);
   }
 
   const result = workspaceService.updateFile(data.path, data.content ?? "");
@@ -97,7 +91,7 @@ export async function handleWorkspaceAttach(req: Request): Promise<Response> {
   try {
     data = await req.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON" }, 400);
+    return errorJson("Invalid JSON", 400);
   }
 
   const result = workspaceService.attachFile(data.path || null);
@@ -111,11 +105,11 @@ export async function handleWorkspaceUpload(req: Request): Promise<Response> {
   try {
     formData = await req.formData();
   } catch {
-    return jsonResponse({ error: "Invalid form data" }, 400);
+    return errorJson("Invalid form data", 400);
   }
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return jsonResponse({ error: "Missing file" }, 400);
+    return errorJson("Missing file", 400);
   }
 
   const overwrite = url.searchParams.get("overwrite") === "1" || url.searchParams.get("overwrite") === "true";
@@ -129,11 +123,11 @@ export async function handleWorkspaceCreate(req: Request): Promise<Response> {
   try {
     data = await req.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON" }, 400);
+    return errorJson("Invalid JSON", 400);
   }
 
   if (!data?.name) {
-    return jsonResponse({ error: "Missing filename" }, 400);
+    return errorJson("Missing filename", 400);
   }
 
   const result = workspaceService.createFile(data.path ?? null, data.name ?? null, data.content ?? "");
@@ -146,15 +140,15 @@ export async function handleWorkspaceRename(req: Request): Promise<Response> {
   try {
     data = await req.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON" }, 400);
+    return errorJson("Invalid JSON", 400);
   }
 
   if (!data?.path) {
-    return jsonResponse({ error: "Missing path" }, 400);
+    return errorJson("Missing path", 400);
   }
 
   if (!data?.name) {
-    return jsonResponse({ error: "Missing filename" }, 400);
+    return errorJson("Missing filename", 400);
   }
 
   const result = workspaceService.renameFile(data.path ?? null, data.name ?? null);
@@ -167,15 +161,15 @@ export async function handleWorkspaceMove(req: Request): Promise<Response> {
   try {
     data = await req.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON" }, 400);
+    return errorJson("Invalid JSON", 400);
   }
 
   if (!data?.path) {
-    return jsonResponse({ error: "Missing path" }, 400);
+    return errorJson("Missing path", 400);
   }
 
   if (!data?.target) {
-    return jsonResponse({ error: "Missing target" }, 400);
+    return errorJson("Missing target", 400);
   }
 
   const result = workspaceService.moveEntry(data.path ?? null, data.target ?? null);

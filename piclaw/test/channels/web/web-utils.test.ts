@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
 import { existsSync } from "fs";
 import { join } from "path";
 
-import { clampInt, jsonResponse, parseOptionalInt } from "../../../src/channels/web/http/http-utils.js";
+import { clampInt, errorJson, jsonResponse, okJson, parseOptionalInt } from "../../../src/channels/web/http/http-utils.js";
 import { buildPreview, createToolTitleTracker } from "../../../src/channels/web/agent-utils.js";
 import { handleSse, broadcastEvent } from "../../../src/channels/web/sse.js";
 import { serveDocsStatic, serveStatic } from "../../../src/channels/web/http/static.js";
@@ -31,6 +31,15 @@ test("http utils clamp and parse", async () => {
   const res = jsonResponse({ ok: true }, 201);
   expect(res.status).toBe(201);
   expect(await res.json()).toEqual({ ok: true });
+
+  const ok = okJson({ visible: true }, 202);
+  expect(ok.status).toBe(202);
+  expect(await ok.json()).toEqual({ status: "ok", visible: true });
+
+  const err = errorJson("Nope", 418);
+  expect(err.status).toBe(418);
+  expect(await err.json()).toEqual({ error: "Nope" });
+
   expect(clampInt("5", 1, 1, 4)).toBe(4);
   expect(parseOptionalInt("12")).toBe(12);
   expect(parseOptionalInt(null)).toBeNull();

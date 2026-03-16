@@ -17,6 +17,16 @@ export function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+/** Build the standard lightweight success envelope used by simple web mutations. */
+export function okJson(data: Record<string, unknown> = {}, status = 200): Response {
+  return jsonResponse({ status: "ok", ...data }, status);
+}
+
+/** Build the standard lightweight error envelope used by web JSON endpoints. */
+export function errorJson(error: string, status = 400): Response {
+  return jsonResponse({ error }, status);
+}
+
 /** Clamp an integer value between min and max bounds. */
 export function clampInt(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = value ? parseInt(value, 10) : fallback;
