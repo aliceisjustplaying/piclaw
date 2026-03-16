@@ -2,9 +2,11 @@
 /**
  * office-viewer-pane.ts — WebPaneExtension for viewing Office documents.
  *
+ * Uses lightweight client-side JS libraries (docx-preview, SheetJS, PptxViewJS)
+ * served through the /office-viewer extension route. No WASM, no HTTPS requirement.
+ *
  * In preview mode (workspace browser): shows a launch card with "Open in Tab" button.
- * In edit/tab mode: loads ZetaOffice WASM viewer in an iframe.
- * Requires secure context (HTTPS + crossOriginIsolated) for SharedArrayBuffer.
+ * In edit/tab mode: loads the viewer in an iframe.
  */
 
 import type { PaneCapability, PaneContext, PaneInstance, WebPaneExtension } from './pane-types.js';
@@ -38,10 +40,6 @@ function esc(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function isSecureContext(): boolean {
-    return !!(self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined');
-}
-
 // ── Preview card (workspace browser) ────────────────────────────
 
 class OfficePreviewCard implements PaneInstance {
@@ -55,7 +53,6 @@ class OfficePreviewCard implements PaneInstance {
         const ext = getExtension(filePath);
         const icon = FORMAT_ICONS[ext] || '📄';
         const label = FORMAT_LABELS[ext] || 'Office Document';
-        const secure = isSecureContext();
 
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--bg-primary,#1a1a1a);';
@@ -64,38 +61,26 @@ class OfficePreviewCard implements PaneInstance {
                 <div style="font-size:56px;margin-bottom:12px;">${icon}</div>
                 <div style="font-size:14px;font-weight:600;color:var(--text-primary,#e0e0e0);margin-bottom:4px;word-break:break-word;">${esc(name)}</div>
                 <div style="font-size:11px;color:var(--text-secondary,#888);margin-bottom:20px;">${esc(label)}</div>
-                ${secure ? `
-                    <button id="ov-open-tab" style="padding:8px 20px;background:var(--accent-color,#1d9bf0);color:var(--accent-contrast-text,#fff);
-                        border:none;border-radius:5px;font-size:13px;font-weight:500;cursor:pointer;
-                        transition:background 0.15s;"
-                        onmouseenter="this.style.background='var(--accent-hover,#1a8cd8)'"
-                        onmouseleave="this.style.background='var(--accent-color,#1d9bf0)'">
-                        Open in Tab
-                    </button>
-                ` : `
-                    <div style="padding:10px 16px;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);
-                        border-radius:6px;font-size:12px;color:#eab308;line-height:1.5;">
-                        ⚠️ Requires HTTPS for SharedArrayBuffer.<br>
-                        <span style="color:var(--text-secondary,#888);font-size:11px;">
-                            Connect via HTTPS to use the Office viewer.
-                        </span>
-                    </div>
-                `}
+                <button id="ov-open-tab" style="padding:8px 20px;background:var(--accent-color,#1d9bf0);color:var(--accent-contrast-text,#fff);
+                    border:none;border-radius:5px;font-size:13px;font-weight:500;cursor:pointer;
+                    transition:background 0.15s;"
+                    onmouseenter="this.style.background='var(--accent-hover,#1a8cd8)'"
+                    onmouseleave="this.style.background='var(--accent-color,#1d9bf0)'">
+                    Open in Tab
+                </button>
             </div>
         `;
         container.appendChild(wrapper);
 
-        if (secure) {
-            const btn = wrapper.querySelector('#ov-open-tab') as HTMLButtonElement;
-            if (btn) {
-                btn.addEventListener('click', () => {
-                    const evt = new CustomEvent('office-viewer:open-tab', {
-                        bubbles: true,
-                        detail: { path: filePath },
-                    });
-                    container.dispatchEvent(evt);
+        const btn = wrapper.querySelector('#ov-open-tab') as HTMLButtonElement;
+        if (btn) {
+            btn.addEventListener('click', () => {
+                const evt = new CustomEvent('office-viewer:open-tab', {
+                    bubbles: true,
+                    detail: { path: filePath },
                 });
-            }
+                container.dispatchEvent(evt);
+            });
         }
     }
 
@@ -121,27 +106,6 @@ class OfficeViewerInstance implements PaneInstance {
         this.container = container;
         const filePath = context.path || '';
         const name = filePath.split('/').pop() || 'document';
-        const secure = isSecureContext();
-
-        if (!secure) {
-            const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1e1e1e;';
-            wrapper.innerHTML = `
-                <div style="text-align:center;max-width:420px;padding:32px;">
-                    <div style="font-size:48px;margin-bottom:16px;">🔒</div>
-                    <div style="font-size:15px;font-weight:600;color:#e0e0e0;margin-bottom:8px;">
-                        Secure Context Required
-                    </div>
-                    <div style="font-size:13px;color:#999;line-height:1.6;">
-                        The Office viewer requires <code style="background:#333;padding:1px 5px;border-radius:3px;font-size:12px;">SharedArrayBuffer</code>
-                        which is only available over HTTPS.<br><br>
-                        Connect via <strong style="color:#4fc1ff;">https://</strong> to use this feature.
-                    </div>
-                </div>
-            `;
-            container.appendChild(wrapper);
-            return;
-        }
 
         const rawUrl = `/workspace/raw?path=${encodeURIComponent(filePath)}`;
         const viewerUrl = `/office-viewer/?url=${encodeURIComponent(rawUrl)}&name=${encodeURIComponent(name)}`;
