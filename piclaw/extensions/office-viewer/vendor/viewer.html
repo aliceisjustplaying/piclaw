@@ -6,214 +6,177 @@
 <title>Office Viewer</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; color: #e0e0e0; font-family: system-ui, -apple-system, sans-serif; }
+  #loading { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+  #loading .spinner { font-size: 15px; color: #888; }
+  #error { display: none; align-items: center; justify-content: center; width: 100%; height: 100%; }
+  #error .msg { text-align: center; max-width: 420px; padding: 32px; }
+  #error .msg .icon { font-size: 48px; margin-bottom: 16px; }
+  #error .msg .title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  #error .msg .detail { font-size: 13px; color: #999; line-height: 1.6; }
 
-  .canvas-wrapper {
-    position: relative;
-    width: 100%;
-    height: 100%;
-  }
+  /* docx container */
+  #docx-container { width: 100%; height: 100%; overflow: auto; display: none; background: #fff; }
+  #docx-container .docx-wrapper { padding: 20px; }
 
-  .loading-overlay {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    z-index: 10;
-    color: #ccc;
-    font-family: system-ui, sans-serif;
-  }
-  .loading-overlay.hidden { display: none; }
+  /* xlsx container */
+  #xlsx-container { width: 100%; height: 100%; overflow: auto; display: none; background: #fff; color: #222; font-size: 13px; }
+  #xlsx-tabs { display: flex; gap: 0; background: #f0f0f0; border-bottom: 1px solid #ccc; padding: 0 8px; overflow-x: auto; flex-shrink: 0; }
+  #xlsx-tabs button { padding: 6px 16px; border: none; background: transparent; cursor: pointer; font-size: 12px; color: #555; border-bottom: 2px solid transparent; white-space: nowrap; }
+  #xlsx-tabs button.active { color: #1d9bf0; border-bottom-color: #1d9bf0; font-weight: 600; }
+  #xlsx-table-wrap { overflow: auto; flex: 1; }
+  #xlsx-table-wrap table { border-collapse: collapse; width: max-content; min-width: 100%; }
+  #xlsx-table-wrap th, #xlsx-table-wrap td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; white-space: nowrap; font-size: 12px; }
+  #xlsx-table-wrap th { background: #f5f5f5; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+  #xlsx-table-wrap tr:nth-child(even) { background: #fafafa; }
 
-  .spinner {
-    border: 8px solid #333;
-    border-top: 8px solid #059669;
-    border-radius: 50%;
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 16px;
-    animation: spin 1.5s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #error-text { margin-top: 8px; font-size: 12px; color: #e55; display: none; }
-
-  #qtcanvas {
-    border: 0px none;
-    padding: 0;
-    outline: none;
-    opacity: 0;
-    transition: opacity 0.3s ease-in;
-  }
-  #qtcanvas.visible {
-    opacity: 1;
-  }
+  /* pptx container */
+  #pptx-container { width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; background: #2a2a2a; }
+  #pptx-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; width: 100%; }
+  #pptx-canvas { max-width: 100%; max-height: 100%; }
+  #pptx-nav { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1e1e1e; width: 100%; justify-content: center; }
+  #pptx-nav button { padding: 6px 16px; border: none; border-radius: 4px; background: #333; color: #e0e0e0; cursor: pointer; font-size: 13px; }
+  #pptx-nav button:hover { background: #444; }
+  #pptx-nav button:disabled { opacity: 0.3; cursor: default; }
+  #pptx-nav .status { font-size: 13px; color: #999; min-width: 80px; text-align: center; }
 </style>
 </head>
 <body>
+<div id="loading"><div class="spinner">Loading document…</div></div>
+<div id="error"><div class="msg"><div class="icon">⚠️</div><div class="title" id="err-title">Error</div><div class="detail" id="err-detail"></div></div></div>
+<div id="docx-container"></div>
+<div id="xlsx-container" style="display:none;flex-direction:column"><div id="xlsx-tabs"></div><div id="xlsx-table-wrap"></div></div>
+<div id="pptx-container"><div id="pptx-canvas-wrap"><canvas id="pptx-canvas"></canvas></div><div id="pptx-nav"><button id="pptx-prev">◀ Prev</button><span class="status" id="pptx-status">–</span><button id="pptx-next">Next ▶</button></div></div>
 
-<div class="canvas-wrapper" onselectstart="event.preventDefault()">
-  <div id="loadingInfo" class="loading-overlay">
-    <div class="spinner"></div>
-    <div id="loading-text">Loading ZetaOffice…</div>
-    <div id="error-text"></div>
-  </div>
-  <canvas
-    id="qtcanvas" contenteditable="true"
-    oncontextmenu="event.preventDefault()"
-    onkeydown="event.preventDefault()">
-  </canvas>
-</div>
+<script src="jszip.min.js"></script>
+<script src="docx-preview.min.js"></script>
+<script src="xlsx.full.min.js"></script>
+<script src="PptxViewJS.min.js"></script>
+<script>
+(function() {
+  const params = new URLSearchParams(location.search);
+  const url = params.get('url');
+  const name = params.get('name') || 'document';
 
-<script type="text/javascript">
-'use strict';
+  if (!url) return showError('No document URL', 'Pass ?url=... to load a document.');
 
-var params = new URLSearchParams(location.search);
-var docUrl = params.get('url');
-var docName = params.get('name') || 'document';
+  const ext = (name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
 
-var canvas = document.getElementById('qtcanvas');
-var loadingInfo = document.getElementById('loadingInfo');
-var loadingText = document.getElementById('loading-text');
-var errorText = document.getElementById('error-text');
+  fetch(url)
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+    .then(buf => render(ext, buf))
+    .catch(err => showError('Failed to load', err.message));
 
-// Cross-origin isolation check — bail early if not secure
-console.log('[ZetaOffice] crossOriginIsolated:', self.crossOriginIsolated);
-console.log('[ZetaOffice] SharedArrayBuffer:', typeof SharedArrayBuffer !== 'undefined');
-console.log('[ZetaOffice] isSecureContext:', window.isSecureContext);
-if (!self.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
-  console.error('[ZetaOffice] NOT cross-origin isolated — cannot start.');
-  loadingText.textContent = '';
-  document.querySelector('.spinner').style.display = 'none';
-  var msg = document.createElement('div');
-  msg.style.cssText = 'text-align:center;padding:24px;';
-  msg.innerHTML = '<div style="font-size:48px;margin-bottom:16px;">🔒</div>'
-    + '<div style="font-size:15px;font-weight:600;color:#e0e0e0;margin-bottom:8px;">Secure Context Required</div>'
-    + '<div style="font-size:13px;color:#999;line-height:1.6;">'
-    + 'ZetaOffice requires <code style="background:#333;padding:1px 5px;border-radius:3px;">SharedArrayBuffer</code><br>'
-    + 'which needs HTTPS + cross-origin isolation headers.<br><br>'
-    + 'Protocol: <strong>' + location.protocol + '</strong><br>'
-    + 'crossOriginIsolated: <strong>' + self.crossOriginIsolated + '</strong>'
-    + '</div>';
-  loadingInfo.innerHTML = '';
-  loadingInfo.appendChild(msg);
-  throw new Error('SharedArrayBuffer not available');
-}
-
-function showError(msg) {
-  errorText.textContent = msg;
-  errorText.style.display = 'block';
-  loadingText.textContent = 'Failed to load';
-}
-
-// ── Canvas sizing ───────────────────────────────────────────────
-function syncCanvasSize() {
-  var w = window.innerWidth;
-  var h = window.innerHeight;
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
-}
-syncCanvasSize();
-
-var bustCache = '?v=' + Date.now();
-
-var Module = {
-  canvas: canvas,
-  uno_scripts: ['./zeta.js' + bustCache, './office_thread.js' + bustCache],
-  locateFile: function(path, prefix) {
-    return (prefix || './') + path + bustCache;
+  function render(ext, buf) {
+    document.getElementById('loading').style.display = 'none';
+    if (['.docx', '.doc', '.odt', '.rtf'].includes(ext)) return renderDocx(buf);
+    if (['.xlsx', '.xls', '.ods', '.csv'].includes(ext)) return renderXlsx(buf, ext);
+    if (['.pptx', '.ppt', '.odp'].includes(ext)) return renderPptx(buf);
+    showError('Unsupported format', 'File type ' + ext + ' is not supported.');
   }
-};
 
-var thrPort;
-var docBytes;
-var lastDevicePixelRatio = window.devicePixelRatio;
+  function renderDocx(buf) {
+    const el = document.getElementById('docx-container');
+    el.style.display = 'block';
+    docx.renderAsync(buf, el, null, {
+      className: 'docx',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      ignoreFonts: false,
+      breakPages: true,
+      ignoreLastRenderedPageBreak: true,
+      experimental: true,
+    }).catch(err => showError('DOCX render failed', err.message));
+  }
 
-canvas.addEventListener('wheel', function(e) { e.preventDefault(); }, {passive: false});
-
-// Qt5 DPR workaround from zetajs examples
-window.onresize = function() {
-  syncCanvasSize();
-  setTimeout(function() {
-    if (lastDevicePixelRatio) {
-      if (lastDevicePixelRatio != window.devicePixelRatio) {
-        lastDevicePixelRatio = false;
-        window.dispatchEvent(new Event('resize'));
-      }
-    } else {
-      lastDevicePixelRatio = window.devicePixelRatio;
-      window.dispatchEvent(new Event('resize'));
+  function renderXlsx(buf, ext) {
+    const container = document.getElementById('xlsx-container');
+    container.style.display = 'flex';
+    let wb;
+    try {
+      wb = XLSX.read(buf, { type: 'array' });
+    } catch(err) {
+      showError('Spreadsheet parse failed', err.message);
+      return;
     }
-  }, 100);
-};
+    const tabBar = document.getElementById('xlsx-tabs');
+    const tableWrap = document.getElementById('xlsx-table-wrap');
 
-// ── Boot ────────────────────────────────────────────────────────
+    function showSheet(sheetName) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) return;
+      const html = XLSX.utils.sheet_to_html(ws, { editable: false });
+      tableWrap.innerHTML = html;
+      // style the generated table
+      const tbl = tableWrap.querySelector('table');
+      if (tbl) { tbl.style.borderCollapse = 'collapse'; tbl.style.width = 'max-content'; tbl.style.minWidth = '100%'; }
+      tableWrap.querySelectorAll('td,th').forEach(cell => {
+        cell.style.border = '1px solid #ddd';
+        cell.style.padding = '4px 8px';
+        cell.style.fontSize = '12px';
+        cell.style.whiteSpace = 'nowrap';
+      });
+      tableWrap.querySelectorAll('th').forEach(th => {
+        th.style.background = '#f5f5f5';
+        th.style.fontWeight = '600';
+        th.style.position = 'sticky';
+        th.style.top = '0';
+      });
+      // update active tab
+      tabBar.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.textContent === sheetName));
+    }
 
-(function boot() {
-  if (!docUrl) {
-    showError('No document URL. Use ?url=...&name=...');
-    return;
+    wb.SheetNames.forEach((sn, i) => {
+      const btn = document.createElement('button');
+      btn.textContent = sn;
+      btn.addEventListener('click', () => showSheet(sn));
+      if (i === 0) btn.className = 'active';
+      tabBar.appendChild(btn);
+    });
+
+    if (wb.SheetNames.length > 0) showSheet(wb.SheetNames[0]);
   }
 
-  loadingText.textContent = 'Downloading document…';
+  function renderPptx(buf) {
+    const container = document.getElementById('pptx-container');
+    container.style.display = 'flex';
+    const canvas = document.getElementById('pptx-canvas');
+    const status = document.getElementById('pptx-status');
+    const prevBtn = document.getElementById('pptx-prev');
+    const nextBtn = document.getElementById('pptx-next');
 
-  fetch(docUrl)
-    .then(function(resp) {
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      return resp.arrayBuffer();
-    })
-    .then(function(buf) {
-      docBytes = new Uint8Array(buf);
-      console.log('[main] Document fetched: ' + docName + ' (' + docBytes.length + ' bytes)');
-      loadingText.textContent = 'Loading ZetaOffice engine…';
+    const PPTXViewer = window.PptxViewJS?.PPTXViewer;
+    if (!PPTXViewer) { showError('PPTX library not loaded', 'PptxViewJS failed to initialize.'); return; }
 
-      var script = document.createElement('script');
-      script.src = './soffice.js?v=' + Date.now();
-      script.onerror = function() { showError('Failed to load soffice.js'); };
-      script.onload = function() {
-        console.log('[main] soffice.js loaded, waiting for uno_main');
-        loadingText.textContent = 'Starting LibreOffice…';
+    const viewer = new PPTXViewer({ canvas: canvas });
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+    const file = new File([blob], name, { type: blob.type });
 
-        Module.uno_main.then(function(port) {
-          thrPort = port;
-          console.log('[main] uno_main resolved, setting up message handler');
-          port.onmessage = function(e) {
-            switch (e.data.cmd) {
-              case 'ready':
-                console.log('[main] Office thread ready, writing file to FS');
-                try { FS.mkdir('/tmp/doc'); } catch(ignore) {}
-                FS.writeFile('/tmp/doc/' + docName, docBytes);
-                console.log('[main] Sending open command');
-                port.postMessage({cmd: 'open', filename: docName});
-                break;
-              case 'ui_ready':
-                console.log('[main] ui_ready — triggering resize + reveal');
-                syncCanvasSize();
-                window.dispatchEvent(new Event('resize'));
-                setTimeout(function() {
-                  syncCanvasSize();
-                  window.dispatchEvent(new Event('resize'));
-                }, 300);
-                setTimeout(function() {
-                  syncCanvasSize();
-                  window.dispatchEvent(new Event('resize'));
-                  loadingInfo.classList.add('hidden');
-                  canvas.classList.add('visible');
-                  canvas.focus();
-                }, 800);
-                break;
-              case 'error':
-                showError('Office error: ' + e.data.message);
-                break;
-            }
-          };
-        });
-      };
-      document.body.appendChild(script);
-    })
-    .catch(function(err) {
-      showError('Failed to load document: ' + err.message);
-    });
+    viewer.loadFile(file).then(() => {
+      viewer.render();
+      updateNav();
+    }).catch(err => showError('PPTX render failed', err.message));
+
+    function updateNav() {
+      const cur = viewer.getCurrentSlideIndex() + 1;
+      const total = viewer.getSlideCount();
+      status.textContent = cur + ' / ' + total;
+      prevBtn.disabled = cur <= 1;
+      nextBtn.disabled = cur >= total;
+    }
+
+    prevBtn.addEventListener('click', () => { viewer.previousSlide().then(() => { viewer.render(); updateNav(); }); });
+    nextBtn.addEventListener('click', () => { viewer.nextSlide().then(() => { viewer.render(); updateNav(); }); });
+  }
+
+  function showError(title, detail) {
+    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('error');
+    el.style.display = 'flex';
+    document.getElementById('err-title').textContent = title;
+    document.getElementById('err-detail').textContent = detail || '';
+  }
 })();
 </script>
 </body>
