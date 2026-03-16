@@ -1,7 +1,7 @@
 ---
 id: extension-ui-sse-client-contract-gap
 title: Audit and resolve extension UI SSE client contract gap
-status: inbox
+status: done
 priority: medium
 created: 2026-03-16
 updated: 2026-03-16
@@ -82,7 +82,8 @@ That leaves three possibilities:
   - `web/src/app.ts` now bridges those events into browser events
   - `extension_ui_notify` and `extension_ui_error` now surface lightweight intent toasts
   - tests added in `test/web/extension-ui-events.test.ts` and `test/channels/web/web-sse-client.test.ts`
-- Remaining question: whether the browser-event bridge is the intended long-term UI surface or merely the first compatibility step toward richer extension UI.
+- Closed as done for the original contract-gap scope.
+- The remaining question of whether the browser-event bridge is the intended long-term product surface should be tracked separately as a follow-up ticket.
 
 ## Links
 

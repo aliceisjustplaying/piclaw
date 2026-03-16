@@ -1,10 +1,10 @@
 ---
 id: single-terminal-pane-webterm-integration
 title: Integrate single terminal pane via rcarmo/webterm
-status: blocked
+status: done
 priority: medium
 created: 2026-03-11
-updated: 2026-03-14
+updated: 2026-03-16
 target_release: next
 tags:
   - work-item
@@ -87,10 +87,10 @@ Adopt **Path A** for MVP after tabbed layout decisions land; reserve **Path B** 
 ## Updates
 
 ### 2026-03-16
-- Marked as functionally superseded in practice, though not auto-closed in this pass.
+- Closed as functionally superseded.
 - A terminal pane, backend PTY/session service, WebSocket transport, ghostty-web frontend integration, and docked terminal UX have now shipped in core.
 - The remaining distinct concerns are narrower follow-ups such as endpoint/security hardening and windowing/pop-out behaviour, which are already tracked elsewhere.
-- This ticket remains blocked only as a reminder that its original `rcarmo/webterm` framing is no longer the active implementation path.
+- The original `rcarmo/webterm` framing is no longer the active implementation path.
 
 ### 2026-03-14
 - Re-inspected `rcarmo/webterm` as the backend/session reference model while vendoring terminal frontend assets.

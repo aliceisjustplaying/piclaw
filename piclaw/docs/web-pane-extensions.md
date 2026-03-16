@@ -30,7 +30,7 @@ These extensions allow the workspace explorer preview surface to:
 
 ## Registration
 
-Preview extensions are registered in the web app during startup alongside the editor and terminal pane extensions.
+Preview extensions are registered in the web app during startup alongside the editor, draw.io, office viewer, CSV/PDF/image viewer, and terminal pane extensions.
 
 ## Resolution model
 

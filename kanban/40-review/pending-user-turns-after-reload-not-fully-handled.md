@@ -1,7 +1,7 @@
 ---
 id: pending-user-turns-after-reload-not-fully-handled
 title: Pending user turns after reload are still not fully handled
-status: doing
+status: review
 priority: high
 created: 2026-03-14
 updated: 2026-03-16
@@ -142,3 +142,11 @@ Potential remaining failure modes include:
 - `piclaw/src/channels/web/handlers/agent.ts`
 - `piclaw/src/runtime/startup.ts`
 - `piclaw/web/src/app.ts`
+
+### 2026-03-16 (reconnect fix)
+- Found and fixed a concrete frontend gap: the SSE reconnect handler did not call `refreshQueueState()`.
+- After an SSE connection drop and reconnect (including page reload scenarios), queued follow-ups submitted before the gap were invisible in the compose stack until the next 60s poll.
+- Fix: added `refreshQueueState()` to the reconnect branch of `handleConnectionStatusChange` in `web/src/app.ts`.
+- Combined with the earlier generation-counter fix and the backend monotonic timestamp fix, the three known concrete failure modes for pending turns after reload are now addressed.
+- Committed and pushed as `0fc58a3`.
+- `bun run quality` → 1019 pass, 0 fail.

@@ -3,7 +3,7 @@ id: pi-generative-ui-integration-evaluation
 title: Evaluate integrating pi-generative-ui into piclaw
 status: inbox
 created: 2026-03-13
-updated: 2026-03-13
+updated: 2026-03-16
 tags:
   - work-item
   - kanban
@@ -49,6 +49,10 @@ The goal is not to commit to adoption up front, but to understand:
 - Likely related to `adopt-openclaw-ui.md`, but should be evaluated independently before merging directions.
 
 ## Updates
+
+### 2026-03-16
+- Refinement triage kept this in `00-inbox` as a standalone evaluation item for now.
+- Do not merge it pre-emptively into broader extension-UI/product-surface tickets until the repo/runtime fit is actually reviewed.
 
 ### 2026-03-13
 - Added from request to evaluate integrating `pi-generative-ui` into piclaw.

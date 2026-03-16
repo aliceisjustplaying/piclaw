@@ -47,7 +47,7 @@ piclaw/
 │   ├── agent-control/           # Slash command handling + parsers
 │   ├── extensions/              # Inline extension factories
 │   ├── channels/                # WhatsApp + Web channels
-│   │   └── web/                 # HTTP handlers, SSE, adaptive cards, workspace, auth
+│   │   └── web/                 # HTTP handlers, SSE, adaptive cards, workspace, auth, extension routes
 │   ├── tools/                   # Bash tracking + context wrappers
 │   ├── db/                      # SQLite schema + accessors
 │   ├── db.ts                    # Legacy DB re-export
@@ -61,9 +61,15 @@ piclaw/
 ├── extensions/                  # Bundled extensions (server + web)
 │   ├── azure-openai.ts          # Azure OpenAI/Foundry provider (optional)
 │   ├── context-mode.ts          # Tool output + exec_batch extension
-│   └── editor/                  # Standalone editor web pane extension
-│       ├── editor-extension.ts  # StandaloneEditorInstance + registration
-│       └── vendor/              # Vendored CodeMirror bundle
+│   ├── drawio-editor/           # Self-hosted draw.io editor extension
+│   │   ├── index.ts             # Route registration, save endpoint, wrapper page
+│   │   └── vendor/              # Vendored draw.io runtime + resources
+│   ├── editor/                  # Standalone editor web pane extension
+│   │   ├── editor-extension.ts  # StandaloneEditorInstance + registration
+│   │   └── vendor/              # Vendored CodeMirror bundle
+│   └── office-viewer/           # ZetaOffice WASM document viewer extension
+│       ├── index.ts             # Route registration + asset serving
+│       └── vendor/              # Vendored ZetaOffice WASM assets
 └── web/
     ├── src/
     │   ├── app.ts               # Main Preact app
@@ -74,7 +80,13 @@ piclaw/
     │   │   ├── pane-registry.ts # PaneRegistry singleton
     │   │   ├── editor-loader.ts # Lazy proxy for editor bundle
     │   │   ├── tab-store.ts     # Framework-agnostic tab state
-    │   │   └── terminal-pane.ts # Terminal dock scaffold
+    │   │   ├── terminal-pane.ts # Terminal dock scaffold
+    │   │   ├── drawio-pane.ts   # Draw.io editor pane (iframe embed)
+    │   │   ├── office-viewer-pane.ts  # ZetaOffice document viewer pane
+    │   │   ├── csv-viewer-pane.ts     # CSV/TSV table viewer pane
+    │   │   ├── pdf-viewer-pane.ts     # PDF viewer pane
+    │   │   ├── image-viewer-pane.ts   # Image viewer pane
+    │   │   └── workspace-preview-pane.ts # Default workspace preview pane
     │   ├── ui/                  # Hooks + state management (queue helpers, windowing, optional API fallbacks, mobile viewport recovery)
     │   ├── vendor/              # Vendored libs (preact-htm, mermaid)
     │   └── styles/              # CSS source
@@ -98,6 +110,7 @@ These are compiled into the package and registered via `extensionFactories` on t
 | `sqlIntrospect` | `introspect_sql` (read-only SQLite queries) |
 | `internalTools` | `list_internal_tools` |
 | `uiThemeExtension` | `/theme`, `/tint` web UI theme controls |
+| `smartCompaction` | Smart compaction via `session_before_compact` hook (DB-driven file lists, junk-path filtering) |
 
 Each factory receives an `ExtensionAPI` and registers tools or slash commands via `pi.registerTool()` and `pi.registerSlashCommand()`. System prompt hints are injected via `pi.on("before_agent_start")`.
 
@@ -109,6 +122,8 @@ In addition to the inline factories, piclaw ships **optional extensions** under 
 |-----------|------|---------|
 | `azure-openai.ts` | `AOAI_BASE_URL` must be set | Azure OpenAI + Foundry provider with managed-identity or API-key auth |
 | `context-mode.ts` | Always loaded | Tool-output storage, search handles, and `exec_batch` tool |
+| `drawio-editor/` | Always loaded | Self-hosted draw.io editor with extension route, save endpoint, and workspace export |
+| `office-viewer/` | Always loaded | ZetaOffice WASM document viewer with extension route |
 
 These extensions are **experimental** — their API surface and loading mechanism may change between releases. They use relative imports (`../src/...`) to reference piclaw internals and require a `node_modules` symlink next to the `extensions/` directory (created automatically at startup) for jiti to resolve deep package imports.
 
@@ -119,9 +134,15 @@ The web UI uses a separate **pane extension** system for content-area components
 | Extension | Placement | Location |
 |-----------|-----------|----------|
 | `editor` | tabs | `extensions/editor/editor-extension.ts` |
-| `terminal` | dock | `web/src/panes/terminal-pane.ts` (scaffold) |
+| `drawio` | tabs | `web/src/panes/drawio-pane.ts` |
+| `office-viewer` | tabs | `web/src/panes/office-viewer-pane.ts` |
+| `csv-viewer` | tabs | `web/src/panes/csv-viewer-pane.ts` |
+| `pdf-viewer` | tabs | `web/src/panes/pdf-viewer-pane.ts` |
+| `image-viewer` | tabs | `web/src/panes/image-viewer-pane.ts` |
+| `workspace-preview` | tabs | `web/src/panes/workspace-preview-pane.ts` |
+| `terminal` | dock | `web/src/panes/terminal-pane.ts` |
 
-The editor extension is lazy-loaded as a separate bundle (`editor.bundle.js`, 889 KB) on first file open. See [web-pane-extensions.md](web-pane-extensions.md) for the full contract.
+The editor extension is lazy-loaded as a separate bundle (`editor.bundle.js`, 889 KB) on first file open. Specialized viewers (draw.io, office, CSV, PDF, image) use route-backed iframes served through the extension route system. See [web-pane-extensions.md](web-pane-extensions.md) for the full contract.
 
 ## Web UI loading sequence
 

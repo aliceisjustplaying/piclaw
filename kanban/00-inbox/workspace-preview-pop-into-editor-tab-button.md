@@ -4,7 +4,7 @@ title: Add an "Open in editor tab" button to the workspace preview pane
 status: inbox
 priority: medium
 created: 2026-03-15
-updated: 2026-03-15
+updated: 2026-03-16
 target_release: next
 estimate: S
 risk: low
@@ -81,6 +81,10 @@ Why it is not preferred for v1:
 - [ ] Update history captures implementation and validation evidence.
 
 ## Updates
+
+### 2026-03-16
+- Refinement triage kept this ticket focused on the generic workspace preview surface itself.
+- Split a sibling follow-up to cover consistency/audit work for specialized preview and viewer panes so this ticket can stay narrowly about the main workspace preview affordance.
 
 ### 2026-03-15
 - Created from user request to add an explicit "pop into editor tab" button to the workspace preview pane.

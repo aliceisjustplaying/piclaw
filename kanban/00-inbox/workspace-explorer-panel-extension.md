@@ -4,7 +4,7 @@ title: Extract workspace explorer as a panel extension
 status: inbox
 priority: low
 created: 2026-03-11
-updated: 2026-03-11
+updated: 2026-03-16
 target_release: future-major
 tags:
   - work-item
@@ -116,6 +116,10 @@ interface WebUIRegistry {
 | Panel bridge API may not cover all explorer interactions | Medium | Audit all current props/callbacks before designing bridge |
 
 ## Updates
+
+### 2026-03-16
+- Refinement triage kept this as the larger future-major umbrella.
+- Split a narrower precursor ticket so the panel-host contract can be explored incrementally before attempting full explorer extraction.
 
 ### 2026-03-11
 - Created as deferred companion to pane extension refactor.

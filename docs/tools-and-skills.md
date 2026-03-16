@@ -28,6 +28,9 @@ Core tools (from `pi`):
 - `schedule_task` — schedule agent prompts or shell commands (cron, interval, or one-shot)
 - `introspect_sql` — run read-only SQL queries against the messages database
 - `list_internal_tools` — list available tools with descriptions
+- `open_office_viewer` — open an Office document (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`) in the ZetaOffice WASM viewer
+- `open_drawio_editor` — open a `.drawio` diagram file in the self-hosted draw.io editor (creates the file if it doesn't exist)
+- `exec_batch` — run multiple shell commands and return concise summaries for each
 
 `messages` `search` accepts `query`, `chat_jid` (or `*`/`all`), `role`, `after`, `before`, `since`, `limit`, `offset`, and `details_max_chars` for controlling detail payloads.
 `messages` `get` accepts `row_ids`, optional `chat_jid`, `role`, `context_before`, `context_after`, and `details_max_chars`.

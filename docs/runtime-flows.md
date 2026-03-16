@@ -164,6 +164,8 @@ The web client now refreshes this state on:
 
 That keeps the context compaction affordance in sync when returning to the tab or reopening the webapp, rather than waiting for the slower backstop poller.
 
+The SSE reconnect handler also refreshes queue state (`refreshQueueState()`) so queued follow-ups submitted before a connection gap are restored in the compose stack immediately, rather than waiting for the next 60-second poll cycle.
+
 The persistence model is intentionally split:
 - backend truth decides whether the compaction-related affordance is currently warranted
 - browser-local state is reserved for lightweight local UI memory such as dismissal/seen state

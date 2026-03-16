@@ -13,6 +13,9 @@ PiClaw is a Docker-based sandbox for running the [Pi Coding Agent](https://githu
 - **Workspace explorer** — file tree sidebar with previews, file reference pills, and downloads
 - **Disk usage starburst** — folder-size visualization with hover details and drill-down
 - **Code editor** — built-in CodeMirror 6 with syntax highlighting for 12 languages, search/replace, and save
+- **Draw.io editor** — self-hosted vendored draw.io with SVG/PNG/XML export to workspace, zero external dependencies
+- **Document viewer** — ZetaOffice WASM viewer for `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp` files
+- **Route-backed viewers** — dedicated lightweight viewers for CSV/TSV, PDF, and image files
 - **Persistent storage** — SQLite-backed messages, media, tasks, token usage, and encrypted keychain
 - **Skills** — setup, debugging, Playwright, scheduling, charts, web search, Adaptive Card authoring, and more
 - **Passkeys + TOTP authentication** — optional WebAuthn passkeys with TOTP fallback (iOS/Android webapp support)
@@ -82,7 +85,22 @@ Click the **pencil icon** on any text file preview (up to 256 KB) to open the bu
 - **Search and replace** — Cmd/Ctrl+F and Cmd/Ctrl+H
 - **Save** — Cmd/Ctrl+S or the Save button; dirty state is tracked
 - **Line wrapping**, line numbers, and active line highlight
-- **Vendored bundle** (~245 KB gzip) — no external CDN dependencies
+- **Vendored bundle** (889 KB, lazy-loaded on first file open) — no external CDN dependencies
+
+### Draw.io editor
+
+Click a `.drawio` file in the workspace explorer (or use the `open_drawio_editor` tool) to open the self-hosted draw.io editor in a tab. The entire draw.io runtime is vendored locally — no external services, no phone-home.
+
+- **Export** — File → Export as SVG, PNG, or XML; exports are saved directly to your workspace via `POST /drawio/save`
+- **New diagrams** — the `open_drawio_editor` tool creates a valid blank diagram if the file doesn't exist
+- **Standalone mode** — opening in a new browser tab uses a lightweight wrapper page
+
+### Document and file viewers
+
+- **Office documents** — `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp` open in the ZetaOffice WASM viewer (vendored, no external CDN)
+- **CSV/TSV** — dedicated table viewer with column sorting
+- **PDF** — inline PDF viewer
+- **Images** — inline image viewer with zoom
 
 ## Volumes
 

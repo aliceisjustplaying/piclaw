@@ -1,10 +1,10 @@
 ---
 id: post-terminal-endpoint-security-audit
 title: Audit web security and endpoint surface after terminal + pane refactor
-status: blocked
+status: next
 priority: high
 created: 2026-03-12
-updated: 2026-03-12
+updated: 2026-03-16
 target_release: next
 tags:
   - work-item
@@ -104,6 +104,11 @@ This is intentionally a second-pass audit, not a duplicate of the earlier revers
 - `piclaw/piclaw/src/channels/web/http/`
 
 ## Updates
+
+### 2026-03-16
+- Triage move: advanced from `30-blocked` to `10-next` because the terminal and pane prerequisites are now effectively shipped.
+- This remains a distinct follow-up from the broader proxy-sensitive web-flow audit: it focuses on the composed post-terminal web surface and its endpoint/security boundaries.
+- Next step is to turn the route inventory into a concrete test/execution plan.
 
 ### 2026-03-12
 - Board quality review: added implementation paths, explicit test plan, and DoD checklist so this can move cleanly once the blockers clear.

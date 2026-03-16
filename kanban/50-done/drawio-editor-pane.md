@@ -1,13 +1,13 @@
 ---
 id: drawio-editor-pane
 title: Vendor and embed draw.io editor as an extension-pane with SVG/PNG export
-status: next
+status: done
 priority: medium
 risk: medium
 estimate: M
 target_release: next
 created: 2026-03-12
-updated: 2026-03-14
+updated: 2026-03-16
 tags:
   - work-item
   - kanban
@@ -251,6 +251,11 @@ Start with **Path A** for first integration proof, then evaluate Path B only if 
 - [ ] Ticket moved to `50-done/` when shipped
 
 ## Updates
+
+### 2026-03-16
+- Marked functionally superseded by the shipped draw.io work tracked under the newer draw.io extension tickets.
+- Vendoring, route-based serving, pane integration, and workspace export/save flows have now landed in practice.
+- Any remaining narrower gaps should be tracked as focused follow-up tickets rather than keeping this original broad pane ticket active.
 
 ### 2026-03-14
 - Annotated the ticket with explicit upstream references:

@@ -4,6 +4,19 @@ This document explains how to create a custom pane extension for the piclaw
 web UI. Pane extensions provide content-area UI components — editors, viewers,
 previewers, or tools — managed by the `PaneRegistry`.
 
+## Current built-in panes
+
+| ID | Placement | Description |
+|---|---|---|
+| `editor` | tabs | CodeMirror 6 editor (fallback for all text files). Lazy-loaded. |
+| `drawio` | tabs | Self-hosted draw.io editor for `.drawio` files. |
+| `office-viewer` | tabs | ZetaOffice WASM viewer for Office documents. |
+| `csv-viewer` | tabs | Table viewer for `.csv` / `.tsv` files. |
+| `pdf-viewer` | tabs | Inline PDF viewer. |
+| `image-viewer` | tabs | Inline image viewer with zoom. |
+| `workspace-preview` | tabs | Default workspace preview surface. |
+| `terminal` | dock | Authenticated terminal pane (feature-flagged). |
+
 ## Concepts
 
 | Term | Description |
@@ -189,7 +202,13 @@ Verify no leaked listeners or DOM nodes after pane lifecycle:
 | ID | Placement | Priority | Location | Description |
 |---|---|---|---|---|
 | `editor` | tabs | 1 | `extensions/editor/editor-extension.ts` | CodeMirror 6 editor — handles all text files (fallback). Lazy-loaded as `editor.bundle.js` (889 KB). |
-| `terminal` | dock | — | `web/src/panes/terminal-pane.ts` | Terminal scaffold (xterm.js integration pending). Feature-flagged behind `localStorage.experimentalPanes`. |
+| `drawio` | tabs | 10 | `web/src/panes/drawio-pane.ts` | Self-hosted draw.io editor for `.drawio` files. Uses iframe + extension route. |
+| `office-viewer` | tabs | 10 | `web/src/panes/office-viewer-pane.ts` | ZetaOffice WASM viewer for `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`. |
+| `csv-viewer` | tabs | 10 | `web/src/panes/csv-viewer-pane.ts` | Lightweight table viewer for `.csv` and `.tsv` files. |
+| `pdf-viewer` | tabs | 10 | `web/src/panes/pdf-viewer-pane.ts` | Inline PDF viewer for `.pdf` files. |
+| `image-viewer` | tabs | 10 | `web/src/panes/image-viewer-pane.ts` | Inline image viewer with zoom for common image formats. |
+| `workspace-preview` | tabs | — | `web/src/panes/workspace-preview-pane.ts` | Default workspace preview surface for the explorer sidebar. |
+| `terminal` | dock | — | `web/src/panes/terminal-pane.ts` | Terminal dock pane. Feature-flagged behind `PICLAW_WEB_TERMINAL_ENABLED`. |
 
 ### Editor extension architecture
 

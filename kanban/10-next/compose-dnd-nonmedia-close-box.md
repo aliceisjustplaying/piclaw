@@ -1,10 +1,10 @@
 ---
 id: compose-dnd-nonmedia-close-box
 title: Drag-and-drop support for multiple non-media files in compose drop/close box
-status: inbox
+status: next
 priority: medium
 created: 2026-03-12
-updated: 2026-03-12
+updated: 2026-03-16
 estimate: M
 risk: medium
 tags:
