@@ -219,6 +219,7 @@ test("web channel relays peer messages into another active chat", async () => {
   const res = await (web as any).handleRequest(req);
   expect(res.status).toBe(201);
   const json = await res.json();
+  expect(json.status).toBe("ok");
   expect(json.relayed).toBe(true);
   expect(json.source_chat_jid).toBe("web:source");
   expect(json.source_agent_name).toBe("source");
@@ -323,6 +324,7 @@ test("web channel renames a registry-backed chat branch", async () => {
   const res = await (web as any).handleRequest(req);
   expect(res.status).toBe(200);
   const json = await res.json();
+  expect(json.status).toBe("ok");
   expect(json.branch.agent_name).toBe("research-lead");
   expect(json.branch.display_name).toBe("Research Lead");
   expect(db.getChatBranchByAgentName("research-lead")?.chat_jid).toBe("web:default:branch:1");
@@ -363,6 +365,7 @@ test("web channel prunes a registry-backed chat branch", async () => {
   const res = await (web as any).handleRequest(req);
   expect(res.status).toBe(200);
   const json = await res.json();
+  expect(json.status).toBe("ok");
   expect(json.branch.chat_jid).toBe("web:default:branch:1");
   expect(json.branch.archived_at).toBeTruthy();
   expect(db.listChatBranches("web:default").map((chat: any) => chat.chat_jid)).toEqual(["web:default"]);
@@ -429,6 +432,7 @@ test("web channel resolves peer relay by target agent name", async () => {
   const res = await (web as any).handleRequest(req);
   expect(res.status).toBe(201);
   const json = await res.json();
+  expect(json.status).toBe("ok");
   expect(json.relayed).toBe(true);
   expect(json.target_chat_jid).toBe("web:target");
   expect(json.target_agent_name).toBe("research");
@@ -750,6 +754,7 @@ test("web channel exposes queued follow-up items from queue-state", async () => 
   const removeRes = await (web as any).handleRequest(removeReq);
   const removeJson = await removeRes.json();
   expect(removeRes.status).toBe(200);
+  expect(removeJson.status).toBe("ok");
   expect(removeJson.removed).toBe(true);
 
   const queueStateAfter = await (web as any).handleRequest(new Request("http://test/agent/queue-state"));
@@ -786,6 +791,7 @@ test("web channel queue removal respects explicit branch chat_jid", async () => 
   const removeRes = await (web as any).handleRequest(removeReq);
   const removeJson = await removeRes.json();
   expect(removeRes.status).toBe(200);
+  expect(removeJson.status).toBe("ok");
   expect(removeJson.removed).toBe(true);
   expect(web.getQueuedFollowupCount("web:branch")).toBe(0);
   expect(web.getQueuedFollowupCount("web:default")).toBe(1);
@@ -1087,6 +1093,7 @@ test("web channel atomically converts a queued item into steering when active", 
   const json = await res.json();
 
   expect(res.status).toBe(201);
+  expect(json.status).toBe("ok");
   expect(json.queued).toBe("steer");
   expect(json.user_message?.data?.content).toBe("queued steer me");
   expect(json.thread_id).toBe(rootRowId);
@@ -1131,6 +1138,7 @@ test("web channel atomically converts a queued item into an immediate send when 
   const json = await res.json();
 
   expect(res.status).toBe(201);
+  expect(json.status).toBe("ok");
   expect(json.user_message?.data?.content).toBe("queued send me now");
   expect(web.getQueuedFollowupCount("web:default")).toBe(0);
 
@@ -1174,6 +1182,7 @@ test("web channel queue steering respects explicit branch chat_jid", async () =>
   const steerJson = await steerRes.json();
 
   expect(steerRes.status).toBe(201);
+  expect(steerJson.status).toBe("ok");
   expect(steerJson.user_message?.chat_jid).toBe("web:branch");
   expect(steerJson.user_message?.data?.content).toBe("branch queued send");
   expect(web.getQueuedFollowupCount("web:branch")).toBe(0);

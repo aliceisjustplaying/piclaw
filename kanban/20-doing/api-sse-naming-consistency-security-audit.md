@@ -229,6 +229,12 @@ fixes or follow-up tickets.
   - `{ status: "ok", ok: true, id }`
   so older callers still see `ok: true` while the newer lightweight status convention is also present.
 - Updated regression coverage in `test/channels/web/post-mutations.test.ts` and documented the compatibility category in `docs/web-api-endpoint-inventory.md`.
+- Extended the response-shape policy into more authenticated agent mutation endpoints:
+  - queue remove / queue steer
+  - branch fork / rename / prune
+  - peer relay
+- Those success responses now include `status: "ok"` while preserving their pre-existing rich payload fields.
+- Updated regression coverage in `test/channels/web/web-channel.test.ts` and documented the emerging response-shape policy in `docs/web-api-endpoint-inventory.md`.
 - Remaining work is still broader response-format consistency analysis plus deciding whether that browser-event bridge is sufficient or whether a richer first-class extension-UI surface is warranted.
 - This ticket remains the active umbrella for that work rather than being closed after incremental guardrail slices.
 

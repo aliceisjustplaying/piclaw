@@ -190,6 +190,18 @@ These are not urgent breakages, but they are visible:
 - `/workspace/file` multiplexes create/read/update/delete by method, while posts use separate resource/action paths
 - some mutations return `{ status: "ok" }`, some return `{ status: "ok", ok: true, ... }` for compatibility, and others return full resource payloads; that split is now documented but is still not fully unified
 
+### Working policy emerging from the audit
+
+The response-shape direction is now:
+
+- **simple UI/control mutations** → prefer `{ status: "ok", ... }`
+  - examples: `/agent/respond`, `/workspace/visibility`, queue and branch-control mutations
+- **compatibility mutations with older callers** → prefer `{ status: "ok", ok: true, ... }`
+  - examples: `PATCH /post/:id`, `POST /internal/post`
+- **resource-creating / richer workflow mutations** → keep the richer payload, but include `status: "ok"` when feasible
+  - examples: peer relay, queue-steer/send, branch fork/rename/prune
+- **resource reads** → keep direct JSON resources rather than wrapping everything in a success envelope
+
 ## Security posture observations
 
 ### Good news

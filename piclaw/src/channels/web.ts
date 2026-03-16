@@ -767,7 +767,7 @@ export class WebChannel implements WebChannelLike {
 
       const { removed } = await this.removeQueuedFollowupForAction(chatJid, Number(rowId));
       if (!removed) {
-        return this.json({ removed: false, count: this.getQueuedFollowupCount(chatJid) }, 200);
+        return this.json({ status: "ok", removed: false, count: this.getQueuedFollowupCount(chatJid) }, 200);
       }
 
       this.broadcastEvent("agent_followup_removed", {
@@ -777,6 +777,7 @@ export class WebChannel implements WebChannelLike {
       });
 
       return this.json({
+        status: "ok",
         removed: true,
         row_id: removed.rowId,
         count: this.getQueuedFollowupCount(chatJid),
@@ -800,7 +801,7 @@ export class WebChannel implements WebChannelLike {
 
       const { removed } = await this.removeQueuedFollowupForAction(chatJid, Number(rowId));
       if (!removed) {
-        return this.json({ removed: false, count: this.getQueuedFollowupCount(chatJid) }, 200);
+        return this.json({ status: "ok", removed: false, count: this.getQueuedFollowupCount(chatJid) }, 200);
       }
 
       this.broadcastEvent("agent_followup_removed", {
@@ -811,7 +812,7 @@ export class WebChannel implements WebChannelLike {
 
       const steerContent = typeof removed.queuedContent === "string" ? removed.queuedContent.trim() : "";
       if (!steerContent) {
-        return this.json({ removed: true, queued: false, count: this.getQueuedFollowupCount(chatJid) }, 200);
+        return this.json({ status: "ok", removed: true, queued: false, count: this.getQueuedFollowupCount(chatJid) }, 200);
       }
 
       const isStreaming = typeof this.agentPool.isStreaming === "function"
@@ -863,6 +864,7 @@ export class WebChannel implements WebChannelLike {
             content: steerContent,
           });
           return this.json({
+            status: "ok",
             removed: true,
             row_id: removed.rowId,
             user_message: interaction,
@@ -878,6 +880,7 @@ export class WebChannel implements WebChannelLike {
       }, `chat:${chatJid}:${interaction.id}`, `chat:${chatJid}`);
 
       return this.json({
+        status: "ok",
         removed: true,
         row_id: removed.rowId,
         user_message: interaction,
@@ -937,7 +940,7 @@ export class WebChannel implements WebChannelLike {
       if (!branch) {
         return this.json({ error: "Branch forking is not available." }, 501);
       }
-      return this.json({ branch }, 201);
+      return this.json({ status: "ok", branch }, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to fork branch.");
       return this.json({ error: message || "Failed to fork branch." }, 400);
@@ -972,7 +975,7 @@ export class WebChannel implements WebChannelLike {
       if (!branch) {
         return this.json({ error: "Branch renaming is not available." }, 501);
       }
-      return this.json({ branch }, 200);
+      return this.json({ status: "ok", branch }, 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to rename branch.");
       return this.json({ error: message || "Failed to rename branch." }, 400);
@@ -1002,7 +1005,7 @@ export class WebChannel implements WebChannelLike {
       if (!branch) {
         return this.json({ error: "Branch pruning is not available." }, 501);
       }
-      return this.json({ branch }, 200);
+      return this.json({ status: "ok", branch }, 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to prune branch.");
       return this.json({ error: message || "Failed to prune branch." }, 400);
@@ -1074,6 +1077,7 @@ export class WebChannel implements WebChannelLike {
 
     const responseBody = await forwardRes.json().catch(() => ({} as Record<string, unknown>));
     return this.json({
+      status: "ok",
       ...responseBody,
       source_chat_jid: sourceChatJid,
       source_agent_name: effectiveSourceAgentName,
