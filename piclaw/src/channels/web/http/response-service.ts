@@ -7,7 +7,7 @@
  * Consumers: web/request-router.ts uses ResponseService methods.
  */
 
-import { clampInt, jsonResponse, parseOptionalInt } from "./http-utils.js";
+import { clampInt, errorJson, jsonResponse, okJson, parseOptionalInt } from "./http-utils.js";
 import { serveDocsStatic, serveStatic } from "./static.js";
 
 /** Unified response builder combining JSON, static, and doc serving. */
@@ -16,12 +16,20 @@ export class ResponseService {
     return jsonResponse(data, status);
   }
 
+  ok(data: Record<string, unknown> = {}, status = 200): Response {
+    return okJson(data, status);
+  }
+
+  error(message: string, status = 400): Response {
+    return errorJson(message, status);
+  }
+
   async serveStatic(relPath: string): Promise<Response> {
-    return serveStatic(relPath, () => this.json({ error: "Not found" }, 404));
+    return serveStatic(relPath, () => this.error("Not found", 404));
   }
 
   async serveDocsStatic(relPath: string): Promise<Response> {
-    return serveDocsStatic(relPath, () => this.json({ error: "Not found" }, 404));
+    return serveDocsStatic(relPath, () => this.error("Not found", 404));
   }
 
   clampInt(value: string | null, fallback: number, min: number, max: number): number {
