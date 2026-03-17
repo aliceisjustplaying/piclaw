@@ -14,6 +14,7 @@
  *   - sqlIntrospect: introspect_sql for read-only DB introspection.
  *   - scheduledTasks: /tasks and /scheduled commands for task listing.
  *   - workspaceSearch: search_workspace tool for FTS over workspace files.
+ *   - sendAdaptiveCard: send_adaptive_card for agent-owned Adaptive Card posting.
  *
  * Consumers:
  *   - agent-pool/session.ts passes builtinExtensionFactories to the resource loader.
@@ -29,6 +30,7 @@ import { scheduledTasks } from "./scheduled-tasks.js";
 import { workspaceSearch } from "./workspace-search.js";
 import { uiThemeExtension } from "./ui-theme.js";
 import { smartCompaction } from "./smart-compaction.js";
+import { sendAdaptiveCard } from "./send-adaptive-card.js";
 
 /** Array of all built-in extension factories to register on session creation. */
 export const builtinExtensionFactories: ExtensionFactory[] = [
@@ -42,4 +44,5 @@ export const builtinExtensionFactories: ExtensionFactory[] = [
   workspaceSearch,
   uiThemeExtension,
   smartCompaction,
+  sendAdaptiveCard,
 ];

@@ -8,6 +8,7 @@ import { scheduledTasks } from "./scheduled-tasks.js";
 import { workspaceSearch } from "./workspace-search.js";
 import { uiThemeExtension } from "./ui-theme.js";
 import { smartCompaction } from "./smart-compaction.js";
+import { sendAdaptiveCard } from "./send-adaptive-card.js";
 /** Array of all built-in extension factories to register on session creation. */
 export const builtinExtensionFactories = [
     fileAttachments,
@@ -20,4 +21,5 @@ export const builtinExtensionFactories = [
     workspaceSearch,
     uiThemeExtension,
     smartCompaction,
+    sendAdaptiveCard,
 ];

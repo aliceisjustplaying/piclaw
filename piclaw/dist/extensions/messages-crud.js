@@ -574,6 +574,13 @@ export function runMessagesTool(params, defaultChat = "web:default", postFn) {
         },
     };
 }
+/**
+ * Helper for extensions that want the messages tool's post semantics using the
+ * globally registered broadcast callback.
+ */
+export function postMessagesToolMessage(params, defaultChat = "web:default") {
+    return executePost(params, defaultChat, registeredPostFn);
+}
 const MESSAGES_TOOL_HINT = [
     "## Messages",
     "Use the messages tool to search, retrieve, add, post, and delete chat messages.",
