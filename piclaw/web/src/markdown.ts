@@ -577,6 +577,63 @@ export function renderThinkingMarkdown(text) {
 }
 
 // Render pending mermaid diagrams in the DOM
+/**
+ * Post-process Mermaid SVG: replace sharp orthogonal polyline corners with
+ * smooth arc-cornered paths.  Radius is clamped so short segments stay valid.
+ */
+function roundPolylineCorners(svgString, radius = 6) {
+    return svgString.replace(
+        /<polyline\b([^>]*)\bpoints="([^"]+)"([^>]*)\/?\s*>/g,
+        (_match, before, pointsStr, after) => {
+            const pts = pointsStr.trim().split(/\s+/).map(p => {
+                const [x, y] = p.split(',').map(Number);
+                return { x, y };
+            });
+            if (pts.length < 3) {
+                return `<polyline${before}points="${pointsStr}"${after}/>`;
+            }
+
+            const parts = [`M ${pts[0].x},${pts[0].y}`];
+            for (let i = 1; i < pts.length - 1; i++) {
+                const prev = pts[i - 1];
+                const curr = pts[i];
+                const next = pts[i + 1];
+
+                const dxIn  = curr.x - prev.x;
+                const dyIn  = curr.y - prev.y;
+                const dxOut = next.x - curr.x;
+                const dyOut = next.y - curr.y;
+
+                const lenIn  = Math.sqrt(dxIn * dxIn + dyIn * dyIn);
+                const lenOut = Math.sqrt(dxOut * dxOut + dyOut * dyOut);
+
+                // Clamp radius to half the shortest adjacent segment
+                const r = Math.min(radius, lenIn / 2, lenOut / 2);
+                if (r < 0.5) {
+                    parts.push(`L ${curr.x},${curr.y}`);
+                    continue;
+                }
+
+                // Points where the arc begins and ends
+                const ax = curr.x - (dxIn / lenIn) * r;
+                const ay = curr.y - (dyIn / lenIn) * r;
+                const bx = curr.x + (dxOut / lenOut) * r;
+                const by = curr.y + (dyOut / lenOut) * r;
+
+                // Determine sweep direction via cross product
+                const cross = dxIn * dyOut - dyIn * dxOut;
+                const sweep = cross > 0 ? 1 : 0;
+
+                parts.push(`L ${ax},${ay}`);
+                parts.push(`A ${r},${r} 0 0 ${sweep} ${bx},${by}`);
+            }
+            parts.push(`L ${pts[pts.length - 1].x},${pts[pts.length - 1].y}`);
+
+            return `<path${before}d="${parts.join(' ')}"${after}/>`;
+        },
+    );
+}
+
 /** Find mermaid code blocks in a container and render them as SVG diagrams. */
 export async function renderMermaidDiagrams(container) {
     if (!window.beautifulMermaid) return;
@@ -591,7 +648,8 @@ export async function renderMermaidDiagrams(container) {
             const encoded = el.dataset.mermaid;
             const raw = fromBase64(encoded || '');
             const code = decodeEntitiesDeep(raw, 2);
-            const svg = await renderMermaid(code, { ...theme, transparent: true });
+            let svg = await renderMermaid(code, { ...theme, transparent: true });
+            svg = roundPolylineCorners(svg);
             el.innerHTML = svg;
             el.removeAttribute('data-mermaid');
         } catch (e) {
