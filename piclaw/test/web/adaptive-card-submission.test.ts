@@ -63,6 +63,7 @@ describe("adaptive card submission helpers", () => {
     expect(meta.fieldCount).toBe(5);
     expect(meta.hiddenFieldCount).toBe(1);
     expect(meta.fields).toHaveLength(4);
+    expect(meta.hiddenFields).toEqual([{ key: "five", value: "5" }]);
   });
 
   test("describes submission receipts compactly", () => {
@@ -82,7 +83,27 @@ describe("adaptive card submission helpers", () => {
       { key: "priority", value: "high" },
       { key: "targets", value: "docs, tests" },
     ]);
+    expect(meta.hiddenFields).toEqual([]);
     expect(meta.fieldCount).toBe(2);
     expect(meta.hiddenFieldCount).toBe(0);
+  });
+
+  test("keeps hidden fields sanitized when exposed separately", () => {
+    const meta = describeAdaptiveCardSubmission({
+      type: "adaptive_card_submission",
+      card_id: "card-3",
+      source_post_id: 44,
+      submitted_at: "2026-03-15T12:02:00.000Z",
+      action_type: "Action.Submit",
+      title: "Sanitized",
+      data: {
+        one: "1",
+        two: "2",
+        three: "3",
+        four: "4",
+        five: { visible: "ok", __secret: "hide-me" },
+      },
+    });
+    expect(meta.hiddenFields).toEqual([{ key: "five", value: "visible: ok" }]);
   });
 });

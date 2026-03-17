@@ -563,6 +563,7 @@ function highlightHtml(html, query) {
  */
 export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMessage, agentName, agentAvatarUrl, userName, userAvatarUrl, userAvatarBackground, onDelete, isThreadReply, isThreadPrev, isThreadNext, isRemoving, highlightQuery, onFileRef }) {
     const [zoomedImage, setZoomedImage] = useState(null);
+    const [expandedSubmissionKeys, setExpandedSubmissionKeys] = useState(() => new Set());
     const contentRef = useRef(null);
 
     const data = post.data;
@@ -641,6 +642,15 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
     const handleDeleteClick = (e) => {
         e.stopPropagation();
         onDelete?.(post);
+    };
+
+    const toggleSubmissionDetails = (key) => {
+        setExpandedSubmissionKeys((current) => {
+            const next = new Set(current);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
     };
 
     const resolveInlineAttachments = (content, attachments) => {
@@ -903,8 +913,10 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                     <div class="post-adaptive-card-submissions">
                         ${cardSubmissionBlocks.map((block, idx) => {
                             const meta = describeAdaptiveCardSubmission(block);
+                            const submissionKey = `${block.card_id}-${idx}`;
+                            const isExpanded = expandedSubmissionKeys.has(submissionKey);
                             return html`
-                                <div key=${`${block.card_id}-${idx}`} class="adaptive-card-submission-receipt">
+                                <div key=${submissionKey} class="adaptive-card-submission-receipt">
                                     <div class="adaptive-card-submission-header">
                                         <span class="adaptive-card-submission-icon" aria-hidden="true">✓</span>
                                         <div class="adaptive-card-submission-title-wrap">
@@ -924,9 +936,31 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                                                     <span class="adaptive-card-submission-field-value">${field.value}</span>
                                                 </span>
                                             `)}
-                                            ${meta.hiddenFieldCount > 0 && html`
-                                                <span class="adaptive-card-submission-field adaptive-card-submission-field-more">+${meta.hiddenFieldCount} more</span>
-                                            `}
+                                        </div>
+                                    `}
+                                    ${meta.hiddenFieldCount > 0 && html`
+                                        <button
+                                            type="button"
+                                            class="adaptive-card-submission-toggle"
+                                            aria-expanded=${isExpanded ? 'true' : 'false'}
+                                            onClick=${(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                toggleSubmissionDetails(submissionKey);
+                                            }}
+                                        >
+                                            ${isExpanded ? `Hide ${meta.hiddenFieldCount} more` : `Show ${meta.hiddenFieldCount} more`}
+                                        </button>
+                                    `}
+                                    ${isExpanded && meta.hiddenFields.length > 0 && html`
+                                        <div class="adaptive-card-submission-fields adaptive-card-submission-fields-extra">
+                                            ${meta.hiddenFields.map((field) => html`
+                                                <span class="adaptive-card-submission-field" title=${`${field.key}: ${field.value}`}>
+                                                    <span class="adaptive-card-submission-field-key">${field.key}</span>
+                                                    <span class="adaptive-card-submission-field-sep">:</span>
+                                                    <span class="adaptive-card-submission-field-value">${field.value}</span>
+                                                </span>
+                                            `)}
                                         </div>
                                     `}
                                     <div class="adaptive-card-submission-meta">

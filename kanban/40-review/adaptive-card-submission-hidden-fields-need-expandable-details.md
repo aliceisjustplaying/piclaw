@@ -1,7 +1,7 @@
 ---
 id: adaptive-card-submission-hidden-fields-need-expandable-details
 title: Adaptive Card submission receipts need expandable details for hidden fields
-status: inbox
+status: review
 priority: medium
 created: 2026-03-17
 updated: 2026-03-17
@@ -40,6 +40,20 @@ those values on demand.
 - Regression coverage exists for compact vs expanded receipt rendering.
 
 ## Updates
+
+### 2026-03-17 (implementation)
+- Lane change: `00-inbox` → `40-review` after implementing inline expand/collapse for hidden submission fields.
+- Adaptive card submission receipts now keep the compact default view but expose a `Show N more` / `Hide N more` disclosure when fields were hidden behind the previous `+N more` badge.
+- Hidden fields are rendered using the same sanitized key/value formatting as visible fields; internal `__*` metadata remains suppressed.
+- Files changed:
+  - `piclaw/web/src/ui/adaptive-card-submission.ts`
+  - `piclaw/web/src/components/post.ts`
+  - `piclaw/web/static/css/styles.css`
+  - `piclaw/test/web/adaptive-card-submission.test.ts`
+- Validation:
+  - `bun test piclaw/test/web/adaptive-card-submission.test.ts`
+  - `make build-web`
+  - `make lint`
 
 ### 2026-03-17
 - Ticket created from user report: adaptive card response records show `+N more`

@@ -72,22 +72,26 @@ export function describeAdaptiveCardSubmission(block: AdaptiveCardSubmissionBloc
   title: string;
   summary: string | null;
   fields: Array<{ key: string; value: string }>;
+  hiddenFields: Array<{ key: string; value: string }>;
   fieldCount: number;
   hiddenFieldCount: number;
   submittedAt: string;
 } {
   const title = String(block.title || block.card_id || "Card submission").trim() || "Card submission";
-  const fields = getSubmissionFields(block.data);
-  const summary = fields.length > 0
-    ? fields.slice(0, 2).map(({ key, value }) => `${key}: ${value}`).join(", ")
+  const allFields = getSubmissionFields(block.data);
+  const summary = allFields.length > 0
+    ? allFields.slice(0, 2).map(({ key, value }) => `${key}: ${value}`).join(", ")
     : formatSubmissionValue(block.data) || null;
-  const fieldCount = fields.length;
-  const hiddenFieldCount = Math.max(fieldCount - MAX_SUBMISSION_FIELDS, 0);
+  const fieldCount = allFields.length;
+  const visibleFields = allFields.slice(0, MAX_SUBMISSION_FIELDS);
+  const hiddenFields = allFields.slice(MAX_SUBMISSION_FIELDS);
+  const hiddenFieldCount = hiddenFields.length;
 
   return {
     title,
     summary,
-    fields: fields.slice(0, MAX_SUBMISSION_FIELDS),
+    fields: visibleFields,
+    hiddenFields,
     fieldCount,
     hiddenFieldCount,
     submittedAt: block.submitted_at,
