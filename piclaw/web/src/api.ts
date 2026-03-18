@@ -160,8 +160,11 @@ export async function getActiveChatAgents() {
 /**
  * List known branch/session records from the branch registry.
  */
-export async function getChatBranches(rootChatJid = null) {
-    const query = rootChatJid ? `?root_chat_jid=${encodeURIComponent(rootChatJid)}` : '';
+export async function getChatBranches(rootChatJid = null, options = {}) {
+    const params = new URLSearchParams();
+    if (rootChatJid) params.set('root_chat_jid', String(rootChatJid));
+    if (options?.includeArchived) params.set('include_archived', '1');
+    const query = params.toString() ? `?${params.toString()}` : '';
     return request(`/agent/branches${query}`);
 }
 
@@ -200,6 +203,20 @@ export async function pruneChatBranch(chatJid) {
     return request('/agent/branch-prune', {
         method: 'POST',
         body: JSON.stringify({ chat_jid: chatJid }),
+    });
+}
+
+/**
+ * Restore/reopen an archived branch into active discovery.
+ */
+export async function restoreChatBranch(chatJid, options = {}) {
+    return request('/agent/branch-restore', {
+        method: 'POST',
+        body: JSON.stringify({
+            chat_jid: chatJid,
+            ...(options && Object.prototype.hasOwnProperty.call(options, 'agentName') ? { agent_name: options.agentName } : {}),
+            ...(options && Object.prototype.hasOwnProperty.call(options, 'displayName') ? { display_name: options.displayName } : {}),
+        }),
     });
 }
 

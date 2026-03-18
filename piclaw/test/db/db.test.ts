@@ -148,6 +148,40 @@ test("chat branch registry lets pruned agent handles be reused", () => {
   expect(renamed.agent_name).toBe("archived-handle");
 });
 
+test("chat branch registry can list archived branches and restore with collision-safe handles", () => {
+  const rootChatJid = `web:test-restore-${Date.now()}`;
+  db.storeChatMetadata(rootChatJid, new Date().toISOString(), "Root");
+  const root = db.getChatBranchByChatJid(rootChatJid);
+
+  const archived = db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:archived`,
+    root_chat_jid: rootChatJid,
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "release",
+    display_name: "Release Archived",
+  });
+  db.archiveChatBranch(archived.chat_jid);
+
+  // Occupy @release while archived copy exists.
+  db.ensureChatBranch({
+    chat_jid: `${rootChatJid}:branch:active`,
+    root_chat_jid: rootChatJid,
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "release",
+    display_name: "Release Active",
+  });
+
+  const activeOnly = db.listChatBranches(rootChatJid).map((branch) => branch.chat_jid);
+  expect(activeOnly).not.toContain(archived.chat_jid);
+  const withArchived = db.listChatBranches(rootChatJid, { includeArchived: true }).map((branch) => branch.chat_jid);
+  expect(withArchived).toContain(archived.chat_jid);
+
+  const restored = db.restoreChatBranchIdentity({ chat_jid: archived.chat_jid });
+  expect(restored.archived_at).toBeNull();
+  expect(restored.agent_name).toMatch(/^release(?:-\d+)?$/);
+  expect(db.getChatBranchByAgentName(restored.agent_name)?.chat_jid).toBe(archived.chat_jid);
+});
+
 test("initDatabase migrates legacy chat branch uniqueness so pruned handles can be reused", () => {
   const ws = createTempWorkspace("piclaw-chat-branch-migrate-");
 

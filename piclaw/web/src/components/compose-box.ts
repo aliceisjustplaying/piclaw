@@ -153,6 +153,7 @@ export function ComposeBox({
     onRenameSession,
     onCreateSession,
     onDeleteSession,
+    onRestoreSession,
 }) {
     const [content, setContent] = useState('');
     const [searchText, setSearchText] = useState('');
@@ -231,7 +232,9 @@ export function ComposeBox({
         ? 'Reconnecting'
         : `Connection: ${connectionStatusLabel}`;
 
-    const visibleMentionAgents = getVisibleMentionAgents(activeChatAgents, { currentChatJid, limit: 4 });
+    const mentionAgents = (Array.isArray(activeChatAgents) ? activeChatAgents : [])
+        .filter((chat) => !chat?.archived_at);
+    const visibleMentionAgents = getVisibleMentionAgents(mentionAgents, { currentChatJid, limit: 4 });
     const showAgentAffordance = !searchMode && shouldShowComposeAgentAffordance({
         footerWidth,
         visibleAgentCount: visibleMentionAgents.length,
@@ -252,10 +255,11 @@ export function ComposeBox({
     })();
     const hasSwitchableChatAgents = switchableChatAgents.length > 0;
     const canSwitchSession = hasSwitchableChatAgents && typeof onSwitchChat === 'function';
+    const canRestoreSession = hasSwitchableChatAgents && typeof onRestoreSession === 'function';
     const canRenameSession = !searchMode && typeof onRenameSession === 'function';
     const canCreateSession = !searchMode && typeof onCreateSession === 'function';
     const canDeleteSession = !searchMode && typeof onDeleteSession === 'function';
-    const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRenameSession || canCreateSession || canDeleteSession);
+    const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canDeleteSession);
     const modelHintLabel = activeModel || '';
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
@@ -430,7 +434,7 @@ export function ComposeBox({
             setMentionMatches([]);
             return;
         }
-        const matches = filterMentionAgents(activeChatAgents, value, { currentChatJid });
+        const matches = filterMentionAgents(mentionAgents, value, { currentChatJid });
         if (matches.length > 0 && !(matches.length === 1 && buildMentionValue(matches[0].agent_name).trim().toLowerCase() === String(value || '').trim().toLowerCase())) {
             setShowSlash(false);
             setSlashMatches([]);
@@ -462,7 +466,7 @@ export function ComposeBox({
     const toggleSessionPopup = (event) => {
         event?.preventDefault?.();
         event?.stopPropagation?.();
-        if (searchMode || (!canSwitchSession && !canRenameSession && !canCreateSession && !canDeleteSession)) return;
+        if (searchMode || (!canSwitchSession && !canRestoreSession && !canRenameSession && !canCreateSession && !canDeleteSession)) return;
 
         setShowModelPopup(false);
         setShowSlash(false);
@@ -480,6 +484,21 @@ export function ComposeBox({
             return;
         }
         onSwitchChat?.(nextChatJid);
+    };
+
+    const handleRestoreSession = async (chatJid) => {
+        const nextChatJid = typeof chatJid === 'string' ? chatJid.trim() : '';
+        setShowSessionPopup(false);
+        if (!nextChatJid || typeof onRestoreSession !== 'function') {
+            requestAnimationFrame(() => textareaRef.current?.focus());
+            return;
+        }
+        try {
+            await onRestoreSession(nextChatJid);
+        } catch (error) {
+            console.warn('Failed to restore session:', error);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+        }
     };
 
     const handleAgentChipClick = (agent) => {
@@ -1121,7 +1140,7 @@ export function ComposeBox({
     useEffect(() => {
         if (searchMode) return;
         updateMentionAutocomplete(content);
-    }, [activeChatAgents, currentChatJid, content, searchMode]);
+    }, [mentionAgents, currentChatJid, content, searchMode]);
 
     return html`
         <div class="compose-box">
@@ -1357,22 +1376,34 @@ export function ComposeBox({
                     `}
                     ${showSessionPopup && !searchMode && html`
                         <div class="compose-model-popup" ref=${sessionPopupRef}>
-                            <div class="compose-model-popup-title">Switch active session</div>
-                            <div class="compose-model-popup-menu" role="menu" aria-label="Active sessions">
-                                ${!canSwitchSession && html`
-                                    <div class="compose-model-popup-empty">No other active sessions.</div>
+                            <div class="compose-model-popup-title">Manage sessions & agents</div>
+                            <div class="compose-model-popup-menu" role="menu" aria-label="Sessions and agents">
+                                ${!hasSwitchableChatAgents && html`
+                                    <div class="compose-model-popup-empty">No other sessions yet.</div>
                                 `}
-                                ${canSwitchSession && switchableChatAgents.map((chat) => html`
-                                    <button
-                                        key=${chat.chat_jid}
-                                        type="button"
-                                        role="menuitem"
-                                        class="compose-model-popup-item"
-                                        onClick=${() => handleSessionSwitch(chat.chat_jid)}
-                                    >
-                                        ${`@${chat.agent_name}${chat.display_name ? ` — ${chat.display_name}` : ''}${chat.is_active ? ' • active' : ''}`}
-                                    </button>
-                                `)}
+                                ${hasSwitchableChatAgents && switchableChatAgents.map((chat) => {
+                                    const archived = Boolean(chat.archived_at);
+                                    const label = `@${chat.agent_name}${chat.display_name ? ` — ${chat.display_name}` : ''}${chat.is_active ? ' • active' : ''}${archived ? ' • archived' : ''}`;
+                                    return html`
+                                        <button
+                                            key=${chat.chat_jid}
+                                            type="button"
+                                            role="menuitem"
+                                            class=${`compose-model-popup-item${archived ? ' archived' : ''}`}
+                                            onClick=${() => {
+                                                if (archived) {
+                                                    void handleRestoreSession(chat.chat_jid);
+                                                    return;
+                                                }
+                                                handleSessionSwitch(chat.chat_jid);
+                                            }}
+                                            disabled=${archived ? !canRestoreSession : !canSwitchSession}
+                                            title=${archived ? 'Restore this archived branch' : 'Switch to this session'}
+                                        >
+                                            ${label}
+                                        </button>
+                                    `;
+                                })}
                             </div>
                             ${(canCreateSession || canRenameSession || canDeleteSession) && html`
                                 <div class="compose-model-popup-actions">

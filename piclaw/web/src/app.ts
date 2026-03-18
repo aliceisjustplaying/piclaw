@@ -109,6 +109,7 @@ const getActiveChatAgents = resolveOptionalApi(api, 'getActiveChatAgents', { cha
 const getChatBranches = resolveOptionalApi(api, 'getChatBranches', { chats: [] });
 const renameChatBranch = resolveOptionalApi(api, 'renameChatBranch', null);
 const pruneChatBranch = resolveOptionalApi(api, 'pruneChatBranch', null);
+const restoreChatBranch = resolveOptionalApi(api, 'restoreChatBranch', null);
 const getAgentQueueState = resolveOptionalApi(api, 'getAgentQueueState', { count: 0 });
 const steerAgentQueueItem = resolveOptionalApi(api, 'steerAgentQueueItem', { removed: false, queued: 'steer' });
 const removeAgentQueueItem = resolveOptionalApi(api, 'removeAgentQueueItem', { removed: false });
@@ -1529,7 +1530,7 @@ function MainApp({ locationParams }) {
 
         Promise.all([
             getActiveChatAgents().catch(() => ({ chats: [] })),
-            getChatBranches().catch(() => ({ chats: [] })),
+            getChatBranches(null, { includeArchived: true }).catch(() => ({ chats: [] })),
         ])
             .then(([activePayload, branchPayload]) => {
                 if (activeChatJidRef.current !== targetChatJid) return;
@@ -1542,22 +1543,22 @@ function MainApp({ locationParams }) {
                     return;
                 }
 
-                const current = branchChats.find((chat) => chat.chat_jid === targetChatJid)
-                    || activeChats.find((chat) => chat.chat_jid === targetChatJid)
-                    || null;
-                const rootChatJid = String(current?.root_chat_jid || current?.chat_jid || targetChatJid || '').trim();
-
-                const family = rootChatJid
-                    ? branchChats.filter((chat) => String(chat.root_chat_jid || chat.chat_jid || '').trim() === rootChatJid)
-                    : branchChats;
-
                 const activeByChat = new Map(activeChats.map((chat) => [chat.chat_jid, chat]));
-                const base = family.length > 0 ? family : branchChats;
-                const merged = base.map((chat) => {
+                const merged = branchChats.map((chat) => {
                     const active = activeByChat.get(chat.chat_jid);
                     return active
                         ? { ...chat, ...active, is_active: active.is_active ?? chat.is_active }
                         : chat;
+                });
+
+                merged.sort((a, b) => {
+                    if (a.chat_jid === targetChatJid && b.chat_jid !== targetChatJid) return -1;
+                    if (b.chat_jid === targetChatJid && a.chat_jid !== targetChatJid) return 1;
+                    const aArchived = Boolean(a.archived_at);
+                    const bArchived = Boolean(b.archived_at);
+                    if (aArchived !== bArchived) return aArchived ? 1 : -1;
+                    if (Boolean(a.is_active) !== Boolean(b.is_active)) return a.is_active ? -1 : 1;
+                    return String(a.chat_jid).localeCompare(String(b.chat_jid));
                 });
 
                 setActiveChatAgents(merged);
@@ -2355,7 +2356,10 @@ function MainApp({ locationParams }) {
             const savedHandle = response?.branch?.agent_name || String(nextAgentName || '').trim() || currentHandle;
             showIntentToast('Branch renamed', `This chat is now @${savedHandle}.`, 'info', 3500);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error || 'Could not rename branch.');
+            const rawMessage = error instanceof Error ? error.message : String(error || 'Could not rename branch.');
+            const message = /already in use/i.test(rawMessage || '')
+                ? `${rawMessage} Switch to or restore that existing session from the session manager.`
+                : rawMessage;
             showIntentToast('Could not rename branch', message || 'Could not rename branch.', 'warning', 5000);
         }
     }, [currentBranchRecord, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
@@ -2387,6 +2391,32 @@ function MainApp({ locationParams }) {
             showIntentToast('Could not prune branch', message || 'Could not prune branch.', 'warning', 5000);
         }
     }, [chatOnlyMode, currentBranchRecord, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
+
+    const handleRestoreBranch = useCallback(async (targetChatJid) => {
+        const normalized = typeof targetChatJid === 'string' ? targetChatJid.trim() : '';
+        if (!normalized || typeof restoreChatBranch !== 'function') return;
+
+        try {
+            const response = await restoreChatBranch(normalized);
+            await Promise.allSettled([
+                refreshActiveChatAgents(),
+                refreshCurrentChatBranches(),
+            ]);
+            const branch = response?.branch;
+            const nextChatJid = typeof branch?.chat_jid === 'string' && branch.chat_jid.trim()
+                ? branch.chat_jid.trim()
+                : normalized;
+            const resolvedHandle = typeof branch?.agent_name === 'string' && branch.agent_name.trim()
+                ? `@${branch.agent_name.trim()}`
+                : nextChatJid;
+            showIntentToast('Branch restored', `Restored ${resolvedHandle}.`, 'info', 3200);
+            const nextUrl = buildChatWindowUrl(window.location.href, nextChatJid, { chatOnly: chatOnlyMode });
+            window.location.assign(nextUrl);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || 'Could not restore branch.');
+            showIntentToast('Could not restore branch', message || 'Could not restore branch.', 'warning', 5000);
+        }
+    }, [chatOnlyMode, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
 
     useEffect(() => {
         if (!branchLoaderMode || typeof window === 'undefined') return;
@@ -2725,6 +2755,7 @@ function MainApp({ locationParams }) {
                     onRenameSession=${handleRenameCurrentBranch}
                     onCreateSession=${handleCreateSessionFromCompose}
                     onDeleteSession=${handlePruneCurrentBranch}
+                    onRestoreSession=${handleRestoreBranch}
                     activeEditorPath=${chatOnlyMode ? null : tabStripActiveId}
                     onAttachEditorFile=${chatOnlyMode ? undefined : attachActiveEditorFile}
                     onOpenFilePill=${openFileFromPill}

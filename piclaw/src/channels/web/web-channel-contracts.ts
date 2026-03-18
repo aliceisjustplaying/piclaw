@@ -157,6 +157,7 @@ export interface WebChannelLike
   handleAgentBranchFork(req: Request): Promise<Response>;
   handleAgentBranchRename(req: Request): Promise<Response>;
   handleAgentBranchPrune(req: Request): Promise<Response>;
+  handleAgentBranchRestore(req: Request): Promise<Response>;
   handleAgentPeerMessage(req: Request): Promise<Response>;
   handleAgentRespond(req: Request): Promise<Response>;
   handleAdaptiveCardAction(req: Request): Promise<Response>;
