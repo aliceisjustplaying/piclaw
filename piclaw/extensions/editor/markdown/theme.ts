@@ -20,6 +20,7 @@ export const markdownPreviewTheme = EditorView.theme({
         fontSize: '15px',
         lineHeight: '1.6',
         padding: '10px 0',
+        overflowWrap: 'anywhere',
     },
     /* Hide line numbers in live preview — like Obsidian */
     '& .cm-gutters': {
@@ -118,6 +119,7 @@ export const markdownPreviewTheme = EditorView.theme({
         padding: '1px 5px',
         borderRadius: '3px',
         border: '1px solid var(--border-color, #333)',
+        overflowWrap: 'anywhere',
     },
 
     /* ── Code blocks (line decorations on .cm-line) ── */
@@ -521,12 +523,11 @@ export const markdownPreviewTheme = EditorView.theme({
         textDecorationColor: 'var(--accent-color, #1d9bf0)',
     },
     '.cm-md-link-widget': {
-        display: 'inline-flex',
-        alignItems: 'baseline',
+        display: 'inline',
         maxWidth: '100%',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        whiteSpace: 'normal',
+        overflowWrap: 'anywhere',
+        wordBreak: 'break-word',
     },
     '.cm-md-link-invalid': {
         color: 'var(--text-secondary, #8a8f98)',
