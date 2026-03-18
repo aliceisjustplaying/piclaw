@@ -1,10 +1,11 @@
 ---
 id: btw-tool-capable-side-agent-and-product-surface
 title: Make /btw a tool-capable side agent and mature it into a durable product surface
-status: next
+status: done
 priority: high
 created: 2026-03-15
-updated: 2026-03-15
+updated: 2026-03-18
+completed: 2026-03-18
 target_release: next
 estimate: L
 risk: medium

@@ -1,10 +1,10 @@
 ---
 id: post-terminal-endpoint-security-audit
 title: Audit web security and endpoint surface after terminal + pane refactor
-status: next
+status: doing
 priority: high
 created: 2026-03-12
-updated: 2026-03-16
+updated: 2026-03-18
 target_release: next
 tags:
   - work-item

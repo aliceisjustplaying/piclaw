@@ -1,10 +1,10 @@
 ---
 id: yaml-mindmap-editor-extension
 title: Add pluggable .mindmap.yaml editor extension
-status: next
+status: inbox
 priority: medium
 created: 2026-03-12
-updated: 2026-03-12
+updated: 2026-03-18
 estimate: M
 risk: medium
 target_release: next

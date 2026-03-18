@@ -1,7 +1,7 @@
 ---
 id: per-model-verbosity-control-for-openai-family-models
 title: Add per-model verbosity control (OpenAI Responses family) with web-first UX
-status: next
+status: inbox
 priority: medium
 created: 2026-03-18
 updated: 2026-03-18
