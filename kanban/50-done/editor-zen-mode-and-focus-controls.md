@@ -1,10 +1,11 @@
 ---
 id: editor-zen-mode-and-focus-controls
 title: Add editor zen mode and related focus controls
-status: doing
+status: done
 priority: medium
 created: 2026-03-14
 updated: 2026-03-18
+completed: 2026-03-18
 tags:
   - work-item
   - kanban
@@ -61,14 +62,14 @@ without losing the surrounding PiClaw workflow.
 
 ## Acceptance Criteria
 
-- [ ] A clear editor zen mode can be toggled on and off.
-- [ ] Zen mode behavior is deterministic and documented.
-- [ ] The active editor remains fully usable for edit/save/tab-switch workflows.
-- [ ] Entering zen mode does not lose unsaved changes or current tab state.
-- [ ] Exiting zen mode restores the previous layout cleanly.
-- [ ] Dock/terminal behavior in zen mode is explicitly defined.
-- [ ] Keyboard/accessibility behavior is defined for the toggle.
-- [ ] Manual validation covers entering, editing, saving, exiting, and reopening tabs.
+- [x] A clear editor zen mode can be toggled on and off.
+- [x] Zen mode behavior is deterministic and documented.
+- [x] The active editor remains fully usable for edit/save/tab-switch workflows.
+- [x] Entering zen mode does not lose unsaved changes or current tab state.
+- [x] Exiting zen mode restores the previous layout cleanly.
+- [x] Dock/terminal behavior in zen mode is explicitly defined.
+- [x] Keyboard/accessibility behavior is defined for the toggle.
+- [x] Manual validation covers entering, editing, saving, exiting, and reopening tabs.
 
 ## Implementation Paths
 
@@ -121,6 +122,29 @@ need the same immersive behavior.
   - `cd /workspace/piclaw/piclaw && bun run quality`
 
 ## Updates
+
+### 2026-03-18 — Implementation complete
+
+Implemented zen mode as Path A (app-shell UI state toggle):
+
+**Commits:**
+- `d8fd561` — feat: add editor zen mode (core toggle, keyboard, button, terminal auto-close/restore)
+- `dfb502e` — feat(zen): center editor at 80% width and hide gutters
+- `1a97342` — fix(zen): eliminate CPU spike from hover-reveal (fixed hover zone)
+- `c11e6d1` — fix(zen): hide statusbar, fix centering via cm-scroller padding
+
+**Files changed:**
+- `piclaw/web/src/app.ts` — zen state, enter/exit/toggle, keyboard handlers (Ctrl+Shift+Z, Esc), terminal auto-close/restore
+- `piclaw/web/src/components/tab-strip.ts` — zen toggle button (expand icon, right end of strip)
+- `piclaw/web/static/css/styles.css` — zen layout rules: hide all chrome, center at 80%, hover-reveal tab strip
+
+**Test evidence:**
+- 1050 tests pass (`bun test`), 0 failures
+- TypeScript clean (`tsc`)
+- Web build clean (`build:web`)
+- Manual validation: enter, edit, save, tab-switch, exit, layout restoration confirmed
+
+Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 2, risk: 1)
 
 ### 2026-03-18 — Refinement batch 6–10 answered
 
