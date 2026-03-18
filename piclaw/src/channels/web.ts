@@ -1231,9 +1231,10 @@ export class WebChannel implements WebChannelLike {
       submittedAt,
     });
 
-    // ── Provider-auth card: handle without agent ──────────────
+    // ── Provider-auth cards: handle without agent ─────────────
     const submissionData = sanitizedSubmissionData as Record<string, unknown> | null;
-    if (submissionData && submissionData.intent === "provider-auth") {
+    const isProviderAuth = submissionData?.intent === "provider-auth" || submissionData?.intent === "provider-auth-execute";
+    if (submissionData && isProviderAuth) {
       // Store the user submission message
       const userInteraction = this.storeMessage(chatJid, submissionText, false, [], {
         threadId,
@@ -1255,25 +1256,29 @@ export class WebChannel implements WebChannelLike {
         this.interactionBroadcaster.broadcastInteractionUpdated(updatedCardInteraction);
       }
 
-      // Route through the command system which has access to modelRegistry/authStorage
-      const action = String(submissionData.action || "").trim();
-      const providerId = String(submissionData.provider || "").trim();
-      const apiKey = String(submissionData.api_key || "").trim();
-
-      let commandRaw: string;
-      if (action === "logout") {
-        commandRaw = `/logout ${providerId}`;
-      } else if (action === "api_key" && apiKey) {
-        commandRaw = `/login ${providerId} key:${apiKey}`;
-      } else if (action === "oauth") {
-        commandRaw = `/login ${providerId}`;
+      // Get authStorage via a /login command (it routes through the pool)
+      // For Card 1 (picker) → show Card 2; for Card 2 (execute) → perform action
+      let authResult: { status: string; message: string; contentBlocks?: unknown[] };
+      if (submissionData.intent === "provider-auth") {
+        // Card 1: route through /login to get picker result with Card 2
+        const providerId = String(submissionData.provider || "").trim();
+        const action = String(submissionData.action || "").trim();
+        // Use internal slash command to access authStorage
+        // Build a synthetic command that handleProviderAuthPicker would handle
+        const pickerResult = await this.agentPool.applySlashCommand(chatJid, `/login __picker__ ${providerId} ${action}`);
+        authResult = pickerResult;
       } else {
-        this.sendMessage(chatJid, "Unknown action. Please select a provider and action.", { threadId });
-        return this.json({ status: "ok", card_updated: Boolean(updatedCardInteraction) }, 200);
+        // Card 2: execute
+        const executeResult = await this.agentPool.applySlashCommand(chatJid, `/login __execute__ ${JSON.stringify(submissionData)}`);
+        authResult = executeResult;
       }
 
-      const authResult = await this.agentPool.applySlashCommand(chatJid, commandRaw);
-      this.sendMessage(chatJid, authResult.message, { threadId });
+      // Post result — with or without cards
+      const sendOpts: Record<string, unknown> = { threadId };
+      if (authResult.contentBlocks?.length) {
+        sendOpts.contentBlocks = authResult.contentBlocks;
+      }
+      this.sendMessage(chatJid, authResult.message, sendOpts);
 
       return this.json({
         status: "ok",
