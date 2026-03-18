@@ -17,6 +17,7 @@ export {
   listChatBranches,
   renameChatBranchIdentity,
   archiveChatBranch,
+  restoreChatBranchIdentity,
 } from "./db/chat-branches.js";
 export {
   storeChatMetadata,

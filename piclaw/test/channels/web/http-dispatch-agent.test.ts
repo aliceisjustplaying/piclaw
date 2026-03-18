@@ -35,6 +35,7 @@ describe("web http agent dispatch", () => {
       handleAgentBranchFork: async () => new Response("branch-fork", { status: 209 }),
       handleAgentBranchRename: async () => new Response("branch-rename", { status: 210 }),
       handleAgentBranchPrune: async () => new Response("branch-prune", { status: 211 }),
+      handleAgentBranchRestore: async () => new Response("branch-restore", { status: 212 }),
       handleAgentPeerMessage: async () => new Response("peer-message", { status: 208 }),
       handleAgentRespond: async () => new Response("respond"),
       handleAdaptiveCardAction: async () => new Response("card-action", { status: 205 }),
@@ -84,6 +85,9 @@ describe("web http agent dispatch", () => {
 
     const branchPruneReq = new Request("https://example.com/agent/branch-prune", { method: "POST" });
     expect((await handleAgentRoutes(channel, branchPruneReq, "/agent/branch-prune", new URL(branchPruneReq.url)))?.status).toBe(211);
+
+    const branchRestoreReq = new Request("https://example.com/agent/branch-restore", { method: "POST" });
+    expect((await handleAgentRoutes(channel, branchRestoreReq, "/agent/branch-restore", new URL(branchRestoreReq.url)))?.status).toBe(212);
 
     const peerMessageReq = new Request("https://example.com/agent/peer-message", { method: "POST" });
     expect((await handleAgentRoutes(channel, peerMessageReq, "/agent/peer-message", new URL(peerMessageReq.url)))?.status).toBe(208);

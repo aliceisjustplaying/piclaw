@@ -117,21 +117,26 @@ export function getChatBranchByAgentName(agentName: string): ChatBranchRecord | 
   return toRecord(row);
 }
 
-export function listChatBranches(rootChatJid?: string | null): ChatBranchRecord[] {
+export function listChatBranches(
+  rootChatJid?: string | null,
+  options?: { includeArchived?: boolean }
+): ChatBranchRecord[] {
   const db = getDb();
+  const includeArchived = Boolean(options?.includeArchived);
   const rows = rootChatJid
     ? db.prepare(
       `SELECT branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, display_name, created_at, updated_at, archived_at
          FROM chat_branches
-        WHERE archived_at IS NULL AND root_chat_jid = ?
+        WHERE root_chat_jid = ?
+          AND (? = 1 OR archived_at IS NULL)
         ORDER BY created_at ASC, chat_jid ASC`
-    ).all(rootChatJid)
+    ).all(rootChatJid, includeArchived ? 1 : 0)
     : db.prepare(
       `SELECT branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, display_name, created_at, updated_at, archived_at
          FROM chat_branches
-        WHERE archived_at IS NULL
+        WHERE (? = 1 OR archived_at IS NULL)
         ORDER BY created_at ASC, chat_jid ASC`
-    ).all();
+    ).all(includeArchived ? 1 : 0);
 
   return (rows as ChatBranchRow[]).map((row) => toRecord(row)!).filter(Boolean);
 }
@@ -262,4 +267,42 @@ export function archiveChatBranch(chatJid: string): ChatBranchRecord {
   ).run(now, now, existing.branch_id);
 
   return getChatBranchByChatJid(normalizedChatJid)!;
+}
+
+export function restoreChatBranchIdentity(input: {
+  chat_jid: string;
+  agent_name?: string | null;
+  display_name?: string | null;
+}): ChatBranchRecord {
+  const chatJid = String(input.chat_jid || "").trim();
+  if (!chatJid) throw new Error("chat_jid is required");
+
+  const existing = getChatBranchByChatJid(chatJid);
+  if (!existing) throw new Error(`Unknown chat branch: ${chatJid}`);
+
+  const requestedAgent = input.agent_name === undefined
+    ? existing.agent_name
+    : normalizeBranchAgentName(input.agent_name || "");
+  const nextAgentName = getUniqueAgentName(requestedAgent || existing.agent_name, existing.branch_id);
+
+  const nextDisplayName = input.display_name === undefined
+    ? existing.display_name
+    : (typeof input.display_name === "string" && input.display_name.trim() ? input.display_name.trim() : null);
+
+  if (!existing.archived_at && nextAgentName === existing.agent_name && nextDisplayName === existing.display_name) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const db = getDb();
+  db.prepare(
+    `UPDATE chat_branches
+        SET agent_name = ?,
+            display_name = ?,
+            archived_at = NULL,
+            updated_at = ?
+      WHERE branch_id = ?`
+  ).run(nextAgentName, nextDisplayName, now, existing.branch_id);
+
+  return getChatBranchByChatJid(chatJid)!;
 }

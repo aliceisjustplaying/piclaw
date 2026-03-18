@@ -58,6 +58,7 @@ import {
   getChatBranchByChatJid,
   listChatBranches,
   renameChatBranchIdentity,
+  restoreChatBranchIdentity,
   storeChatMetadata,
   type ChatBranchRecord,
 } from "./db.js";
@@ -150,6 +151,7 @@ export interface ActiveChatAgent {
   parent_branch_id: string | null;
   agent_name: string;
   display_name: string | null;
+  archived_at?: string | null;
   session_id: string | null;
   session_name: string | null;
   model: string | null;
@@ -866,6 +868,26 @@ export class AgentPool {
     return archived;
   }
 
+  async restoreChatBranch(
+    chatJid: string,
+    options: { agentName?: string | null; displayName?: string | null } = {},
+  ): Promise<ChatBranchRecord> {
+    const restored = restoreChatBranchIdentity({
+      chat_jid: chatJid,
+      ...(options.agentName !== undefined ? { agent_name: options.agentName } : {}),
+      ...(options.displayName !== undefined ? { display_name: options.displayName } : {}),
+    });
+
+    // Warm session registration for restored branches so switching is immediate.
+    try {
+      await this.getOrCreate(chatJid);
+    } catch {
+      // Keep restore resilient even if session warmup fails.
+    }
+
+    return restored;
+  }
+
   async createForkedChatBranch(
     sourceChatJid: string,
     options: { agentName?: string | null; displayName?: string | null } = {},
@@ -965,6 +987,7 @@ export class AgentPool {
           parent_branch_id: branch.parent_branch_id,
           agent_name: branch.agent_name,
           display_name: branch.display_name || entry.session.sessionName?.trim() || null,
+          archived_at: branch.archived_at ?? null,
           session_id: entry.session.sessionId,
           session_name: entry.session.sessionName?.trim() || null,
           model: entry.session.model ? `${entry.session.model.provider}/${entry.session.model.id}` : null,
@@ -980,11 +1003,14 @@ export class AgentPool {
     return chats;
   }
 
-  listKnownChats(rootChatJid?: string | null): ActiveChatAgent[] {
+  listKnownChats(
+    rootChatJid?: string | null,
+    options?: { includeArchived?: boolean }
+  ): ActiveChatAgent[] {
     const activeChats = this.listActiveChats();
     const activeByChat = new Map(activeChats.map((chat) => [chat.chat_jid, chat]));
     try {
-      return listChatBranches(rootChatJid || null)
+      return listChatBranches(rootChatJid || null, { includeArchived: Boolean(options?.includeArchived) })
         .map((branch) => {
           const active = activeByChat.get(branch.chat_jid);
           return {
@@ -994,6 +1020,7 @@ export class AgentPool {
             parent_branch_id: branch.parent_branch_id,
             agent_name: branch.agent_name,
             display_name: branch.display_name || active?.display_name || null,
+            archived_at: branch.archived_at ?? null,
             session_id: active?.session_id ?? null,
             session_name: active?.session_name ?? null,
             model: active?.model ?? null,
@@ -1004,6 +1031,7 @@ export class AgentPool {
         .sort((a, b) => {
           if (a.chat_jid === rootChatJid && b.chat_jid !== rootChatJid) return -1;
           if (b.chat_jid === rootChatJid && a.chat_jid !== rootChatJid) return 1;
+          if (Boolean(a.archived_at) !== Boolean(b.archived_at)) return a.archived_at ? 1 : -1;
           if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
           return a.chat_jid.localeCompare(b.chat_jid);
         });

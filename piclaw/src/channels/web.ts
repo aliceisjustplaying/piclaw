@@ -928,8 +928,11 @@ export class WebChannel implements WebChannelLike {
     const rootChatJid = typeof url.searchParams.get("root_chat_jid") === "string"
       ? url.searchParams.get("root_chat_jid")!.trim()
       : "";
-    const chats = typeof (this.agentPool as AgentPool & { listKnownChats?: (rootChatJid?: string | null) => unknown[] }).listKnownChats === "function"
-      ? (this.agentPool as AgentPool & { listKnownChats: (rootChatJid?: string | null) => unknown[] }).listKnownChats(rootChatJid || null)
+    const includeArchived = ["1", "true", "yes", "on"].includes(
+      String(url.searchParams.get("include_archived") || "").trim().toLowerCase()
+    );
+    const chats = typeof (this.agentPool as AgentPool & { listKnownChats?: (rootChatJid?: string | null, options?: { includeArchived?: boolean }) => unknown[] }).listKnownChats === "function"
+      ? (this.agentPool as AgentPool & { listKnownChats: (rootChatJid?: string | null, options?: { includeArchived?: boolean }) => unknown[] }).listKnownChats(rootChatJid || null, { includeArchived })
       : this.agentPool.listActiveChats();
     return this.json({ chats }, 200);
   }
@@ -1028,6 +1031,39 @@ export class WebChannel implements WebChannelLike {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to prune branch.");
       return this.json({ error: message || "Failed to prune branch." }, 400);
+    }
+  }
+
+  /** POST /agent/branch-restore — restore an archived branch agent back into active discovery. */
+  async handleAgentBranchRestore(req: Request): Promise<Response> {
+    let payload: { chat_jid?: string; agent_name?: string; display_name?: string };
+    try {
+      payload = await req.json();
+    } catch {
+      return this.json({ error: "Invalid JSON" }, 400);
+    }
+
+    const chatJid = typeof payload?.chat_jid === "string" && payload.chat_jid.trim()
+      ? payload.chat_jid.trim()
+      : "";
+    if (!chatJid) {
+      return this.json({ error: "Missing chat_jid" }, 400);
+    }
+
+    try {
+      const branch = await (this.agentPool as AgentPool & {
+        restoreChatBranch?: (chatJid: string, options?: { agentName?: string | null; displayName?: string | null }) => Promise<unknown>;
+      }).restoreChatBranch?.(chatJid, {
+        ...(typeof payload?.agent_name === "string" ? { agentName: payload.agent_name } : {}),
+        ...(typeof payload?.display_name === "string" ? { displayName: payload.display_name } : {}),
+      });
+      if (!branch) {
+        return this.json({ error: "Branch restore is not available." }, 501);
+      }
+      return this.json({ status: "ok", branch }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || "Failed to restore branch.");
+      return this.json({ error: message || "Failed to restore branch." }, 400);
     }
   }
 

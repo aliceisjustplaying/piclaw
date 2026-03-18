@@ -2633,6 +2633,16 @@ body {
     font-weight: 600;
 }
 
+.compose-model-popup-item.archived {
+    color: var(--text-secondary);
+}
+
+.compose-model-popup-item.archived:hover,
+.compose-model-popup-item.archived:focus-visible {
+    background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
+    color: var(--text-primary);
+}
+
 .compose-model-popup-actions {
     display: flex;
     gap: var(--spacing-xs);
