@@ -476,9 +476,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     /** Lazy-load and apply/remove markdown live preview extensions. */
     private async applyLivePreview(enabled: boolean): Promise<void> {
         if (!this.view || this.disposed) return;
-        const wrapEffect = this.wrappingCompartment.reconfigure(
-            enabled && this.isMarkdownFile() ? [] : EditorView.lineWrapping,
-        );
+        const wrapEffect = this.wrappingCompartment.reconfigure(EditorView.lineWrapping);
 
         if (enabled) {
             try {
