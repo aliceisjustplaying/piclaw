@@ -1,6 +1,6 @@
 ---
 id: automatic-voice-input-ios
-title: Investigate automatic voice input support on iOS
+title: Voice mode — speech input + terse speech output
 status: next
 priority: medium
 created: 2026-03-12
@@ -120,6 +120,38 @@ Start with **Path B** (fallback + explicit iOS guidance) and a feature-flagged *
 - [ ] Ticket moved to `50-done/` once recommendation is finalized
 
 ## Updates
+
+### 2026-03-19 — Refinement complete (10 questions)
+
+**Scope expanded** from iOS-only investigation to a full voice mode feature covering both speech input and terse speech output.
+
+**Input design:**
+- Mic button inside compose box, left of send button
+- Live interim text appears in compose during recording, finalized on stop
+- Uses Web Speech API (`SpeechRecognition`) where available
+- iOS: try SpeechRecognition first, fall back to keyboard dictation hint on failure
+- Single toggle enables both input + output
+
+**Output design:**
+- Auto-summary spoken: first sentence + bullet points, strip code/paths/markdown
+- Auto-speaks reply when input was voice; manual speaker icon on all agent messages
+- Speaker icon always visible on agent messages (small, non-intrusive)
+- Speaks paragraph chunks as they complete during streaming (not wait-for-full)
+- Interruption: click message, click speaker icon, or start new voice input — all stop current speech
+
+**Toggle:**
+- Single toggle for voice mode (input + output together)
+- Persisted in localStorage
+- No backend service required — all client-side Web Speech API
+
+**Browser support:**
+- Chrome desktop/Android: full SpeechRecognition + SpeechSynthesis
+- Safari desktop: SpeechRecognition since 14.1 + SpeechSynthesis
+- iOS Safari: SpeechRecognition unreliable (14.5+, buggy on 17+), SpeechSynthesis solid
+- iOS Chrome/Firefox: no SpeechRecognition (WebKit limitation)
+
+Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
+- Ready for implementation.
 
 ### 2026-03-12
 - Added at user request to begin investigation phase for iOS voice input feasibility.

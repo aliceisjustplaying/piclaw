@@ -686,8 +686,15 @@ export function applyThemeFromEvent(payload) {
     // Store per-chat override
     setChatTheme(chatJid, theme || 'default', tint);
 
-    // Also update global fallback
-    applyThemeState({ theme: theme || 'default', tint }, { persist: true });
+    // Apply immediately
+    applyThemeState({ theme: theme || 'default', tint }, { persist: false });
+
+    // Only update global fallback when on the root/default chat,
+    // so branch themes don't bleed into other chats.
+    if (!chatJid || chatJid === 'web:default') {
+        setLocalStorageItem(THEME_STORAGE_KEY, theme || 'default');
+        setLocalStorageItem(TINT_STORAGE_KEY, tint || '');
+    }
 }
 
 export function getThemeMode() {

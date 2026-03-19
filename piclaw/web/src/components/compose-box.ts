@@ -1407,25 +1407,46 @@ export function ComposeBox({
                                 `}
                                 ${hasSwitchableChatAgents && switchableChatAgents.map((chat) => {
                                     const archived = Boolean(chat.archived_at);
+                                    const isRoot = chat.chat_jid === (chat.root_chat_jid || chat.chat_jid);
+                                    const canPrune = !isRoot && !chat.is_active && !archived && typeof onDeleteSession === 'function';
                                     const label = `@${chat.agent_name} — ${chat.chat_jid}${chat.is_active ? ' • active' : ''}${archived ? ' • archived' : ''}`;
                                     return html`
-                                        <button
-                                            key=${chat.chat_jid}
-                                            type="button"
-                                            role="menuitem"
-                                            class=${`compose-model-popup-item${archived ? ' archived' : ''}`}
-                                            onClick=${() => {
-                                                if (archived) {
-                                                    void handleRestoreSession(chat.chat_jid);
-                                                    return;
-                                                }
-                                                handleSessionSwitch(chat.chat_jid);
-                                            }}
-                                            disabled=${archived ? !canRestoreSession : !canSwitchSession}
-                                            title=${archived ? 'Restore this archived branch' : 'Switch to this session'}
-                                        >
-                                            ${label}
-                                        </button>
+                                        <div key=${chat.chat_jid} class=${`compose-model-popup-item-row${archived ? ' archived' : ''}`}>
+                                            <button
+                                                type="button"
+                                                role="menuitem"
+                                                class=${`compose-model-popup-item${archived ? ' archived' : ''}`}
+                                                onClick=${() => {
+                                                    if (archived) {
+                                                        void handleRestoreSession(chat.chat_jid);
+                                                        return;
+                                                    }
+                                                    handleSessionSwitch(chat.chat_jid);
+                                                }}
+                                                disabled=${archived ? !canRestoreSession : !canSwitchSession}
+                                                title=${archived ? 'Restore this archived branch' : 'Switch to this session'}
+                                            >
+                                                ${label}
+                                            </button>
+                                            ${canPrune && html`
+                                                <button
+                                                    type="button"
+                                                    class="compose-model-popup-item-delete"
+                                                    title="Delete this branch"
+                                                    aria-label=${`Delete @${chat.agent_name}`}
+                                                    onClick=${(e) => {
+                                                        e.stopPropagation();
+                                                        setShowSessionPopup(false);
+                                                        void onDeleteSession(chat.chat_jid);
+                                                    }}
+                                                >
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                                    </svg>
+                                                </button>
+                                            `}
+                                        </div>
                                     `;
                                 })}
                             </div>
