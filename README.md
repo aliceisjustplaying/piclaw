@@ -31,7 +31,8 @@ Inspired by [agentbox](https://github.com/rcarmo/agentbox) and [nanoclaw](https:
 
 > [!NOTE]
 > This is the Docker-free install path.
-> Current scope: Bun-first, Linux/macOS, and no manual build step.
+>
+> **Experimental for now**: Bun-first, Linux/macOS, and intended to avoid a manual build step, but not yet positioned as the main production install route.
 
 ```bash
 bun add -g github:rcarmo/piclaw
