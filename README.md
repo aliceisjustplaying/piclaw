@@ -27,6 +27,18 @@ Inspired by [agentbox](https://github.com/rcarmo/agentbox) and [nanoclaw](https:
 >
 > Source builds are mainly for development. If something looks wrong in production, validate it against GHCR first.
 
+### Install directly from the repo with Bun
+
+> [!NOTE]
+> This is the Docker-free install path.
+> Current scope: Bun-first, Linux/macOS, and no manual build step.
+
+```bash
+bun add -g github:rcarmo/piclaw
+```
+
+See [docs/install-from-repo.md](docs/install-from-repo.md) for scope and caveats.
+
 ### Run from GHCR
 
 ```bash
