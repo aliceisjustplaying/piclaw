@@ -397,7 +397,6 @@ ${U0.map((x0,S$)=>{let P1=t_[S$]?.name||`attachment-${S$+1}`;return`- attachment
                     <div class="compose-actions ${j?"search-mode":""}">
                     ${P0&&O`
                         <div class="compose-agent-hints compose-agent-hints-inline" title="Active chat agents you can mention with @name">
-                            <span class="compose-agent-hints-label">Agents</span>
                             ${H0.map((Y)=>O`
                                 <button
                                     key=${Y.chat_jid||Y.agent_name}
@@ -1982,5 +1981,5 @@ This archives the branch agent and removes it from the branch picker. Chat histo
         </div>
     `}function dj(){let _=typeof window>"u"?new URLSearchParams:new URL(window.location.href).searchParams;return O`<${nj} locationParams=${_} />`}p3(O`<${dj} />`,document.getElementById("app"));
 
-//# debugId=304BA08D0884463464756E2164756E21
+//# debugId=50471924489DF7C064756E2164756E21
 //# sourceMappingURL=app.bundle.js.map
