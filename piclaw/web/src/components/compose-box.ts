@@ -1545,7 +1545,6 @@ export function ComposeBox({
                     <div class="compose-actions ${searchMode ? 'search-mode' : ''}">
                     ${showAgentAffordance && html`
                         <div class="compose-agent-hints compose-agent-hints-inline" title="Active chat agents you can mention with @name">
-                            <span class="compose-agent-hints-label">Agents</span>
                             ${visibleMentionAgents.map((agent) => html`
                                 <button
                                     key=${agent.chat_jid || agent.agent_name}
