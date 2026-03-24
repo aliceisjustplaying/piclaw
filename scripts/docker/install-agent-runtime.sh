@@ -8,6 +8,7 @@ set -euo pipefail
 
 DEFAULT_BREW_REMOTE="https://github.com/Homebrew/brew.git"
 DEFAULT_CORE_REMOTE="https://github.com/Homebrew/homebrew-core.git"
+DEFAULT_BUN_VERSION="1.3.11"
 
 choose_remote() {
   local fallback="$1"
@@ -35,6 +36,139 @@ choose_remote() {
   fi
 
   echo "Fallback Homebrew remote $fallback is unreachable." >&2
+  return 1
+}
+
+resolve_bun_platform() {
+  local raw_arch="${BUN_ARCH:-${TARGETARCH:-$(uname -m)}}"
+  case "$raw_arch" in
+    amd64|x86_64)
+      echo "linux-x64"
+      ;;
+    arm64|aarch64)
+      echo "linux-aarch64"
+      ;;
+    armv7l|armv7)
+      echo "linux-armv7l"
+      ;;
+    *)
+      echo "linux-$raw_arch"
+      ;;
+  esac
+}
+
+supports_avx2() {
+  grep -qi 'avx2' /proc/cpuinfo
+}
+
+resolve_bun_version() {
+  local bun_version="${BUN_VERSION:-$DEFAULT_BUN_VERSION}"
+
+  bun_version="${bun_version#v}"
+  bun_version="${bun_version#bun-v}"
+
+  if [ -n "$bun_version" ]; then
+    echo "$bun_version"
+    return 0
+  fi
+
+  echo "$DEFAULT_BUN_VERSION"
+}
+
+install_bun_release() {
+  local bun_version="$1"
+  local bun_target="$2"
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  local filename="bun-${bun_target}.zip"
+  local base_url="https://github.com/oven-sh/bun/releases/download/bun-v${bun_version}"
+  local url="${base_url}/${filename}"
+  local bundle="$temp_dir/$filename"
+  local checksums="$temp_dir/SHASUMS256.txt"
+  local expected_checksum
+  local actual_checksum
+
+  trap 'rm -rf "$temp_dir"' RETURN
+
+  if ! curl -fsSL --fail "$url" -o "$bundle"; then
+    echo "Unable to download Bun archive: $url" >&2
+    return 1
+  fi
+
+  if ! curl -fsSL --fail "${base_url}/SHASUMS256.txt" -o "$checksums"; then
+    echo "Unable to download Bun checksum manifest for bun-v${bun_version}" >&2
+    return 1
+  fi
+
+  expected_checksum=$(awk -v name="$filename" '$2 == name { print $1; exit }' "$checksums")
+  if [ -z "$expected_checksum" ]; then
+    echo "Missing checksum entry for $filename in SHASUMS256.txt" >&2
+    return 1
+  fi
+
+  actual_checksum=$(sha256sum "$bundle" | awk '{print $1}')
+  if [ "$actual_checksum" != "$expected_checksum" ]; then
+    echo "Checksum mismatch for $filename" >&2
+    echo "Expected: $expected_checksum" >&2
+    echo "Actual:   $actual_checksum" >&2
+    return 1
+  fi
+
+  if ! unzip -q "$bundle" -d "$temp_dir/extract"; then
+    echo "Unable to extract Bun archive for $bun_target" >&2
+    return 1
+  fi
+
+  if [ ! -f "$temp_dir/extract/$bun_target/bun" ]; then
+    echo "Unexpected Bun archive layout for $bun_target" >&2
+    return 1
+  fi
+
+  sudo mkdir -p "$BUN_INSTALL/bin"
+  sudo cp "$temp_dir/extract/$bun_target/bun" "$BUN_INSTALL/bin/bun"
+  sudo chmod 755 "$BUN_INSTALL/bin/bun"
+}
+
+install_bun() {
+  local bun_platform
+  local bun_version
+  local bun_prefer_baseline="${BUN_PREFER_BASELINE:-auto}"
+  local -a candidates
+
+  bun_platform=$(resolve_bun_platform)
+  bun_version=$(resolve_bun_version)
+
+  if [ "$bun_platform" = "linux-x64" ]; then
+    case "$bun_prefer_baseline" in
+      always|true|1)
+        candidates=("linux-x64-baseline")
+        ;;
+      never|false|0)
+        candidates=("linux-x64")
+        ;;
+      *)
+        if supports_avx2; then
+          candidates=("linux-x64" "linux-x64-baseline")
+        else
+          candidates=("linux-x64-baseline")
+        fi
+        ;;
+    esac
+  else
+    candidates=("$bun_platform")
+  fi
+
+  for bun_target in "${candidates[@]}"; do
+    if install_bun_release "$bun_version" "$bun_target"; then
+      if "$BUN_INSTALL/bin/bun" --version >/dev/null 2>&1; then
+        return 0
+      fi
+      echo "Installed Bun ${bun_target} failed validation; trying next candidate" >&2
+    fi
+  done
+
+  echo "Could not install a compatible Bun binary for platform '$bun_platform' (version '$bun_version')." >&2
   return 1
 }
 
@@ -69,14 +203,18 @@ brew install lazygit
 # Install Bun globally under /usr/local/lib/bun (root-owned, world-readable)
 export BUN_INSTALL="/usr/local/lib/bun"
 sudo mkdir -p "$BUN_INSTALL"
-curl -fsSL https://bun.sh/install | sudo BUN_INSTALL="$BUN_INSTALL" bash
+install_bun
 
 # Ensure world-readable so all users can run bun
 sudo chmod -R a+rX "$BUN_INSTALL"
 
 # Symlink bun/bunx into /usr/local/bin
 sudo ln -sf "$BUN_INSTALL/bin/bun"  /usr/local/bin/bun
-sudo ln -sf "$BUN_INSTALL/bin/bunx" /usr/local/bin/bunx
+if [ -f "$BUN_INSTALL/bin/bunx" ]; then
+  sudo ln -sf "$BUN_INSTALL/bin/bunx" /usr/local/bin/bunx
+else
+  sudo ln -sf "$BUN_INSTALL/bin/bun" /usr/local/bin/bunx
+fi
 
 # Install pi-coding-agent globally (sudo so it writes to root-owned prefix).
 # Prefer an explicit env override, otherwise derive the version from piclaw's
