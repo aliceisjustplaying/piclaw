@@ -1,0 +1,356 @@
+/* Mindmap Editor Styles */
+
+:root {
+  --node-bg: var(--vscode-editor-background, #1e1e1e);
+  --node-fg: var(--vscode-editor-foreground, #d4d4d4);
+  --node-border: var(--vscode-focusBorder, #007acc);
+  --node-selected-bg: var(--vscode-list-activeSelectionBackground, #094771);
+  --link-color: var(--vscode-editorLineNumber-foreground, #858585);
+  --crosslink-color: var(--vscode-editorLink-activeForeground, #4fc1ff);
+  --toolbar-bg: var(--vscode-sideBar-background, #252526);
+  --toolbar-fg: var(--vscode-sideBar-foreground, #cccccc);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--vscode-editor-background, #1e1e1e);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--node-fg);
+}
+
+#mindmap-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#mindmap-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Node styling */
+.node {
+  cursor: pointer;
+}
+
+.node rect {
+  fill: var(--node-bg);
+  stroke: var(--node-border);
+  stroke-width: 1.5px;
+  rx: 6px;
+  ry: 6px;
+  transition: fill 0.15s, stroke 0.15s;
+}
+
+.node.selected rect {
+  fill: var(--node-selected-bg);
+  stroke-width: 2px;
+}
+
+.node.editing rect {
+  stroke-dasharray: 4 2;
+}
+
+.node.drag-over rect,
+.node.link-target rect {
+  stroke: var(--crosslink-color);
+  stroke-width: 3px;
+}
+
+.node.will-flip-side rect {
+  stroke: var(--vscode-charts-purple, #b180d7);
+  stroke-width: 2px;
+  stroke-dasharray: 6 3;
+}
+
+.node text {
+  fill: var(--node-fg);
+  font-size: 13px;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.node image {
+  pointer-events: none;
+}
+
+.node-content {
+  pointer-events: none;
+}
+
+.node-text {
+  pointer-events: none;
+  user-select: none;
+}
+
+.node-text strong {
+  font-weight: bold;
+}
+
+.node-text em {
+  font-style: italic;
+}
+
+.node-text code {
+  background: rgba(128, 128, 128, 0.2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.node-text a {
+  color: var(--crosslink-color);
+  text-decoration: underline;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.node-text .inline-image-wrapper {
+  display: block;
+  text-align: center;
+  line-height: 1;
+}
+
+.node-text .inline-image {
+  max-height: 48px;
+  max-width: 120px;
+  vertical-align: middle;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.node-text .image-placeholder {
+  color: var(--vscode-descriptionForeground, #888);
+  font-style: italic;
+  font-size: 11px;
+  display: block;
+  text-align: center;
+}
+
+/* Links (parent-child) */
+.link {
+  fill: none;
+  stroke: var(--link-color);
+  stroke-width: 1.5px;
+  stroke-opacity: 0.6;
+}
+
+/* Cross-reference links (splines) */
+.crosslink {
+  fill: none;
+  stroke: var(--crosslink-color);
+  stroke-width: 2px;
+  stroke-dasharray: 6 3;
+  stroke-opacity: 0.8;
+}
+
+/* Link preview line during creation */
+.link-preview {
+  pointer-events: none;
+}
+
+/* Creating link cursor */
+body.creating-link {
+  cursor: crosshair;
+}
+
+body.creating-link .node {
+  cursor: crosshair;
+}
+
+.crosslink-label {
+  fill: var(--crosslink-color);
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Arrow markers */
+.arrow-marker {
+  fill: var(--crosslink-color);
+}
+
+/* Node overlay for editing */
+#node-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.node-editor {
+  position: absolute;
+  min-width: 80px;
+  min-height: 24px;
+  padding: 4px 8px;
+  background: var(--node-bg);
+  border: 2px solid var(--node-border);
+  border-radius: 6px;
+  color: var(--node-fg);
+  font-size: 13px;
+  outline: none;
+  pointer-events: auto;
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+
+.node-editor:focus {
+  border-color: var(--crosslink-color);
+}
+
+/* Toolbar */
+#toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: var(--toolbar-bg);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+#toolbar button,
+#toolbar select {
+  padding: 4px 8px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--toolbar-fg);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#toolbar button:hover,
+#toolbar select:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+#toolbar select {
+  min-width: 120px;
+}
+
+/* Help panel */
+#help-panel {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  padding: 12px 16px;
+  background: var(--toolbar-bg);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+}
+
+#help-panel.hidden {
+  display: none;
+}
+
+#help-panel h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+
+#help-panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#help-panel li {
+  margin: 4px 0;
+}
+
+#help-panel kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+/* Light theme overrides */
+body.light {
+  --node-bg: var(--vscode-editor-background, #ffffff);
+  --node-fg: var(--vscode-editor-foreground, #333333);
+  --link-color: var(--vscode-editorLineNumber-foreground, #999999);
+}
+
+/* Zoom transition */
+#mindmap-svg g.zoom-container {
+  transition: transform 0.2s ease-out;
+}
+
+/* Loading state */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--node-fg);
+  opacity: 0.6;
+}
+
+/* Selection box for multi-select */
+.selection-box {
+  fill: var(--node-border);
+  fill-opacity: 0.1;
+  stroke: var(--node-border);
+  stroke-width: 1;
+  stroke-dasharray: 4 2;
+}
+
+/* Context menu */
+#context-menu {
+  position: absolute;
+  background: var(--toolbar-bg);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  min-width: 160px;
+  z-index: 1000;
+}
+
+#context-menu.hidden {
+  display: none;
+}
+
+#context-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--toolbar-fg);
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#context-menu button:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+#context-menu button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#context-menu hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, #454545);
+  margin: 4px 0;
+}
