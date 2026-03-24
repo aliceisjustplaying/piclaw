@@ -1,10 +1,10 @@
 ---
 id: piclaw-native-autoresearch-lite-experiment-runner
 title: Build a piclaw-native autoresearch-lite experiment runner
-status: next
+status: inbox
 priority: medium
 created: 2026-03-19
-updated: 2026-03-19
+updated: 2026-03-24
 target_release: later
 estimate: M
 risk: medium
@@ -26,6 +26,11 @@ owner: pi
 
 Build a Piclaw-native, web-first experiment runner inspired by `pi-autoresearch`
 but aligned with Piclaw's product model.
+
+This ticket is currently a **deferred future direction**, not the primary near-term
+implementation path. The active path is `autoresearch-sub-agent-supervisor`, which
+should validate demand and expose concrete gaps before Piclaw commits to a native
+reimplementation.
 
 The runner should:
 
@@ -128,6 +133,16 @@ copying the TUI widget mechanics.
 
 ## Updates
 
+### 2026-03-24
+- Board review decision: defer this as a **future native-v2 path** rather than keep it in the active ready queue.
+- Lane change: `10-next` → `00-inbox`.
+- Rationale:
+  - `kanban/20-doing/autoresearch-sub-agent-supervisor.md` is the primary near-term implementation path,
+  - `kanban/20-doing/timeline-launched-floating-generative-widget-pane.md` is still the foundation for the preferred dashboard host,
+  - and running a native reimplementation in parallel would create avoidable strategy/WIP duplication.
+- Keep this ticket as the place to capture a later native rewrite if the supervisor MVP proves valuable but constrained.
+- Quality: ★★★☆☆ 6/10 (problem: 2, scope: 1, test: 1, deps: 1, risk: 1)
+
 ### 2026-03-19
 - Created as the concrete follow-up to `investigate-pi-autoresearch`.
 - Seeded from the new design note at `docs/autoresearch-lite-design.md`.
@@ -141,11 +156,13 @@ copying the TUI widget mechanics.
 - Keep durable files in the workspace even if later SQLite indexing is added for faster web state.
 - The canonical experiment control point should remain a timeline message/card.
 - The richer dashboard should be reopenable from that timeline entry at any time.
+- Do **not** run this in parallel with `autoresearch-sub-agent-supervisor` unless the board explicitly decides to pursue two competing autoresearch paths at once.
 
 ## Links
 
 - `kanban/50-done/investigate-pi-autoresearch.md`
 - `docs/autoresearch-lite-design.md`
-- `kanban/10-next/timeline-launched-floating-generative-widget-pane.md`
+- `kanban/20-doing/timeline-launched-floating-generative-widget-pane.md`
+- `kanban/20-doing/autoresearch-sub-agent-supervisor.md`
 - `/workspace/tmp/pi-autoresearch/README.md`
 - `/workspace/tmp/pi-autoresearch/extensions/pi-autoresearch/index.ts`

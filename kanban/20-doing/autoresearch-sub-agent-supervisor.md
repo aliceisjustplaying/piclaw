@@ -125,6 +125,15 @@ launch time. A markdown experiment report is generated on stop/completion.
 ## Updates
 
 ### 2026-03-24
+- Board review decision: keep this as the **primary near-term autoresearch implementation path**.
+- Rationale:
+  - it is already in active implementation,
+  - it offers the fastest path to a usable Piclaw autoresearch MVP,
+  - and it can validate demand/constraints before Piclaw commits to a larger native reimplementation.
+- Related decision: deferred `piclaw-native-autoresearch-lite-experiment-runner` out of the ready queue into `00-inbox` as a later native-v2 option.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 1, deps: 2, risk: 1)
+
+### 2026-03-24
 - Created ticket from 20-question refinement flow (4 Adaptive Card batches).
 - Moved directly to doing.
 - Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 1, deps: 2, risk: 1)
@@ -134,5 +143,5 @@ launch time. A markdown experiment report is generated on stop/completion.
 - `https://github.com/davebcn87/pi-autoresearch`
 - `/workspace/tmp/pi-autoresearch/`
 - `kanban/50-done/investigate-pi-autoresearch.md`
-- `kanban/10-next/piclaw-native-autoresearch-lite-experiment-runner.md`
+- `kanban/00-inbox/piclaw-native-autoresearch-lite-experiment-runner.md`
 - `docs/autoresearch-lite-design.md`
