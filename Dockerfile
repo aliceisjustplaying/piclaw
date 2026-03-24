@@ -1,9 +1,13 @@
 # PiClaw - Minimal Pi Coding Agent Sandbox
 FROM debian:trixie-slim
 
+ARG TARGETARCH
 ARG HOMEBREW_BREW_GIT_REMOTES=""
 ARG HOMEBREW_CORE_GIT_REMOTES=""
 ARG PI_CODING_AGENT_VERSION=""
+ARG BUN_VERSION="1.3.11"
+# Keep x64 builds portable even on hosts without AVX2.
+ARG BUN_PREFER_BASELINE="always"
 
 # Environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -18,6 +22,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOMEBREW_CORE_GIT_REMOTES=${HOMEBREW_CORE_GIT_REMOTES} \
     PI_CODING_AGENT_VERSION=${PI_CODING_AGENT_VERSION} \
     BUN_INSTALL=/usr/local/lib/bun \
+    BUN_VERSION=${BUN_VERSION} \
+    BUN_PREFER_BASELINE=${BUN_PREFER_BASELINE} \
     PATH=/usr/local/lib/bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /tmp

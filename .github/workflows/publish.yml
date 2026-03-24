@@ -12,6 +12,8 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  BUN_VERSION: "1.3.11"
+  BUN_PREFER_BASELINE: "always"
 
 jobs:
   # Build AMD64 image on native Intel runner
@@ -53,6 +55,19 @@ jobs:
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
+          build-args: |
+            BUN_VERSION=${{ env.BUN_VERSION }}
+            BUN_PREFER_BASELINE=${{ env.BUN_PREFER_BASELINE }}
+
+      - name: Smoke test AMD64 image
+        run: |
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          docker run --rm --platform linux/amd64 "$IMAGE_REF" bun --version | tee /tmp/bun-version.txt
+          test "$(cat /tmp/bun-version.txt)" = "${{ env.BUN_VERSION }}"
+          docker run --rm --platform linux/amd64 "$IMAGE_REF" pi --version >/tmp/pi-version.txt
+          test -s /tmp/pi-version.txt
+          docker run --rm --platform linux/amd64 "$IMAGE_REF" piclaw --help >/tmp/piclaw-help.txt
+          grep -qi "piclaw" /tmp/piclaw-help.txt
 
   # Build ARM64 image on native ARM runner
   build-arm64:
@@ -93,6 +108,19 @@ jobs:
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,mode=max,scope=arm64
+          build-args: |
+            BUN_VERSION=${{ env.BUN_VERSION }}
+            BUN_PREFER_BASELINE=${{ env.BUN_PREFER_BASELINE }}
+
+      - name: Smoke test ARM64 image
+        run: |
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          docker run --rm --platform linux/arm64 "$IMAGE_REF" bun --version | tee /tmp/bun-version.txt
+          test "$(cat /tmp/bun-version.txt)" = "${{ env.BUN_VERSION }}"
+          docker run --rm --platform linux/arm64 "$IMAGE_REF" pi --version >/tmp/pi-version.txt
+          test -s /tmp/pi-version.txt
+          docker run --rm --platform linux/arm64 "$IMAGE_REF" piclaw --help >/tmp/piclaw-help.txt
+          grep -qi "piclaw" /tmp/piclaw-help.txt
 
   # Merge digests into a single multi-arch manifest
   merge:
