@@ -5,7 +5,7 @@ ARG TARGETARCH
 ARG HOMEBREW_BREW_GIT_REMOTES=""
 ARG HOMEBREW_CORE_GIT_REMOTES=""
 ARG PI_CODING_AGENT_VERSION=""
-ARG BUN_VERSION="1.3.11"
+ARG BUN_VERSION=""
 # Keep x64 builds portable even on hosts without AVX2.
 ARG BUN_PREFER_BASELINE="always"
 
@@ -64,6 +64,7 @@ COPY supervisor/supervisord.workspace.conf /usr/local/share/piclaw/supervisor/su
 COPY supervisor/conf.d/ /usr/local/share/piclaw/supervisor/conf.d/
 COPY scripts/docker/install-agent-runtime.sh /tmp/install-agent-runtime.sh
 COPY scripts/docker/build-piclaw-package.sh /tmp/build-piclaw-package.sh
+COPY BUN_VERSION /tmp/BUN_VERSION
 COPY package.json /tmp/piclaw-package.json
 RUN chmod +x /entrypoint.sh /usr/local/bin/run-piclaw.sh /tmp/install-agent-runtime.sh /tmp/build-piclaw-package.sh
 

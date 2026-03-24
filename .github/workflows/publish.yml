@@ -12,13 +12,32 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  BUN_VERSION: "1.3.11"
   BUN_PREFER_BASELINE: "always"
 
 jobs:
+  resolve-bun-version:
+    name: Read pinned Bun version
+    runs-on: ubuntu-latest
+    outputs:
+      bun_version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read Bun version from repo file
+        id: resolve
+        run: |
+          version=$(tr -d '[:space:]' < BUN_VERSION)
+          if [ -z "$version" ]; then
+            echo "BUN_VERSION file is empty"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   # Build AMD64 image on native Intel runner
   build-amd64:
     name: Build AMD64 image
+    needs: resolve-bun-version
     runs-on: ubuntu-24.04
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -56,14 +75,14 @@ jobs:
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
           build-args: |
-            BUN_VERSION=${{ env.BUN_VERSION }}
+            BUN_VERSION=${{ needs.resolve-bun-version.outputs.bun_version }}
             BUN_PREFER_BASELINE=${{ env.BUN_PREFER_BASELINE }}
 
       - name: Smoke test AMD64 image
         run: |
           IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           docker run --rm --platform linux/amd64 "$IMAGE_REF" bun --version | tee /tmp/bun-version.txt
-          test "$(cat /tmp/bun-version.txt)" = "${{ env.BUN_VERSION }}"
+          test "$(cat /tmp/bun-version.txt)" = "${{ needs.resolve-bun-version.outputs.bun_version }}"
           docker run --rm --platform linux/amd64 "$IMAGE_REF" pi --version >/tmp/pi-version.txt
           test -s /tmp/pi-version.txt
           docker run --rm --platform linux/amd64 "$IMAGE_REF" piclaw --help >/tmp/piclaw-help.txt
@@ -72,6 +91,7 @@ jobs:
   # Build ARM64 image on native ARM runner
   build-arm64:
     name: Build ARM64 image
+    needs: resolve-bun-version
     runs-on: ubuntu-24.04-arm
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -109,14 +129,14 @@ jobs:
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,mode=max,scope=arm64
           build-args: |
-            BUN_VERSION=${{ env.BUN_VERSION }}
+            BUN_VERSION=${{ needs.resolve-bun-version.outputs.bun_version }}
             BUN_PREFER_BASELINE=${{ env.BUN_PREFER_BASELINE }}
 
       - name: Smoke test ARM64 image
         run: |
           IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           docker run --rm --platform linux/arm64 "$IMAGE_REF" bun --version | tee /tmp/bun-version.txt
-          test "$(cat /tmp/bun-version.txt)" = "${{ env.BUN_VERSION }}"
+          test "$(cat /tmp/bun-version.txt)" = "${{ needs.resolve-bun-version.outputs.bun_version }}"
           docker run --rm --platform linux/arm64 "$IMAGE_REF" pi --version >/tmp/pi-version.txt
           test -s /tmp/pi-version.txt
           docker run --rm --platform linux/arm64 "$IMAGE_REF" piclaw --help >/tmp/piclaw-help.txt

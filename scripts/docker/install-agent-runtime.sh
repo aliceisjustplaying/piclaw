@@ -8,7 +8,7 @@ set -euo pipefail
 
 DEFAULT_BREW_REMOTE="https://github.com/Homebrew/brew.git"
 DEFAULT_CORE_REMOTE="https://github.com/Homebrew/homebrew-core.git"
-DEFAULT_BUN_VERSION="1.3.11"
+DEFAULT_BUN_VERSION=""
 
 choose_remote() {
   local fallback="$1"
@@ -62,7 +62,16 @@ supports_avx2() {
 }
 
 resolve_bun_version() {
-  local bun_version="${BUN_VERSION:-$DEFAULT_BUN_VERSION}"
+  local bun_version="${BUN_VERSION:-}"
+
+  if [ -z "$bun_version" ]; then
+    for version_file in /tmp/BUN_VERSION "$HOME/piclaw/BUN_VERSION"; do
+      if [ -f "$version_file" ]; then
+        bun_version="$(tr -d '[:space:]' < "$version_file")"
+        [ -n "$bun_version" ] && break
+      fi
+    done
+  fi
 
   bun_version="${bun_version#v}"
   bun_version="${bun_version#bun-v}"
@@ -72,7 +81,8 @@ resolve_bun_version() {
     return 0
   fi
 
-  echo "$DEFAULT_BUN_VERSION"
+  echo "BUN_VERSION is not set and no pinned BUN_VERSION file was found." >&2
+  return 1
 }
 
 install_bun_release() {
