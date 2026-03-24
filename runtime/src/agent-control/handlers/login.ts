@@ -366,6 +366,21 @@ function buildCard3(def: ProviderDef, models: Array<{ id: string; name: string }
 
 // ── OAuth helper ────────────────────────────────────────────────
 
+/**
+ * Pending OAuth flows keyed by provider ID. When the user pastes a redirect
+ * URL into the card, resolveOAuthManualInput() feeds it to the waiting
+ * onManualCodeInput callback so the SDK can exchange it for credentials.
+ */
+const pendingOAuthInputs = new Map<string, { resolve: (url: string) => void; reject: (err: Error) => void }>();
+
+function resolveOAuthManualInput(providerId: string, redirectUrl: string): boolean {
+  const pending = pendingOAuthInputs.get(providerId);
+  if (!pending) return false;
+  pendingOAuthInputs.delete(providerId);
+  pending.resolve(redirectUrl);
+  return true;
+}
+
 async function startOAuthBackground(
   authStorage: AuthStorageLike,
   providerId: string,
@@ -375,11 +390,27 @@ async function startOAuthBackground(
   let authReceived: (() => void) | null = null;
   const authReady = new Promise<void>((resolve) => { authReceived = resolve; });
 
+  // Clean up any stale pending input for this provider.
+  const stalePending = pendingOAuthInputs.get(providerId);
+  if (stalePending) {
+    stalePending.reject(new Error("Superseded by new OAuth flow"));
+    pendingOAuthInputs.delete(providerId);
+  }
+
   const loginPromise = authStorage.login(providerId, {
     onAuth: (info) => { authUrl = info.url; instructions = info.instructions || ""; authReceived?.(); },
     onProgress: () => {},
     onPrompt: async () => "",
-    onManualCodeInput: () => new Promise<string>((_, reject) => { setTimeout(() => reject(new Error("Timed out")), 180_000); }),
+    onManualCodeInput: () => new Promise<string>((resolve, reject) => {
+      pendingOAuthInputs.set(providerId, { resolve, reject });
+      // Safety timeout — if no card submission arrives within 5 minutes, reject.
+      setTimeout(() => {
+        if (pendingOAuthInputs.get(providerId)?.resolve === resolve) {
+          pendingOAuthInputs.delete(providerId);
+          reject(new Error("Timed out waiting for redirect URL"));
+        }
+      }, 300_000);
+    }),
   });
 
   loginPromise
@@ -456,11 +487,11 @@ async function handleStep1Method(
 }
 
 /** Card 2 auth form submitted → execute auth, show Card 3 or completion. */
-function handleStep2(
+async function handleStep2(
   authStorage: AuthStorageLike,
   registry: ModelRegistryLike,
   data: Record<string, unknown>,
-): AgentControlResult {
+): Promise<AgentControlResult> {
   const providerId = String(data.provider || "").trim();
   const method = String(data.method || "").trim();
   const def = PROVIDER_DEFS.find((p) => p.id === providerId);
@@ -477,6 +508,17 @@ function handleStep2(
   }
 
   if (method === "oauth_check") {
+    const redirectUrl = String(data.redirect_url || "").trim();
+
+    // If the user pasted a redirect URL, feed it to the pending OAuth flow.
+    if (redirectUrl) {
+      const fed = resolveOAuthManualInput(providerId, redirectUrl);
+      if (fed) {
+        // Give the SDK a moment to exchange the code for credentials.
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
+
     authStorage.reload();
     const cred = authStorage.get(providerId);
     if (cred?.type === "oauth") {
@@ -601,7 +643,7 @@ export async function handleLogin(
   }
   if (command.provider?.startsWith("__step2 ")) {
     const json = command.provider.slice(8);
-    try { return handleStep2(authStorage, registry, JSON.parse(json)); } catch { return { status: "error", message: "Invalid data." }; }
+    try { return await handleStep2(authStorage, registry, JSON.parse(json)); } catch { return { status: "error", message: "Invalid data." }; }
   }
   if (command.provider?.startsWith("__step3 ")) {
     const json = command.provider.slice(8);
