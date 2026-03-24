@@ -16,7 +16,7 @@ import { join, resolve, dirname } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { WORKSPACE_DIR } from "../core/config.js";
 import { postMessagesToolMessage } from "./messages-crud.js";
-import { deleteMessageByRowId } from "../db.js";
+import { deleteMessageByRowId, getDb } from "../db.js";
 // ── Paths ───────────────────────────────────────────────────────
 const VENDOR_DIR = resolve(dirname(import.meta.dir), "..", "vendor", "autoresearch");
 const SESSIONS_DIR = join(WORKSPACE_DIR, ".piclaw", "autoresearch-sessions");
@@ -191,34 +191,41 @@ function buildStatusCardBlock(experimentId, summary, status, tmuxSession) {
         },
     };
 }
-/** Row ID of the last posted status card — used to delete it before posting a new one. */
-let lastStatusCardRowId = null;
+/** Find the row ID of the most recent autoresearch status card for an experiment. */
+function findPreviousStatusCardRowId(chatJid, experimentId) {
+    try {
+        const db = getDb();
+        const cardId = `autoresearch-status-${experimentId}`;
+        const row = db
+            .prepare("SELECT rowid FROM messages WHERE chat_jid = ? AND content_blocks LIKE ? ORDER BY rowid DESC LIMIT 1")
+            .get(chatJid, `%${cardId}%`);
+        return row?.rowid ?? null;
+    }
+    catch {
+        return null;
+    }
+}
 let statusCardBroadcast = null;
 function postStatusCard(experimentId, summary, status, chatJid = "web:default", tmuxSession) {
     try {
         // Delete previous card so only the latest one exists on the timeline
-        if (lastStatusCardRowId !== null) {
+        const prevRowId = findPreviousStatusCardRowId(chatJid, experimentId);
+        if (prevRowId !== null) {
             try {
-                deleteMessageByRowId(chatJid, lastStatusCardRowId);
-                statusCardBroadcast?.("interaction_deleted", { chat_jid: chatJid, ids: [lastStatusCardRowId] });
+                deleteMessageByRowId(chatJid, prevRowId);
+                statusCardBroadcast?.("interaction_deleted", { chat_jid: chatJid, ids: [prevRowId] });
             }
             catch { /* ok — may already be gone */ }
-            lastStatusCardRowId = null;
         }
         const card = buildStatusCardBlock(experimentId, summary, status, tmuxSession);
         const fallback = `Autoresearch ${summary.name}: ${summary.totalRuns} runs, best ${summary.metricName}: ${summary.bestMetric !== null ? `${summary.bestMetric}${summary.metricUnit}` : "—"}`;
-        const result = postMessagesToolMessage({
+        postMessagesToolMessage({
             action: "post",
             type: "agent",
             chat_jid: chatJid,
             content: fallback,
             content_blocks: [card],
         }, chatJid);
-        // Track the row ID for next deletion
-        const rowId = result.details?.row_id;
-        if (typeof rowId === "number" && rowId > 0) {
-            lastStatusCardRowId = rowId;
-        }
     }
     catch (err) {
         console.warn("[autoresearch] Failed to post status card:", err);

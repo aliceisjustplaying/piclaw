@@ -18,7 +18,7 @@ import { Type } from "@sinclair/typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import { WORKSPACE_DIR } from "../core/config.js";
 import { postMessagesToolMessage } from "./messages-crud.js";
-import { deleteMessageByRowId } from "../db.js";
+import { deleteMessageByRowId, getDb } from "../db.js";
 
 // ── Paths ───────────────────────────────────────────────────────
 
@@ -238,8 +238,20 @@ function buildStatusCardBlock(
   };
 }
 
-/** Row ID of the last posted status card — used to delete it before posting a new one. */
-let lastStatusCardRowId: number | null = null;
+/** Find the row ID of the most recent autoresearch status card for an experiment. */
+function findPreviousStatusCardRowId(chatJid: string, experimentId: string): number | null {
+  try {
+    const db = getDb();
+    const cardId = `autoresearch-status-${experimentId}`;
+    const row = db
+      .prepare("SELECT rowid FROM messages WHERE chat_jid = ? AND content_blocks LIKE ? ORDER BY rowid DESC LIMIT 1")
+      .get(chatJid, `%${cardId}%`) as { rowid: number } | undefined;
+    return row?.rowid ?? null;
+  } catch {
+    return null;
+  }
+}
+
 let statusCardBroadcast: ((type: string, data: unknown) => void) | null = null;
 
 function postStatusCard(
@@ -251,29 +263,23 @@ function postStatusCard(
 ): void {
   try {
     // Delete previous card so only the latest one exists on the timeline
-    if (lastStatusCardRowId !== null) {
+    const prevRowId = findPreviousStatusCardRowId(chatJid, experimentId);
+    if (prevRowId !== null) {
       try {
-        deleteMessageByRowId(chatJid, lastStatusCardRowId);
-        statusCardBroadcast?.("interaction_deleted", { chat_jid: chatJid, ids: [lastStatusCardRowId] });
+        deleteMessageByRowId(chatJid, prevRowId);
+        statusCardBroadcast?.("interaction_deleted", { chat_jid: chatJid, ids: [prevRowId] });
       } catch { /* ok — may already be gone */ }
-      lastStatusCardRowId = null;
     }
 
     const card = buildStatusCardBlock(experimentId, summary, status, tmuxSession);
     const fallback = `Autoresearch ${summary.name}: ${summary.totalRuns} runs, best ${summary.metricName}: ${summary.bestMetric !== null ? `${summary.bestMetric}${summary.metricUnit}` : "—"}`;
-    const result = postMessagesToolMessage({
+    postMessagesToolMessage({
       action: "post",
       type: "agent",
       chat_jid: chatJid,
       content: fallback,
       content_blocks: [card],
     }, chatJid);
-
-    // Track the row ID for next deletion
-    const rowId = (result.details as Record<string, unknown>)?.row_id;
-    if (typeof rowId === "number" && rowId > 0) {
-      lastStatusCardRowId = rowId;
-    }
   } catch (err) {
     console.warn("[autoresearch] Failed to post status card:", err);
   }
