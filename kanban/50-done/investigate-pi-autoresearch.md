@@ -186,7 +186,7 @@ Instead, it should consider a **piclaw-native autoresearch-lite flow** that:
   - optional correctness gate via `autoresearch.checks.sh`
 - Decided a follow-up is warranted, but as a **Piclaw-native resumable experiment runner**, not an adoption ticket.
 - Wrote design note: `docs/autoresearch-lite-design.md`.
-- Created follow-up ticket: `kanban/10-next/piclaw-native-autoresearch-lite-experiment-runner.md`.
+- Created follow-up ticket: `kanban/00-inbox/piclaw-native-autoresearch-lite-experiment-runner.md`.
 - User direction for the richer dashboard surface: use the **generative UI pane**.
 - Lane change: `10-next` → `50-done`.
 - Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
@@ -205,5 +205,5 @@ Instead, it should consider a **piclaw-native autoresearch-lite flow** that:
 - `/workspace/tmp/pi-autoresearch/extensions/pi-autoresearch/index.ts`
 - `/workspace/tmp/pi-autoresearch/skills/autoresearch-create/SKILL.md`
 - `docs/autoresearch-lite-design.md`
-- `kanban/10-next/piclaw-native-autoresearch-lite-experiment-runner.md`
+- `kanban/00-inbox/piclaw-native-autoresearch-lite-experiment-runner.md`
 - `kanban/10-next/timeline-launched-floating-generative-widget-pane.md`
