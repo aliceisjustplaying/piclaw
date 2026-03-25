@@ -2,19 +2,60 @@
 /**
  * kanban-pane.ts — WebPaneExtension for .kanban.md files.
  *
- * Adapts the kanban board editor from the VS Code extension to piclaw's pane system.
- * Renders markdown-backed kanban boards with drag-and-drop card movement.
+ * Mounts the kanban board editor (vendored Preact IIFE) into a pane tab.
+ * Communication uses the __kanbanEditor mount/update/destroy API — no VS Code shims.
  */
 
 import type { PaneCapability, PaneContext, PaneInstance, WebPaneExtension } from './pane-types.js';
+import {
+    h, render, Component, createContext,
+    useState, useEffect, useCallback, useRef, useMemo,
+    useReducer, useContext, useLayoutEffect, useImperativeHandle,
+    useErrorBoundary, useDebugValue,
+    html,
+} from '../vendor/preact-htm.js';
 
 const KANBAN_EXTENSION = /\.kanban\.md$/i;
 
+/** Cache-bust token for vendor scripts — evaluated at bundle build time. */
+const VENDOR_CACHE_BUST = String(Date.now());
+
+function isDarkThemeActive(): boolean {
+    const mode = document.documentElement?.dataset?.theme;
+    if (mode === 'dark') return true;
+    if (mode === 'light') return false;
+    try {
+        return !!window.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
+    } catch {
+        return false;
+    }
+}
+
+/** Bridge preact ES-module exports → window globals for the IIFE vendor script. */
+function ensurePreactGlobals(): void {
+    const w = window as any;
+    if (w.preact) return;
+    w.preact = { h, render, Component, createContext };
+    w.preactHooks = {
+        useState, useEffect, useCallback, useRef, useMemo,
+        useReducer, useContext, useLayoutEffect, useImperativeHandle,
+        useErrorBoundary, useDebugValue,
+    };
+    w.htm = { bind: () => html };
+}
+
 function ensureScript(src: string): Promise<void> {
-    if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+    const baseSrc = src.split('?')[0];
+    // If a new-style tag (our cache-busted version) exists, it's already loaded
+    const existing = document.querySelector(`script[data-src="${baseSrc}"]`);
+    if (existing) return Promise.resolve();
+    // Remove any stale pre-deploy tag (no data-src) so we force a fresh load
+    const stale = document.querySelector(`script[src="${baseSrc}"]`);
+    if (stale) stale.remove();
     return new Promise((resolve, reject) => {
         const el = document.createElement('script');
         el.src = src;
+        el.dataset.src = baseSrc;
         el.onload = () => resolve();
         el.onerror = () => reject(new Error(`Failed to load ${src}`));
         document.head.appendChild(el);
@@ -57,12 +98,8 @@ class KanbanPreviewCard implements PaneInstance {
             </div>
         `;
         container.appendChild(wrapper);
-
         wrapper.querySelector('#kb-open-tab')?.addEventListener('click', () => {
-            container.dispatchEvent(new CustomEvent('kanban:open-tab', {
-                bubbles: true,
-                detail: { path: filePath },
-            }));
+            container.dispatchEvent(new CustomEvent('kanban:open-tab', { bubbles: true, detail: { path: filePath } }));
         });
     }
 
@@ -82,14 +119,32 @@ class KanbanEditorInstance implements PaneInstance {
     private dirtyCallback: ((dirty: boolean) => void) | null = null;
     private disposed = false;
     private boardEl: HTMLElement | null = null;
+    private pendingContent: string | null = null;
+    private readonly themeListener = () => {
+        (window as any).__kanbanEditor?.setTheme?.(isDarkThemeActive());
+    };
 
     constructor(container: HTMLElement, context: PaneContext) {
         this.container = container;
         this.filePath = context.path || '';
-        this.init(context.content || '');
+        this.init(context.content);
     }
 
-    private async init(initialContent: string) {
+    private async resolveInitialContent(content?: string): Promise<string> {
+        if (content !== undefined) return content;
+        if (!this.filePath) return '';
+        try {
+            const res = await fetch(`/workspace/file?path=${encodeURIComponent(this.filePath)}&max=1000000&mode=edit`);
+            const data = await res.json();
+            return data?.text || '';
+        } catch {
+            return '';
+        }
+    }
+
+    private async init(initialContentMaybe?: string) {
+        const initialContent = await this.resolveInitialContent(initialContentMaybe);
+        if (this.disposed) return;
         ensureStylesheet('/static/css/kanban.css');
 
         this.boardEl = document.createElement('div');
@@ -97,42 +152,30 @@ class KanbanEditorInstance implements PaneInstance {
         this.boardEl.style.cssText = 'width:100%;height:100%;overflow:auto;position:relative;';
         this.container.appendChild(this.boardEl);
 
-        const isDark = document.body.classList.contains('dark') ||
-            getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim().startsWith('#1');
-        if (!isDark) {
-            this.boardEl.classList.add('light');
-        }
-
-        const self = this;
-        const fakeVscode = {
-            postMessage(msg: any) {
-                switch (msg.type) {
-                    case 'edit':
-                        self.dirty = true;
-                        self.dirtyCallback?.(true);
-                        self.saveToWorkspace(msg.content);
-                        break;
-                    case 'ready':
-                        window.dispatchEvent(new MessageEvent('message', {
-                            data: { type: 'update', content: initialContent }
-                        }));
-                        window.dispatchEvent(new MessageEvent('message', {
-                            data: { type: 'setTheme', theme: isDark ? 'dark' : 'light' }
-                        }));
-                        break;
-                    case 'synced':
-                        break;
-                }
-            },
-            getState() { return null; },
-            setState() {},
-        };
-
-        (window as any).__kanbanVscodeShim = fakeVscode;
-        (window as any).acquireVsCodeApi = () => (window as any).__kanbanVscodeShim;
+        const isDark = isDarkThemeActive();
 
         try {
-            await ensureScript('/static/js/vendor/kanban-editor.js');
+            ensurePreactGlobals();
+            await ensureScript('/static/js/vendor/kanban-editor.js?v=' + VENDOR_CACHE_BUST);
+            if (this.disposed) return;
+
+            const api = (window as any).__kanbanEditor;
+            if (!api) throw new Error('__kanbanEditor not found');
+
+            api.mount(this.boardEl, {
+                content: initialContent,
+                isDark,
+                onEdit: (md: string) => {
+                    this.dirty = true;
+                    this.dirtyCallback?.(true);
+                    this.saveToWorkspace(md);
+                },
+            });
+            if (this.pendingContent !== null) {
+                api.update(this.pendingContent);
+                this.pendingContent = null;
+            }
+            window.addEventListener('piclaw-theme-change', this.themeListener as EventListener);
         } catch (err) {
             console.error('[kanban] Failed to load kanban renderer:', err);
             if (this.boardEl) {
@@ -142,12 +185,14 @@ class KanbanEditorInstance implements PaneInstance {
     }
 
     private async saveToWorkspace(mdContent: string) {
+        if (!this.filePath) return;
         try {
-            await fetch(`/workspace/file?path=${encodeURIComponent(this.filePath)}`, {
+            const res = await fetch('/workspace/file', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'text/markdown' },
-                body: mdContent,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: this.filePath, content: mdContent }),
             });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             this.dirty = false;
             this.dirtyCallback?.(false);
         } catch (err) {
@@ -159,9 +204,9 @@ class KanbanEditorInstance implements PaneInstance {
     isDirty(): boolean { return this.dirty; }
 
     setContent(content: string, _mtime: string): void {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: { type: 'update', content }
-        }));
+        const api = (window as any).__kanbanEditor;
+        if (api?.update) api.update(content);
+        else this.pendingContent = content;
         this.dirty = false;
         this.dirtyCallback?.(false);
     }
@@ -176,8 +221,9 @@ class KanbanEditorInstance implements PaneInstance {
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
-        delete (window as any).__kanbanVscodeShim;
-        delete (window as any).acquireVsCodeApi;
+        window.removeEventListener('piclaw-theme-change', this.themeListener as EventListener);
+        (window as any).__kanbanEditor?.destroy();
+        this.pendingContent = null;
         this.container.innerHTML = '';
     }
 }
@@ -198,9 +244,7 @@ export const kanbanPaneExtension: WebPaneExtension = {
     },
 
     mount(container: HTMLElement, context: PaneContext): PaneInstance {
-        if (context?.mode === 'view') {
-            return new KanbanPreviewCard(container, context);
-        }
+        if (context?.mode === 'view') return new KanbanPreviewCard(container, context);
         return new KanbanEditorInstance(container, context);
     },
 };

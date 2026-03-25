@@ -1,17 +1,14 @@
 /**
- * Mindmap Editor - Webview Script
- * Handles rendering, keyboard navigation, and interactions
+ * Mindmap Editor
+ *
+ * D3-based mindmap renderer with keyboard navigation, drag-and-drop,
+ * and cross-reference links.  Exposes a mount/update/destroy API on
+ * window.__mindmapEditor for the pane host to drive.
  */
 
 // Declare globals provided by vendored scripts
 declare const d3: any;
 declare const jsyaml: any;
-declare const marked: any;
-declare function acquireVsCodeApi(): {
-  postMessage(message: any): void;
-  getState(): any;
-  setState(state: any): void;
-};
 
 interface MindmapNode {
   id: string;
@@ -20,14 +17,10 @@ interface MindmapNode {
   position?: { x: number; y: number };
   image?: string;
   collapsed?: boolean;
-  side?: 'left' | 'right'; // For bidirectional horizontal tree
+  side?: 'left' | 'right';
 }
 
-interface MindmapLink {
-  from: string;
-  to: string;
-  label?: string;
-}
+interface MindmapLink { from: string; to: string; label?: string; }
 
 interface MindmapDocument {
   version: number;
@@ -41,18 +34,22 @@ interface D3Node extends d3.HierarchyPointNode<MindmapNode> {
   _targetY?: number;
 }
 
-// D3 event types (simplified for our use)
-interface D3DragEvent {
-  x: number;
-  y: number;
-  sourceEvent: MouseEvent & { target: Element };
+interface D3DragEvent { x: number; y: number; sourceEvent: MouseEvent & { target: Element }; }
+
+interface MindmapMountOpts {
+  content: string;
+  isDark: boolean;
+  onEdit: (yamlContent: string) => void;
+  resolveImagePath: (relativePath: string) => string;
 }
 
-// VS Code API
-const vscode = acquireVsCodeApi();
+// ── Module state ────────────────────────────────────────────────
 
-// Document folder URI for resolving images
-declare const documentFolderUri: string;
+let _onEdit: ((yaml: string) => void) | null = null;
+let _resolveImage: ((path: string) => string) | null = null;
+
+// AbortController for all global event listeners — aborted on destroy
+let _abort: AbortController | null = null;
 
 // State
 let mindmapData: MindmapDocument | null = null;
@@ -148,6 +145,10 @@ function clearDimensionsCache() {
  */
 function init() {
   svg = d3.select('#mindmap-svg');
+  if (svg.empty()) {
+    console.warn('[mindmap] #mindmap-svg not found, cannot initialize.');
+    return;
+  }
 
   // Set up zoom behavior
   zoom = d3.zoom()
@@ -192,23 +193,22 @@ function init() {
   setupLinkCreation();
   setupContextMenu();
 
-  // Configure marked for inline markdown
-  if (typeof marked !== 'undefined' && marked.setOptions) {
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
+  // Configure marked for inline markdown (if available)
+  if (typeof (globalThis as any).marked !== 'undefined' && (globalThis as any).marked.setOptions) {
+    (globalThis as any).marked.setOptions({ breaks: true, gfm: true });
   }
-
-  // Signal ready
-  vscode.postMessage({ type: 'ready' });
 }
 
 /**
  * Set up keyboard event handlers
  */
 function setupKeyboardHandlers() {
+  const signal = _abort?.signal;
   document.addEventListener('keydown', (e: KeyboardEvent) => {
+    // Only handle keys when the mindmap container (or its children) is focused
+    const container = document.getElementById('mindmap-container');
+    if (!container?.contains(e.target as Node)) return;
+
     // Ignore if editing text
     if (editingNodeId && e.target instanceof HTMLElement && e.target.isContentEditable) {
       if (e.key === 'Escape') {
@@ -320,7 +320,7 @@ function setupKeyboardHandlers() {
         // Don't start editing on direct typing - require double-click or F2
         break;
     }
-  });
+  }, { signal });
 }
 
 /**
@@ -396,7 +396,7 @@ function setupContextMenu() {
     if (!contextMenu.contains(event.target as Node)) {
       hideContextMenu();
     }
-  });
+  }, { signal: _abort?.signal });
 
   // Handle context menu actions
   contextMenu.addEventListener('click', (event: MouseEvent) => {
@@ -415,9 +415,6 @@ function setupContextMenu() {
         break;
       case 'paste':
         pasteNode();
-        break;
-      case 'insert-image':
-        requestInsertImage();
         break;
       case 'add-child':
         createChildNode();
@@ -548,14 +545,6 @@ function findNode(node: MindmapNode, id: string): MindmapNode | null {
 }
 
 /**
- * Request image insertion from VS Code
- */
-function requestInsertImage() {
-  if (!selectedNodeId) return;
-  vscode.postMessage({ type: 'requestImage', nodeId: selectedNodeId });
-}
-
-/**
  * Set up Ctrl+drag for link creation
  */
 function setupLinkCreation() {
@@ -613,7 +602,7 @@ function setupLinkCreation() {
     if (e.key === 'Escape' && isCreatingLink) {
       cancelLinkCreation();
     }
-  });
+  }, { signal: _abort?.signal });
 
   svg.on('contextmenu.linkCreate', () => {
     if (isCreatingLink) {
@@ -660,6 +649,29 @@ function createLink(fromId: string, toId: string, label?: string) {
   saveAndRender();
 }
 
+function normalizeNodeTree(node: any, isRoot = false): MindmapNode {
+  const normalized: any = (node && typeof node === 'object') ? node : {};
+  normalized.id = isRoot ? 'root' : (typeof normalized.id === 'string' && normalized.id.trim()
+    ? normalized.id
+    : `node-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
+  normalized.text = typeof normalized.text === 'string'
+    ? normalized.text
+    : (normalized.text == null ? (isRoot ? 'Root' : 'New Node') : String(normalized.text));
+
+  if (!Array.isArray(normalized.children)) normalized.children = [];
+  normalized.children = normalized.children.map((child: any) => normalizeNodeTree(child, false));
+
+  if (isRoot) {
+    normalized.children.forEach((child: any, i: number) => {
+      if (child.side !== 'left' && child.side !== 'right') {
+        child.side = i % 2 === 0 ? 'right' : 'left';
+      }
+    });
+  }
+
+  return normalized as MindmapNode;
+}
+
 /**
  * Parse YAML content and render the mindmap
  */
@@ -689,6 +701,12 @@ function loadContent(content: string) {
       if (!mindmapData.links) mindmapData.links = [];
     }
 
+    // Normalize node/link structure so controls always have stable ids
+    mindmapData.root = normalizeNodeTree(mindmapData.root, true);
+    mindmapData.links = (mindmapData.links || []).filter((l: any) =>
+      l && typeof l.from === 'string' && typeof l.to === 'string',
+    );
+
     // Update layout selector
     const layoutSelect = document.getElementById('layout-select') as HTMLSelectElement;
     if (layoutSelect) {
@@ -700,7 +718,14 @@ function loadContent(content: string) {
     // Fit to view on first load
     setTimeout(fitToView, 100);
   } catch (error) {
-    vscode.postMessage({ type: 'error', text: `Failed to parse YAML: ${error}` });
+    console.error('[mindmap] Failed to parse YAML:', error);
+    mindmapData = {
+      version: 1,
+      layout: 'horizontal-tree',
+      root: { id: 'root', text: 'Root', children: [] },
+      links: [],
+    };
+    render();
   }
 }
 
@@ -753,74 +778,18 @@ function render() {
 }
 
 /**
- * Apply horizontal tree layout with dynamic node sizing
- * Supports bidirectional growth (nodes can be on left or right side)
+ * Apply horizontal tree layout with dynamic node sizing.
+ *
+ * NOTE: This must operate on real d3 hierarchy nodes. Creating plain objects
+ * via `{ ...root }` strips hierarchy prototype methods (`eachBefore`, etc.)
+ * and crashes d3 tree layout.
  */
 function applyHorizontalTreeLayout(root: any) {
   // Pre-calculate all node dimensions
   root.each((node: D3Node) => {
     calculateNodeDimensions(node.data);
   });
-  
-  // Separate root's children into left and right sides
-  const rootChildren = root.children || [];
-  const leftChildren: any[] = [];
-  const rightChildren: any[] = [];
-  
-  rootChildren.forEach((child: any) => {
-    // Default to right side if not specified, or alternate for initial distribution
-    if (child.data.side === 'left') {
-      leftChildren.push(child);
-    } else {
-      rightChildren.push(child);
-    }
-  });
-  
-  // Layout right side (normal direction)
-  if (rightChildren.length > 0) {
-    const rightRoot = { ...root, children: rightChildren };
-    layoutTreeSide(rightRoot, 1); // 1 = right side (positive X)
-    
-    // Copy positions back
-    rightChildren.forEach((child: any) => {
-      const original = rootChildren.find((c: any) => c.data.id === child.data.id);
-      if (original) {
-        copyTreePositions(child, original);
-      }
-    });
-  }
-  
-  // Layout left side (mirrored direction)
-  if (leftChildren.length > 0) {
-    const leftRoot = { ...root, children: leftChildren };
-    layoutTreeSide(leftRoot, -1); // -1 = left side (negative X)
-    
-    // Copy positions back
-    leftChildren.forEach((child: any) => {
-      const original = rootChildren.find((c: any) => c.data.id === child.data.id);
-      if (original) {
-        copyTreePositions(child, original);
-      }
-    });
-  }
-  
-  // Position root at origin
-  root.x = 0;
-  root.y = 0;
-  
-  // Apply manual position overrides
-  root.each((node: D3Node) => {
-    if (node.data.position) {
-      node.x = node.data.position.x;
-      node.y = node.data.position.y;
-    }
-  });
-}
 
-/**
- * Layout a tree side (left or right)
- */
-function layoutTreeSide(sideRoot: any, direction: number) {
   const treeLayout = d3.tree()
     .nodeSize([NODE_HEIGHT, LEVEL_SPACING])
     .separation((a: any, b: any) => {
@@ -831,31 +800,36 @@ function layoutTreeSide(sideRoot: any, direction: number) {
       return a.parent === b.parent ? baseSeparation : baseSeparation * 1.2;
     });
 
-  treeLayout(sideRoot);
+  // Run layout on the original hierarchy node
+  treeLayout(root);
 
-  // Swap x/y for horizontal orientation and apply direction
-  sideRoot.each((node: any) => {
+  // Convert from vertical tree axes to horizontal axes and mirror left branches
+  root.each((node: any) => {
     const temp = node.x;
-    node.x = node.y * direction; // Apply direction for left/right
+    const depthAxis = node.y;
+
+    // Determine side by the top-level branch under root
+    let branch: any = node;
+    while (branch.parent && branch.parent.parent) {
+      branch = branch.parent;
+    }
+    const isLeft = branch.parent ? branch.data.side === 'left' : false;
+
+    node.x = (isLeft ? -1 : 1) * depthAxis;
     node.y = temp;
   });
-}
 
-/**
- * Copy positions from source tree to target tree recursively
- */
-function copyTreePositions(source: any, target: any) {
-  target.x = source.x;
-  target.y = source.y;
-  
-  if (source.children && target.children) {
-    source.children.forEach((sourceChild: any, i: number) => {
-      const targetChild = target.children.find((c: any) => c.data.id === sourceChild.data.id);
-      if (targetChild) {
-        copyTreePositions(sourceChild, targetChild);
-      }
-    });
-  }
+  // Keep root centered
+  root.x = 0;
+  root.y = 0;
+
+  // Apply manual position overrides
+  root.each((node: D3Node) => {
+    if (node.data.position) {
+      node.x = node.data.position.x;
+      node.y = node.data.position.y;
+    }
+  });
 }
 
 /**
@@ -1305,8 +1279,9 @@ function renderMarkdown(text: string): string {
  * Request image path resolution from extension
  */
 function requestImageResolution(imagePath: string) {
-  if (!imageCache.has(imagePath) && !imagePath.startsWith('data:') && !imagePath.startsWith('http')) {
-    vscode.postMessage({ type: 'resolveImagePath', path: imagePath });
+  if (!imageCache.has(imagePath) && !imagePath.startsWith('data:') && !imagePath.startsWith('http') && _resolveImage) {
+    const resolved = _resolveImage(imagePath);
+    if (resolved) { imageCache.set(imagePath, resolved); }
   }
 }
 
@@ -1335,15 +1310,15 @@ function resolveImagePath(imagePath: string): string | null {
     return imageCache.get(imagePath)!;
   }
 
-  // For relative paths, construct URI using document folder
-  if (typeof documentFolderUri !== 'undefined' && documentFolderUri) {
-    const resolvedUri = `${documentFolderUri}/${imagePath}`;
-    imageCache.set(imagePath, resolvedUri);
-    return resolvedUri;
+  // Use the pane-provided resolver
+  if (_resolveImage) {
+    const resolved = _resolveImage(imagePath);
+    if (resolved) {
+      imageCache.set(imagePath, resolved);
+      return resolved;
+    }
   }
 
-  // Request resolution from extension (async, will update on next render)
-  vscode.postMessage({ type: 'resolveImagePath', path: imagePath });
   return null;
 }
 
@@ -1829,7 +1804,10 @@ function fitToView() {
     maxY = Math.max(maxY, node.y + NODE_HEIGHT);
   }
 
-  const svgRect = svg.node().getBoundingClientRect();
+  const svgNode = svg.node();
+  if (!svgNode) return;
+  const svgRect = svgNode.getBoundingClientRect();
+  if (!svgRect.width || !svgRect.height) return; // not visible yet
   const width = maxX - minX;
   const height = maxY - minY;
   const scale = Math.min(
@@ -1873,85 +1851,112 @@ function saveDocument() {
       lineWidth: -1,
       noRefs: true,
     });
-    vscode.postMessage({ type: 'edit', content: yaml });
+    _onEdit?.(yaml);
   } catch (error) {
-    vscode.postMessage({ type: 'error', text: `Failed to save: ${error}` });
+    console.error('[mindmap] Failed to save:', error);
   }
 }
 
-/**
- * Handle messages from extension
- */
-window.addEventListener('message', (event) => {
-  const message = event.data;
+// ── Event listeners registered with AbortController ─────────────
+// (called from init(), cleaned up via _abort.abort() in destroy)
 
-  switch (message.type) {
-    case 'update':
-      loadContent(message.content);
-      break;
+function setupGlobalListeners() {
+  const signal = _abort?.signal;
 
-    case 'setTheme':
-      document.body.classList.toggle('light', message.theme === 'light');
-      break;
-
-    case 'imageResolved':
-      // Cache resolved image URI and re-render
-      imageCache.set(message.originalPath, message.resolvedUri);
+  // Click on background to deselect and focus container for keyboard input
+  document.addEventListener('click', (e) => {
+    const container = document.getElementById('mindmap-container');
+    if (container?.contains(e.target as Node)) {
+      container.focus();
+    }
+    if (e.target === svg?.node() || (e.target as Element)?.id === 'mindmap-container') {
+      finishEditing();
+      selectedNodeId = null;
       render();
-      break;
+    }
+  }, { signal });
 
-    case 'insertImage':
-      // Insert image into the specified node
-      if (message.nodeId && message.imagePath && mindmapData) {
-        const updateImage = (node: MindmapNode): boolean => {
-          if (node.id === message.nodeId) {
-            node.image = message.imagePath;
-            return true;
-          }
-          if (node.children) {
-            for (const child of node.children) {
-              if (updateImage(child)) return true;
-            }
-          }
-          return false;
-        };
-        updateImage(mindmapData.root);
-        saveAndRender();
-      }
-      break;
-  }
-});
+  // Re-render when inline images load to adjust node sizes
+  let imageLoadTimeout: number | null = null;
+  window.addEventListener('imageLoaded', () => {
+    if (imageLoadTimeout) clearTimeout(imageLoadTimeout);
+    imageLoadTimeout = window.setTimeout(() => { render(); imageLoadTimeout = null; }, 100);
+  }, { signal } as any);
 
-// Click on background to deselect
-document.addEventListener('click', (e) => {
-  if (e.target === svg.node() || (e.target as Element).id === 'mindmap-container') {
-    finishEditing();
-    selectedNodeId = null;
-    render();
-  }
-});
-
-// Re-render when inline images load to adjust node sizes
-let imageLoadTimeout: number | null = null;
-window.addEventListener('imageLoaded', () => {
-  // Debounce multiple image loads
-  if (imageLoadTimeout) clearTimeout(imageLoadTimeout);
-  imageLoadTimeout = window.setTimeout(() => {
-    render();
-    imageLoadTimeout = null;
-  }, 100);
-});
-
-// Initialize on load
-// Handle link clicks - open in external browser
-document.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  if (target.tagName === 'A' && target.getAttribute('href')) {
+  // Handle link clicks inside the mindmap only — open in external browser
+  document.addEventListener('click', (e) => {
+    const container = document.getElementById('mindmap-container');
+    const target = e.target as HTMLElement | null;
+    const anchor = target?.closest?.('a') as HTMLAnchorElement | null;
+    if (!container || !anchor || !container.contains(anchor)) return;
+    const href = anchor.getAttribute('href');
+    if (!href) return;
     e.preventDefault();
     e.stopPropagation();
-    const href = target.getAttribute('href')!;
-    vscode.postMessage({ type: 'openLink', url: href });
-  }
-});
+    window.open(href, '_blank', 'noopener,noreferrer');
+  }, { signal });
+}
 
-init();
+// ── Public API ──────────────────────────────────────────────────
+
+(window as any).__mindmapEditor = {
+  /** Mount the mindmap editor. Container must already have an <svg id="mindmap-svg">. */
+  mount(opts: MindmapMountOpts) {
+    _onEdit = opts.onEdit;
+    _resolveImage = opts.resolveImagePath;
+    _abort = new AbortController();
+
+    init();               // sets up D3, toolbar, keyboard, context menu
+    setupGlobalListeners();
+
+    // Load initial content
+    loadContent(opts.content);
+
+    // Apply theme
+    const container = document.getElementById('mindmap-container');
+    container?.classList.toggle('light', !opts.isDark);
+  },
+
+  /** Push new content from the host (external file reload). */
+  update(content: string) {
+    loadContent(content);
+  },
+
+  /** Set light/dark theme. */
+  setTheme(isDark: boolean) {
+    const container = document.getElementById('mindmap-container');
+    container?.classList.toggle('light', !isDark);
+  },
+
+  /** Tear down everything — abort listeners, clear D3 state. */
+  destroy() {
+    _abort?.abort();
+    _abort = null;
+
+    // Remove D3 event handlers
+    svg?.on('.zoom', null);
+    svg?.on('contextmenu', null);
+    svg?.on('mousemove.linkCreate', null);
+    svg?.on('mouseup.linkCreate', null);
+    svg?.on('contextmenu.linkCreate', null);
+
+    // Clear state
+    svg = null as any;
+    zoomContainer = null;
+    linksGroup = null;
+    crosslinksGroup = null;
+    nodesGroup = null;
+    zoom = null;
+    mindmapData = null;
+    selectedNodeId = null;
+    editingNodeId = null;
+    nodeMap.clear();
+    imageCache.clear();
+    isCreatingLink = false;
+    linkSourceNodeId = null;
+    linkPreviewLine = null;
+    clipboardNode = null;
+    _onEdit = null;
+    _resolveImage = null;
+  },
+};
