@@ -43,6 +43,9 @@ import {
 import {
     useRealtimeLifecycleOrchestration,
 } from './ui/app-realtime-lifecycle-orchestration.js';
+import {
+    useAgentStatusLifecycle,
+} from './ui/app-agent-status-lifecycle.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
 import { watchStandaloneWebAppMode } from './ui/app-resume.js';
@@ -64,10 +67,6 @@ import {
     loadStoredBtwSession,
     readAppLocationModes,
 } from './ui/app-shell-state.js';
-import {
-    handleConnectionStatusChangeEvent,
-    handleUiVersionDriftEvent,
-} from './ui/app-connection-lifecycle.js';
 import {
     useBranchPaneLifecycle,
 } from './ui/app-branch-pane-lifecycle-actions.js';
@@ -91,15 +90,7 @@ import {
     renderMainShell,
 } from './ui/app-main-shell-render.js';
 import {
-    refreshAutoresearchStatusForChat,
-    refreshContextUsageForChat,
-    refreshQueueStateForChat,
-} from './ui/app-status-refresh-orchestration.js';
-import {
     finalizeStalledResponse as finalizeStalledResponseState,
-    reconcileSilentTurn as reconcileSilentTurnState,
-    refreshAgentStatusForChat,
-    runSilenceWatchdogTick,
 } from './ui/app-agent-status-orchestration.js';
 import {
     backToTimeline,
@@ -973,100 +964,53 @@ function MainApp({ locationParams, navigate }) {
     }, [currentHashtag, searchQuery, searchOpen]);
 
 
-    const refreshQueueState = useCallback(() => {
-        refreshQueueStateForChat({
-            currentChatJid,
-            queueRefreshGenRef,
-            activeChatJidRef,
-            dismissedQueueRowIdsRef,
-            getAgentQueueState,
-            setFollowupQueueItems,
-            clearQueuedSteerStateIfStale,
-        });
-    }, [clearQueuedSteerStateIfStale, currentChatJid]);
-
-    const refreshContextUsage = useCallback(async () => {
-        await refreshContextUsageForChat({
-            currentChatJid,
-            activeChatJidRef,
-            getAgentContext,
-            setContextUsage,
-        });
-    }, [currentChatJid]);
-
-    const refreshAutoresearchStatus = useCallback(async () => {
-        await refreshAutoresearchStatusForChat({
-            currentChatJid,
-            activeChatJidRef,
-            getAutoresearchStatus,
-            setExtensionStatusPanels,
-            setPendingExtensionPanelActions,
-        });
-    }, [currentChatJid]);
-
-    const refreshAgentStatus = useCallback(async () => {
-        return await refreshAgentStatusForChat({
-            currentChatJid,
-            getAgentStatus,
-            activeChatJidRef,
-            wasAgentActiveRef,
-            viewStateRef,
-            refreshTimeline,
-            clearAgentRunState,
-            agentStatusRef,
-            pendingRequestRef,
-            thoughtBufferRef,
-            draftBufferRef,
-            setAgentStatus,
-            setAgentDraft,
-            setAgentPlan,
-            setAgentThought,
-            setPendingRequest,
-            setActiveTurn,
-            noteAgentActivity,
-            clearLastActivityFlag,
-        });
-    }, [clearAgentRunState, clearLastActivityFlag, currentChatJid, noteAgentActivity, refreshTimeline, setActiveTurn]);
-
-    const reconcileSilentTurn = useCallback(async () => {
-        return await reconcileSilentTurnState({
-            isAgentRunningRef,
-            pendingRequestRef,
-            currentTurnIdRef,
-            silentRecoveryRef,
-            silenceRefreshMs: SILENCE_REFRESH_MS,
-            viewStateRef,
-            refreshTimeline,
-            refreshQueueState,
-            refreshAgentStatus,
-        });
-    }, [refreshAgentStatus, refreshQueueState, refreshTimeline]);
-
-    // Silence watchdog: detect stream quiet periods and trigger server re-sync.
-    useEffect(() => {
-        const intervalMs = Math.min(1000, Math.max(100, Math.floor(SILENCE_WARNING_MS / 2)));
-        const interval = setInterval(() => {
-            runSilenceWatchdogTick({
-                isAgentRunningRef,
-                pendingRequestRef,
-                lastAgentEventRef,
-                lastSilenceNoticeRef,
-                agentStatusRef,
-                silenceWarningMs: SILENCE_WARNING_MS,
-                silenceFinalizeMs: SILENCE_FINALIZE_MS,
-                silenceRefreshMs: SILENCE_REFRESH_MS,
-                isCompactionStatus,
-                setAgentStatus,
-                reconcileSilentTurn,
-            });
-        }, intervalMs);
-
-        return () => clearInterval(interval);
-    }, [reconcileSilentTurn]);
-
-    const handleUiVersionDrift = useCallback((serverVersion) => {
-        return handleUiVersionDriftEvent({
-            serverVersion,
+    const {
+        refreshQueueState,
+        refreshContextUsage,
+        refreshAutoresearchStatus,
+        refreshAgentStatus,
+        handleUiVersionDrift,
+        handleConnectionStatusChange,
+    } = useAgentStatusLifecycle({
+        currentChatJid,
+        activeChatJidRef,
+        queueRefreshGenRef,
+        dismissedQueueRowIdsRef,
+        getAgentQueueState,
+        setFollowupQueueItems,
+        clearQueuedSteerStateIfStale,
+        getAgentContext,
+        setContextUsage,
+        getAutoresearchStatus,
+        setExtensionStatusPanels,
+        setPendingExtensionPanelActions,
+        getAgentStatus,
+        wasAgentActiveRef,
+        viewStateRef,
+        refreshTimeline,
+        clearAgentRunState,
+        agentStatusRef,
+        pendingRequestRef,
+        thoughtBufferRef,
+        draftBufferRef,
+        setAgentStatus,
+        setAgentDraft,
+        setAgentPlan,
+        setAgentThought,
+        setPendingRequest,
+        setActiveTurn,
+        noteAgentActivity,
+        clearLastActivityFlag,
+        isAgentRunningRef,
+        currentTurnIdRef,
+        silentRecoveryRef,
+        silenceRefreshMs: SILENCE_REFRESH_MS,
+        lastAgentEventRef,
+        lastSilenceNoticeRef,
+        silenceWarningMs: SILENCE_WARNING_MS,
+        silenceFinalizeMs: SILENCE_FINALIZE_MS,
+        isCompactionStatus,
+        serverVersionContext: {
             currentAppAssetVersion: CURRENT_APP_ASSET_VERSION,
             staleUiVersionRef,
             staleUiReloadScheduledRef,
@@ -1074,28 +1018,11 @@ function MainApp({ locationParams, navigate }) {
             isAgentRunningRef,
             pendingRequestRef,
             showIntentToast,
-        });
-    }, [isAgentRunningRef, pendingRequestRef, showIntentToast]);
-
-    const handleConnectionStatusChange = useCallback((status) => {
-        handleConnectionStatusChangeEvent({
-            status,
-            setConnectionStatus,
-            setAgentStatus,
-            setAgentDraft,
-            setAgentPlan,
-            setAgentThought,
-            setPendingRequest,
-            pendingRequestRef,
-            clearAgentRunState,
-            hasConnectedOnceRef,
-            viewStateRef,
-            refreshTimeline,
-            refreshAgentStatus,
-            refreshQueueState,
-            refreshContextUsage,
-        });
-    }, [clearAgentRunState, refreshTimeline, refreshAgentStatus, refreshQueueState, refreshContextUsage]);
+        },
+        setConnectionStatus,
+        setPendingRequestForConnection: setPendingRequest,
+        hasConnectedOnceRef,
+    });
 
 
     // Handle hashtag click
