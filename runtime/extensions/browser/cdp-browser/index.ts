@@ -112,6 +112,7 @@ const CDP_PORTS = [9224, 9225, 9226, 9227, 9228];
 // executable that exists on disk.
 
 type BrowserLaunch = { command: string; name: string };
+type MaybeAbortSignal = AbortSignal | null | undefined;
 
 function commandExists(command: string): boolean {
 	try {
@@ -180,10 +181,60 @@ function findBrowser(): BrowserLaunch | null {
 	return null;
 }
 
+function createAbortError(message = "Operation cancelled"): Error {
+	const error = new Error(message);
+	error.name = "AbortError";
+	return error;
+}
+
+function throwIfAborted(signal: MaybeAbortSignal): void {
+	if (signal?.aborted) {
+		throw createAbortError();
+	}
+}
+
+function bindAbortSignal(signal: MaybeAbortSignal, onAbort: () => void): () => void {
+	if (!signal) return () => {};
+	if (signal.aborted) {
+		onAbort();
+		return () => {};
+	}
+	const handler = () => onAbort();
+	signal.addEventListener("abort", handler, { once: true });
+	return () => signal.removeEventListener("abort", handler);
+}
+
+function createTimedAbortSignal(timeout: number, signal?: MaybeAbortSignal): { signal: AbortSignal; cleanup: () => void } {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), timeout);
+	const unbind = bindAbortSignal(signal, () => controller.abort());
+	return {
+		signal: controller.signal,
+		cleanup: () => {
+			clearTimeout(timer);
+			unbind();
+		},
+	};
+}
+
+export async function sleepWithSignal(ms: number, signal?: MaybeAbortSignal): Promise<void> {
+	throwIfAborted(signal);
+	await new Promise<void>((resolve, reject) => {
+		const timer = setTimeout(() => {
+			unbind();
+			resolve();
+		}, ms);
+		const unbind = bindAbortSignal(signal, () => {
+			clearTimeout(timer);
+			reject(createAbortError());
+		});
+	});
+}
+
 /** Launch a browser with CDP enabled if none is running */
-async function ensureBrowser(): Promise<number | null> {
+async function ensureBrowser(signal?: MaybeAbortSignal): Promise<number | null> {
 	// First check if one is already running
-	const existing = await findCdpPort();
+	const existing = await findCdpPort(signal);
 	if (existing) return existing;
 
 	// Launch one
@@ -202,68 +253,83 @@ async function ensureBrowser(): Promise<number | null> {
 	// Wait for CDP to come up
 	const deadline = Date.now() + 10000;
 	while (Date.now() < deadline) {
+		throwIfAborted(signal);
 		try {
-			await httpGet(`http://localhost:${port}/json/version`, 1500);
+			await httpGet(`http://localhost:${port}/json/version`, 1500, signal);
 			return port;
-		} catch {
-			void 0;
+		} catch (error) {
+			if ((error as Error)?.name === "AbortError") throw error;
 		}
-		await new Promise(r => setTimeout(r, 500));
+		await sleepWithSignal(500, signal);
 	}
 	return null;
 }
 
-async function httpGet(url: string, timeout = 3000): Promise<any> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeout);
+async function httpGet(url: string, timeout = 3000, signal?: MaybeAbortSignal): Promise<any> {
+	throwIfAborted(signal);
+	const request = createTimedAbortSignal(timeout, signal);
 	try {
-		const resp = await fetch(url, { signal: controller.signal });
+		const resp = await fetch(url, { signal: request.signal });
 		const text = await resp.text();
 		try { return JSON.parse(text); } catch { return text; }
-	} finally { clearTimeout(timer); }
+	} finally { request.cleanup(); }
 }
 
-async function httpPut(url: string, timeout = 5000): Promise<any> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeout);
+async function httpPut(url: string, timeout = 5000, signal?: MaybeAbortSignal): Promise<any> {
+	throwIfAborted(signal);
+	const request = createTimedAbortSignal(timeout, signal);
 	try {
-		const resp = await fetch(url, { method: "PUT", signal: controller.signal });
+		const resp = await fetch(url, { method: "PUT", signal: request.signal });
 		const text = await resp.text();
 		try { return JSON.parse(text); } catch { return text; }
-	} finally { clearTimeout(timer); }
+	} finally { request.cleanup(); }
 }
 
-async function findCdpPort(): Promise<number | null> {
+async function findCdpPort(signal?: MaybeAbortSignal): Promise<number | null> {
 	for (const p of CDP_PORTS) {
-		try { await httpGet(`http://localhost:${p}/json/version`, 2000); return p; } catch {
+		throwIfAborted(signal);
+		try { await httpGet(`http://localhost:${p}/json/version`, 2000, signal); return p; } catch (error) {
+			if ((error as Error)?.name === "AbortError") throw error;
 			continue;
 		}
 	}
 	return null;
 }
 
-async function getTargets(port: number) {
-	const targets: any[] = await httpGet(`http://localhost:${port}/json`);
+async function getTargets(port: number, signal?: MaybeAbortSignal) {
+	const targets: any[] = await httpGet(`http://localhost:${port}/json`, 3000, signal);
 	return targets.filter(t => t.type === "page");
 }
 
-async function connectToTab(port: number, match?: string): Promise<{ ws: WebSocket; target: any }> {
-	const pages = await getTargets(port);
+async function connectToTab(port: number, match?: string, signal?: MaybeAbortSignal): Promise<{ ws: WebSocket; target: any }> {
+	const pages = await getTargets(port, signal);
+	throwIfAborted(signal);
 	const target = match
 		? pages.find(t => t.url?.includes(match) || t.title?.toLowerCase().includes(match.toLowerCase()))
 		: pages[0];
 	if (!target) throw new Error(`No tab matching "${match}". Available: ${pages.map(t => t.title).join(", ")}`);
 	const ws = await new Promise<WebSocket>((resolve, reject) => {
 		const socket = new WebSocket(target.webSocketDebuggerUrl);
-		const timeout = setTimeout(() => reject(new Error("WS timeout")), 5000);
-		socket.addEventListener("open", () => {
+		let settled = false;
+		const finishReject = (error: Error) => {
+			if (settled) return;
+			settled = true;
 			clearTimeout(timeout);
+			unbind();
+			closeWebSocketQuietly(socket);
+			reject(error);
+		};
+		const finishResolve = () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			unbind();
 			resolve(socket);
-		});
-		socket.addEventListener("error", () => {
-			clearTimeout(timeout);
-			reject(new Error("WS connect error"));
-		});
+		};
+		const timeout = setTimeout(() => finishReject(new Error("WS timeout")), 5000);
+		const unbind = bindAbortSignal(signal, () => finishReject(createAbortError()));
+		socket.addEventListener("open", finishResolve);
+		socket.addEventListener("error", () => finishReject(new Error("WS connect error")));
 	});
 	return { ws, target };
 }
@@ -277,8 +343,8 @@ function closeWebSocketQuietly(ws: WebSocket | null | undefined): void {
 	}
 }
 
-async function withConnectedTab<T>(port: number, match: string | undefined, run: (ws: WebSocket, target: any) => Promise<T>): Promise<T> {
-	const { ws, target } = await connectToTab(port, match);
+async function withConnectedTab<T>(port: number, match: string | undefined, run: (ws: WebSocket, target: any) => Promise<T>, signal?: MaybeAbortSignal): Promise<T> {
+	const { ws, target } = await connectToTab(port, match, signal);
 	try {
 		return await run(ws, target);
 	} finally {
@@ -297,15 +363,31 @@ function buildClickExpression(selector: string): string {
 	})()`;
 }
 
-function cdpSend(ws: WebSocket, method: string, params?: any): Promise<any> {
+function cdpSend(ws: WebSocket, method: string, params?: any, signal?: MaybeAbortSignal): Promise<any> {
+	throwIfAborted(signal);
 	const id = Math.floor(Math.random() * 100000);
 	ws.send(JSON.stringify({ id, method, params }));
-	return new Promise((resolve) => {
-		const timer = setTimeout(() => { ws.removeEventListener("message", handler); resolve(null); }, 15000);
+	return new Promise((resolve, reject) => {
+		const cleanup = () => {
+			clearTimeout(timer);
+			unbind();
+			ws.removeEventListener("message", handler);
+		};
+		const timer = setTimeout(() => {
+			cleanup();
+			resolve(null);
+		}, 15000);
+		const unbind = bindAbortSignal(signal, () => {
+			cleanup();
+			reject(createAbortError());
+		});
 		const handler = (event: any) => {
 			try {
 				const msg = JSON.parse(typeof event.data === "string" ? event.data : event.data.toString());
-				if (msg.id === id) { ws.removeEventListener("message", handler); clearTimeout(timer); resolve(msg.result ?? msg.error ?? null); }
+				if (msg.id === id) {
+					cleanup();
+					resolve(msg.result ?? msg.error ?? null);
+				}
 			} catch {
 				return;
 			}
@@ -338,8 +420,14 @@ export default function (pi: ExtensionAPI) {
 			outPath: Type.Optional(Type.String({ description: "Output file path (for screenshot)" })),
 			ms: Type.Optional(Type.Number({ description: "Milliseconds to sleep (for sleep action, default 3000)" })),
 		}),
-		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const port = await findCdpPort() ?? await ensureBrowser();
+		async execute(_id, params, signal, _onUpdate, ctx) {
+			if (params.action === "sleep") {
+				const ms = params.ms || 3000;
+				await sleepWithSignal(ms, signal);
+				return { content: [{ type: "text", text: `Slept ${ms}ms` }], details: { ms } };
+			}
+
+			const port = await findCdpPort(signal) ?? await ensureBrowser(signal);
 			if (!port) {
 				const browser = findBrowser();
 				return { content: [{ type: "text", text: browser
@@ -350,8 +438,8 @@ export default function (pi: ExtensionAPI) {
 			switch (params.action) {
 
 				case "tabs": {
-					const version = await httpGet(`http://localhost:${port}/json/version`);
-					const pages = await getTargets(port);
+					const version = await httpGet(`http://localhost:${port}/json/version`, 3000, signal);
+					const pages = await getTargets(port, signal);
 					const lines = [`CDP: port ${port} | ${version.Browser}`, `Tabs: ${pages.length}`, ""];
 					pages.forEach((p, i) => {
 						lines.push(`${i + 1}. ${p.title}`);
@@ -363,38 +451,40 @@ export default function (pi: ExtensionAPI) {
 				case "eval": {
 					if (!params.expr) throw new Error("expr is required for eval action");
 					return await withConnectedTab(port, params.match, async (ws) => {
-						const result = await cdpSend(ws, "Runtime.evaluate", { expression: params.expr, returnByValue: true, awaitPromise: true });
+						const result = await cdpSend(ws, "Runtime.evaluate", { expression: params.expr, returnByValue: true, awaitPromise: true }, signal);
 						const val = result?.result?.value;
 						const text = val !== undefined ? (typeof val === "string" ? val : JSON.stringify(val, null, 2)) : JSON.stringify(result, null, 2);
 						return { content: [{ type: "text", text: truncate(text) }], details: {} };
-					});
+					}, signal);
 				}
 
 				case "navigate": {
 					if (!params.url) throw new Error("url is required for navigate action");
 					return await withConnectedTab(port, params.match, async (ws) => {
-						await cdpSend(ws, "Page.enable");
-						await cdpSend(ws, "Page.navigate", { url: params.url });
+						await cdpSend(ws, "Page.enable", undefined, signal);
+						await cdpSend(ws, "Page.navigate", { url: params.url }, signal);
 						return { content: [{ type: "text", text: `Navigated to: ${params.url}` }], details: {} };
-					});
+					}, signal);
 				}
 
 				case "open": {
 					if (!params.url) throw new Error("url is required for open action");
-					await httpPut(`http://localhost:${port}/json/new?${encodeURIComponent(params.url)}`);
+					await httpPut(`http://localhost:${port}/json/new?${encodeURIComponent(params.url)}`, 5000, signal);
 					return { content: [{ type: "text", text: `Opened new tab: ${params.url}` }], details: {} };
 				}
 
 				case "close": {
 					if (!params.match) throw new Error("match is required for close action");
-					const pages = await getTargets(port);
+					const pages = await getTargets(port, signal);
 					const matching = pages.filter(t => t.url?.includes(params.match!) || t.title?.toLowerCase().includes(params.match!.toLowerCase()));
 					const closed: string[] = [];
 					for (const t of matching) {
+						throwIfAborted(signal);
 						try {
-							await httpPut(`http://localhost:${port}/json/close/${t.id}`);
+							await httpPut(`http://localhost:${port}/json/close/${t.id}`, 5000, signal);
 							closed.push(t.title);
-						} catch {
+						} catch (error) {
+							if ((error as Error)?.name === "AbortError") throw error;
 							continue;
 						}
 					}
@@ -407,15 +497,15 @@ export default function (pi: ExtensionAPI) {
 						const result = await cdpSend(ws, "Runtime.evaluate", {
 							expression: buildClickExpression(params.selector),
 							returnByValue: true,
-						});
+						}, signal);
 						return { content: [{ type: "text", text: result?.result?.value ?? "no result" }], details: {} };
-					});
+					}, signal);
 				}
 
 				case "screenshot": {
 					return await withConnectedTab(port, params.match, async (ws) => {
-						await cdpSend(ws, "Page.enable");
-						const result = await cdpSend(ws, "Page.captureScreenshot", { format: "png" });
+						await cdpSend(ws, "Page.enable", undefined, signal);
+						const result = await cdpSend(ws, "Page.captureScreenshot", { format: "png" }, signal);
 						if (result?.data) {
 							const defaultDir = ctx?.cwd ? path.join(ctx.cwd, "tmp") : tmpdir();
 							fs.mkdirSync(defaultDir, { recursive: true });
@@ -424,13 +514,7 @@ export default function (pi: ExtensionAPI) {
 							return { content: [{ type: "text", text: `Screenshot saved: ${file}` }], details: { file } };
 						}
 						return { content: [{ type: "text", text: "Failed to capture screenshot" }], details: {} };
-					});
-				}
-
-				case "sleep": {
-					const ms = params.ms || 3000;
-					await new Promise(resolve => setTimeout(resolve, ms));
-					return { content: [{ type: "text", text: `Slept ${ms}ms` }], details: { ms } };
+					}, signal);
 				}
 
 				default:
