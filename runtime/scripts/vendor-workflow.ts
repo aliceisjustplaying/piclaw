@@ -53,6 +53,16 @@ interface InstalledPackageMetadata {
   repository: string | null;
 }
 
+export function findProjectPackageDir(projectDir: string): string | null {
+  const candidates = [projectDir, resolve(projectDir, "..")];
+  for (const candidate of candidates) {
+    if (existsSync(resolve(candidate, "package.json"))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 interface VendoredOutputMetadata {
   package_path: string | null;
   output_file: string;
@@ -127,20 +137,63 @@ function substituteTokens(command: string[], tokens: Record<string, string>): st
   return command.map((part) => part.replace(/\$([A-Z_]+)/g, (_match, key) => tokens[key] ?? ""));
 }
 
+function installProjectDependencies(projectDir: string, logPrefix: string, env?: Record<string, string | undefined>): boolean {
+  const packageDir = findProjectPackageDir(projectDir);
+  if (!packageDir) {
+    console.error(`${logPrefix} Could not find package.json near ${projectDir}`);
+    return false;
+  }
+
+  const installEnv = { ...env };
+  const cacheDir = installEnv.BUN_INSTALL_CACHE_DIR || "/workspace/.cache/bun";
+  const tempDir = installEnv.TMPDIR || "/workspace/.tmp/bun-install";
+  mkdirSync(cacheDir, { recursive: true });
+  mkdirSync(tempDir, { recursive: true });
+  installEnv.BUN_INSTALL_CACHE_DIR = cacheDir;
+  installEnv.TMPDIR = tempDir;
+  installEnv.TEMP = installEnv.TEMP || tempDir;
+  installEnv.TMP = installEnv.TMP || tempDir;
+
+  const proc = Bun.spawnSync([process.execPath, "install", "--frozen-lockfile"], {
+    cwd: packageDir,
+    stdout: "inherit",
+    stderr: "inherit",
+    env: installEnv,
+  });
+  return proc.exitCode === 0;
+}
+
 function ensureInstalledPackages(
   projectDir: string,
   manifest: VendoredDependencyManifest,
   logPrefix: string,
+  env?: Record<string, string | undefined>,
 ): InstalledPackageMetadata[] | null {
   const packageNames = [manifest.packageName, ...(manifest.additionalPackages || [])];
-  const installedPackages = packageNames
-    .map((packageName) => readInstalledPackageMetadata(projectDir, packageName))
-    .filter((pkg): pkg is InstalledPackageMetadata => Boolean(pkg));
 
+  const readInstalledPackages = () =>
+    packageNames
+      .map((packageName) => readInstalledPackageMetadata(projectDir, packageName))
+      .filter((pkg): pkg is InstalledPackageMetadata => Boolean(pkg));
+
+  let installedPackages = readInstalledPackages();
+  if (installedPackages.length === packageNames.length) {
+    return installedPackages;
+  }
+
+  const missing = packageNames.filter((packageName) => !installedPackages.some((pkg) => pkg.requestedName === packageName));
+  console.error(`${logPrefix} Missing installed packages: ${missing.join(", ")}`);
+  console.error(`${logPrefix} Attempting repo-local bun install --frozen-lockfile for this worktree...`);
+
+  if (!installProjectDependencies(projectDir, logPrefix, env)) {
+    console.error(`${logPrefix} Automatic dependency install failed.`);
+    return null;
+  }
+
+  installedPackages = readInstalledPackages();
   if (installedPackages.length !== packageNames.length) {
-    const missing = packageNames.filter((packageName) => !installedPackages.some((pkg) => pkg.requestedName === packageName));
-    console.error(`${logPrefix} Missing installed packages: ${missing.join(", ")}`);
-    console.error(`${logPrefix} Run bun install or the corresponding update script first.`);
+    const stillMissing = packageNames.filter((packageName) => !installedPackages.some((pkg) => pkg.requestedName === packageName));
+    console.error(`${logPrefix} Packages still missing after bun install: ${stillMissing.join(", ")}`);
     return null;
   }
 
@@ -330,7 +383,7 @@ export function buildVendoredDependency(options: BuildVendoredDependencyOptions)
   const manifest = loadVendoredDependencyManifest(options.projectDir, options.manifestPath);
   const logPrefix = `[vendor:${manifest.id}]`;
   const metadataFile = resolve(options.projectDir, options.metaFileOverride || manifest.metadataFile);
-  const installedPackages = ensureInstalledPackages(options.projectDir, manifest, logPrefix);
+  const installedPackages = ensureInstalledPackages(options.projectDir, manifest, logPrefix, options.env);
   if (!installedPackages) return 1;
 
   if (manifest.buildCommand?.length) {
