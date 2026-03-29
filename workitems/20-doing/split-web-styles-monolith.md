@@ -232,7 +232,16 @@ Approximate ranges are intentional; exact cut points should follow section comme
 - Validation so far:
   - `bun run build:web`
   - `bun run check:stale-dist`
-- Manual/browser smoke verification is still pending before this ticket can move forward.
+- Performed an initial Playwright smoke pass against the live web UI on desktop and mobile widths:
+  - desktop: app shell, container, compose box, timeline, workspace sidebar, and agent status all present
+  - mobile: app shell, container, compose box, timeline, workspace sidebar, and agent status all present
+- Performed a follow-up Playwright interaction pass and confirmed the editor-open state still renders after the split:
+  - clicked `AGENTS.md` from the workspace sidebar
+  - confirmed `.editor-pane-container` and `.tab-strip` appeared
+  - compose box and timeline remained present while the editor pane opened
+  - selected workspace row state remained visible
+- Overlay-specific smoke coverage is still pending for image modal / attachment preview surfaces.
+- Captured smoke artifacts under `generated/css-smoke/` and `generated/css-smoke-deep/` for follow-up review.
 - Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 1, deps: 1, risk: 2)
 
 ### 2026-03-29
