@@ -1,31 +1,25 @@
 // @ts-nocheck
 // Main authenticated web UI entry point.
-import { html, render, useState, useEffect, useCallback, useRef, useMemo } from './vendor/preact-htm.js';
-import * as api from './api.js';
-import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, vncPaneExtension, VNC_TAB_PREFIX, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, videoViewerPaneExtension, drawioPaneExtension, mindmapPaneExtension, kanbanPaneExtension, tabStore } from './panes/index.js';
-import { getLocalStorageBoolean, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
+import { html, render, useState, useEffect, useRef, useMemo } from './vendor/preact-htm.js';
+import { paneRegistry, TERMINAL_TAB_PATH, VNC_TAB_PREFIX, tabStore } from './panes/index.js';
+import { getLocalStorageBoolean, getLocalStorageNumber } from './utils/storage.js';
 import { useNotifications } from './ui/use-notifications.js';
 import { useTimeline } from './ui/use-timeline.js';
 import { dedupePosts } from './ui/timeline-utils.js';
 import { useAgentState } from './ui/use-agent-state.js';
 import { useSplitters } from './ui/use-splitters.js';
 import { useEditorState } from './ui/use-editor-state.js';
-import { initTheme } from './ui/theme.js';
 import {
     LAST_ACTIVITY_TTL_MS,
     SILENCE_FINALIZE_MS,
     SILENCE_REFRESH_MS,
     SILENCE_WARNING_MS,
     isIOSDevice,
-    useTimestampRefresh,
 } from './ui/app-helpers.js';
 import {
     isStandaloneWebAppMode,
 } from './ui/chat-window.js';
 import { isCompactionStatus } from './ui/status-duration.js';
-import {
-    handleMessageResponseRefresh,
-} from './ui/app-auth-bootstrap.js';
 import {
     useChatRefreshLifecycle,
 } from './ui/app-chat-refresh-lifecycle.js';
@@ -59,19 +53,6 @@ import {
 import {
     renderResolvedAppShell,
 } from './ui/app-shell-render-router.js';
-import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
-import { resolveOptionalApi } from './ui/optional-api.js';
-import { watchStandaloneWebAppMode } from './ui/app-resume.js';
-import { watchDockToggleShortcut, watchZenModeShortcuts } from './ui/app-browser-events.js';
-import {
-    getPanePopoutTitle,
-    hasPanePopoutMenuActions,
-    isVncPanePopoutPath,
-    resolveActivePaneOverrideId,
-    resolveActivePaneTab,
-    shouldHidePanePopoutControls,
-    shouldShowEditorPaneContainer,
-} from './ui/app-pane-state.js';
 import { formatBranchPickerLabel, getBranchHandleDraftState } from './ui/branch-lifecycle.js';
 import {
     getCurrentAppAssetVersion,
@@ -87,59 +68,60 @@ import {
     useChatPaneRuntimeOrchestration,
 } from './ui/app-chat-pane-runtime-orchestration.js';
 import {
-    handleInjectQueuedFollowupAction,
-    handleRemoveQueuedFollowupAction,
-} from './ui/app-floating-widget-followup.js';
+    appApi,
+    initializeAppShellRuntime,
+} from './ui/app-shell-bootstrap.js';
 import {
-    finalizeStalledResponse as finalizeStalledResponseState,
-} from './ui/app-agent-status-orchestration.js';
+    usePaneRuntimeOrchestration,
+} from './ui/app-pane-runtime-orchestration.js';
+import {
+    useAppShellEnvironmentEffects,
+} from './ui/app-shell-environment-effects.js';
+import {
+    composeMainAppShellOptions,
+} from './ui/app-main-shell-composition.js';
+import {
+    useFollowupActionsOrchestration,
+} from './ui/app-followup-actions-orchestration.js';
+import {
+    useAgentRecoveryCallbacks,
+    useViewStateRefSync,
+} from './ui/app-runtime-callbacks.js';
+import {
+    useAppShellShortcuts,
+} from './ui/app-shell-shortcuts.js';
 
 const CURRENT_APP_ASSET_VERSION = getCurrentAppAssetVersion();
 
-const searchPosts = api.searchPosts;
-const deletePost = api.deletePost;
-const getAgents = api.getAgents;
-const getAgentThought = api.getAgentThought;
-const setAgentThoughtVisibility = api.setAgentThoughtVisibility;
-const getAgentStatus = api.getAgentStatus;
-const getAgentContext = resolveOptionalApi(api, 'getAgentContext', null);
-const getAutoresearchStatus = resolveOptionalApi(api, 'getAutoresearchStatus', null);
-const stopAutoresearch = resolveOptionalApi(api, 'stopAutoresearch', { status: 'ok' });
-const dismissAutoresearch = resolveOptionalApi(api, 'dismissAutoresearch', { status: 'ok' });
-const getAgentModels = resolveOptionalApi(api, 'getAgentModels', { current: null, models: [] });
-const getActiveChatAgents = resolveOptionalApi(api, 'getActiveChatAgents', { chats: [] });
-const getChatBranches = resolveOptionalApi(api, 'getChatBranches', { chats: [] });
-const renameChatBranch = resolveOptionalApi(api, 'renameChatBranch', null);
-const pruneChatBranch = resolveOptionalApi(api, 'pruneChatBranch', null);
-const restoreChatBranch = resolveOptionalApi(api, 'restoreChatBranch', null);
-const getAgentQueueState = resolveOptionalApi(api, 'getAgentQueueState', { count: 0 });
-const steerAgentQueueItem = resolveOptionalApi(api, 'steerAgentQueueItem', { removed: false, queued: 'steer' });
-const removeAgentQueueItem = resolveOptionalApi(api, 'removeAgentQueueItem', { removed: false });
-const streamSidePrompt = resolveOptionalApi(api, 'streamSidePrompt', null);
+initializeAppShellRuntime();
 
-if (window.marked) {
-    marked.setOptions({
-        breaks: true,  // Convert \n to <br>
-        gfm: true,     // GitHub Flavored Markdown
-    });
-}
-
-paneRegistry.register(editorPaneExtension);
-paneRegistry.register(workspacePreviewPaneExtension);
-paneRegistry.register(workspaceMarkdownPreviewPaneExtension);
-paneRegistry.register(officeViewerPaneExtension);
-paneRegistry.register(csvViewerPaneExtension);
-paneRegistry.register(pdfViewerPaneExtension);
-paneRegistry.register(imageViewerPaneExtension);
-paneRegistry.register(videoViewerPaneExtension);
-paneRegistry.register(drawioPaneExtension);
-paneRegistry.register(mindmapPaneExtension);
-paneRegistry.register(kanbanPaneExtension);
-paneRegistry.register(vncPaneExtension);
-preloadEditorBundle();
-
-paneRegistry.register(terminalPaneExtension);
-paneRegistry.register(terminalTabPaneExtension);
+const {
+    searchPosts,
+    deletePost,
+    getAgents,
+    getAgentThought,
+    setAgentThoughtVisibility,
+    getAgentStatus,
+    getAgentContext,
+    getAutoresearchStatus,
+    stopAutoresearch,
+    dismissAutoresearch,
+    getAgentModels,
+    getActiveChatAgents,
+    getChatBranches,
+    renameChatBranch,
+    pruneChatBranch,
+    restoreChatBranch,
+    getAgentQueueState,
+    steerAgentQueueItem,
+    removeAgentQueueItem,
+    streamSidePrompt,
+    getWorkspaceFile,
+    getThread,
+    getTimeline,
+    sendAgentMessage,
+    forkChatBranch,
+} = appApi;
 
 function MainApp({ locationParams, navigate }) {
     const {
@@ -203,15 +185,12 @@ function MainApp({ locationParams, navigate }) {
     const [btwSession, setBtwSession] = useState(() => loadStoredBtwSession());
     const [floatingWidget, setFloatingWidget] = useState(null);
     const dismissedLiveWidgetKeysRef = useRef(new Set());
-    const currentChatAgent = useMemo(
-        () => activeChatAgents.find((chat) => chat?.chat_jid === currentChatJid) || null,
-        [activeChatAgents, currentChatJid],
-    );
-    const currentBranchRecord = useMemo(
-        () => currentChatBranches.find((chat) => chat?.chat_jid === currentChatJid) || currentChatAgent || null,
-        [currentChatAgent, currentChatBranches, currentChatJid],
-    );
-    const currentRootChatJid = currentBranchRecord?.root_chat_jid || currentChatAgent?.root_chat_jid || currentChatJid;
+    const currentBranchRecord = useMemo(() => {
+        const currentBranch = currentChatBranches.find((chat) => chat?.chat_jid === currentChatJid);
+        if (currentBranch) return currentBranch;
+        return activeChatAgents.find((chat) => chat?.chat_jid === currentChatJid) || null;
+    }, [activeChatAgents, currentChatBranches, currentChatJid]);
+    const currentRootChatJid = currentBranchRecord?.root_chat_jid || currentChatJid;
     const activeSearchScopeLabel = describeSearchScope(searchScope);
     const [branchLoaderState, setBranchLoaderState] = useState(() => ({
         status: branchLoaderMode ? 'running' : 'idle',
@@ -236,7 +215,6 @@ function MainApp({ locationParams, navigate }) {
     const [removingPostIds, setRemovingPostIds] = useState(() => new Set());
     const [workspaceOpen, setWorkspaceOpen] = useState(() => getLocalStorageBoolean('workspaceOpen', true));
 
-    // Stable ref so useEditorState can call removeFileRef without a forward-reference TDZ
     const removeFileRefRef = useRef(null);
 
     // Editor state hook (file load/save, tabs, dirty, view state, SSE sync)
@@ -244,223 +222,25 @@ function MainApp({ locationParams, navigate }) {
         editorOpen, tabStripTabs, tabStripActiveId, previewTabs, tabPaneOverrides,
         openEditor, closeEditor, handleTabClose, handleTabActivate,
         handleTabCloseOthers, handleTabCloseAll, handleTabTogglePin,
-        handleTabTogglePreview, handleTabEditSource, revealInExplorer,
+        handleTabTogglePreview, handleTabEditSource,
     } = useEditorState({ onTabClosed: (path) => removeFileRefRef.current?.(path) });
 
-    // Editor extension container ref + instance tracking
-    const editorContainerRef = useRef(null);
-    const editorInstanceRef = useRef(null);
-    const dockContainerRef = useRef(null);
-    const dockInstanceRef = useRef(null);
-
-    // Dock (terminal) toggle state - only available when dock panes registered
-    const hasDockPanes = paneRegistry.getDockPanes().length > 0;
-    const [dockVisible, setDockVisible] = useState(false);
-    const toggleDock = useCallback(() => setDockVisible((v) => !v), []);
-    const openTerminalTab = useCallback(() => {
-        openEditor(TERMINAL_TAB_PATH, { label: 'Terminal' });
-    }, [openEditor]);
-    const openVncTab = useCallback(() => {
-        openEditor(VNC_TAB_PREFIX, { label: 'VNC' });
-    }, [openEditor]);
-    const activePaneTab = useMemo(
-        () => resolveActivePaneTab(tabStripTabs, tabStripActiveId),
-        [tabStripActiveId, tabStripTabs],
-    );
-    const activePaneOverrideId = useMemo(
-        () => resolveActivePaneOverrideId(tabPaneOverrides, tabStripActiveId),
-        [tabPaneOverrides, tabStripActiveId],
-    );
-    const panePopoutTitle = useMemo(
-        () => getPanePopoutTitle(panePopoutLabel, activePaneTab, panePopoutPath),
-        [activePaneTab, panePopoutLabel, panePopoutPath],
-    );
-    const panePopoutHasMenuActions = useMemo(
-        () => hasPanePopoutMenuActions(tabStripTabs, previewTabs, tabStripActiveId),
-        [previewTabs, tabStripActiveId, tabStripTabs],
-    );
-    const isVncPanePopout = useMemo(
-        () => isVncPanePopoutPath(panePopoutPath, VNC_TAB_PREFIX),
-        [panePopoutPath],
-    );
-    const hidePanePopoutControls = useMemo(
-        () => shouldHidePanePopoutControls(panePopoutPath, TERMINAL_TAB_PATH, panePopoutHasMenuActions, isVncPanePopout),
-        [isVncPanePopout, panePopoutHasMenuActions, panePopoutPath],
-    );
-    const showEditorPaneContainer = shouldShowEditorPaneContainer(
+    const paneRuntime = usePaneRuntimeOrchestration({
         panePopoutMode,
+        panePopoutPath,
+        panePopoutLabel,
         chatOnlyMode,
         editorOpen,
-        hasDockPanes,
-        dockVisible,
-    );
-
-    // ── Zen mode ────────────────────────────────────────────────
-    const [zenMode, setZenMode] = useState(false);
-    const zenDockWasVisibleRef = useRef(false);
-
-    const enterZenMode = useCallback(() => {
-        if (!editorOpen || chatOnlyMode) return;
-        // Remember dock state and auto-close
-        zenDockWasVisibleRef.current = dockVisible;
-        if (dockVisible) setDockVisible(false);
-        setZenMode(true);
-    }, [editorOpen, chatOnlyMode, dockVisible]);
-
-    const exitZenMode = useCallback(() => {
-        if (!zenMode) return;
-        setZenMode(false);
-        // Restore dock if it was open before zen
-        if (zenDockWasVisibleRef.current) {
-            setDockVisible(true);
-            zenDockWasVisibleRef.current = false;
-        }
-    }, [zenMode]);
-
-    const toggleZenMode = useCallback(() => {
-        if (zenMode) exitZenMode();
-        else enterZenMode();
-    }, [zenMode, enterZenMode, exitZenMode]);
-
-    // Exit zen mode when the last editor tab closes
-    useEffect(() => {
-        if (zenMode && !editorOpen) exitZenMode();
-    }, [zenMode, editorOpen, exitZenMode]);
-
-    useEffect(() => {
-        if (!panePopoutMode || !panePopoutPath) return;
-        const activeId = tabStore.getActiveId();
-        if (activeId === panePopoutPath) return;
-        openEditor(panePopoutPath, panePopoutLabel ? { label: panePopoutLabel } : undefined);
-    }, [openEditor, panePopoutLabel, panePopoutMode, panePopoutPath]);
-
-    // Mount/dispose editor extension instance when active tab changes
-    useEffect(() => {
-        const container = editorContainerRef.current;
-        if (!container) return;
-
-        // Dispose previous instance
-        if (editorInstanceRef.current) {
-            editorInstanceRef.current.dispose();
-            editorInstanceRef.current = null;
-        }
-
-        const activeId = tabStripActiveId;
-        if (!activeId) return;
-
-        // Mount new instance
-        const context = { path: activeId, mode: 'edit' };
-        const ext = (activePaneOverrideId ? paneRegistry.get(activePaneOverrideId) : null)
-            || paneRegistry.resolve(context)
-            || paneRegistry.get('editor');
-        if (!ext) {
-            // No pane extension available - show fallback message
-            container.innerHTML = '<div style="padding:2em;color:var(--text-secondary);text-align:center;">No editor available for this file.</div>';
-            return;
-        }
-
-        const instance = ext.mount(container, context);
-        editorInstanceRef.current = instance;
-
-        // Wire PaneInstance callbacks
-        instance.onDirtyChange?.((dirty) => {
-            tabStore.setDirty(activeId, dirty);
-        });
-
-        instance.onSaveRequest?.(() => {
-            // Save is handled internally by the extension now
-        });
-
-        instance.onClose?.(() => {
-            closeEditor();
-        });
-
-        // Restore view state from tab store
-        const viewState = tabStore.getViewState(activeId);
-        if (viewState && typeof instance.restoreViewState === 'function') {
-            // Wait for CodeMirror to settle
-            requestAnimationFrame(() => instance.restoreViewState(viewState));
-        }
-
-        // Track view state changes
-        if (typeof instance.onViewStateChange === 'function') {
-            instance.onViewStateChange((state) => {
-                tabStore.saveViewState(activeId, state);
-            });
-        }
-
-        // Focus the editor
-        requestAnimationFrame(() => instance.focus());
-
-        return () => {
-            if (editorInstanceRef.current === instance) {
-                instance.dispose();
-                editorInstanceRef.current = null;
-            }
-        };
-    }, [tabStripActiveId, activePaneOverrideId, closeEditor]);
-
-    const refreshActiveEditorFromWorkspace = useCallback(async (updates) => {
-        const activePath = typeof tabStripActiveId === 'string' ? tabStripActiveId.trim() : '';
-        const instance = editorInstanceRef.current;
-        if (!activePath || !instance?.setContent) return;
-        if (typeof instance.isDirty === 'function' && instance.isDirty()) return;
-
-        const relevant = Array.isArray(updates) && updates.length > 0
-            ? updates.some((update) => {
-                const changedPaths = Array.isArray(update?.changed_paths)
-                    ? update.changed_paths
-                        .map((value) => typeof value === 'string' ? value.trim() : '')
-                        .filter(Boolean)
-                    : [];
-                if (changedPaths.length > 0) {
-                    return changedPaths.some((changedPath) => changedPath === '.' || changedPath === activePath);
-                }
-                const relPath = typeof update?.path === 'string' ? update.path.trim() : '';
-                return !relPath || relPath === '.' || relPath === activePath;
-            })
-            : true;
-        if (!relevant) return;
-
-        try {
-            const payload = await api.getWorkspaceFile(activePath, 1_000_000, 'edit');
-            const nextText = typeof payload?.text === 'string' ? payload.text : '';
-            const nextMtime = typeof payload?.mtime === 'string' && payload.mtime.trim()
-                ? payload.mtime.trim()
-                : new Date().toISOString();
-            instance.setContent(nextText, nextMtime);
-        } catch (error) {
-            console.warn('[workspace_update] Failed to refresh active pane:', error);
-        }
-    }, [tabStripActiveId]);
-
-    useEffect(() => {
-        const container = dockContainerRef.current;
-
-        if (dockInstanceRef.current) {
-            dockInstanceRef.current.dispose();
-            dockInstanceRef.current = null;
-        }
-
-        if (!container || !hasDockPanes || !dockVisible) return;
-
-        const ext = paneRegistry.getDockPanes()[0];
-        if (!ext) {
-            container.innerHTML = '<div class="terminal-placeholder">No dock pane available.</div>';
-            return;
-        }
-
-        const instance = ext.mount(container, { mode: 'view' });
-        dockInstanceRef.current = instance;
-        requestAnimationFrame(() => instance.focus?.());
-
-        return () => {
-            if (dockInstanceRef.current === instance) {
-                instance.dispose();
-                dockInstanceRef.current = null;
-            }
-        };
-    }, [hasDockPanes, dockVisible]);
+        tabStripTabs,
+        tabStripActiveId,
+        previewTabs,
+        tabPaneOverrides,
+        terminalTabPath: TERMINAL_TAB_PATH,
+        vncTabPrefix: VNC_TAB_PREFIX,
+        openEditor,
+        closeEditor,
+        getWorkspaceFile,
+    });
 
     const [userProfile, setUserProfile] = useState({ name: 'You', avatar_url: null, avatar_background: null });
     const staleUiVersionRef = useRef(null);
@@ -499,99 +279,22 @@ function MainApp({ locationParams, navigate }) {
     );
     const renameBranchNameInputRef = useRef(null);
 
-    useTimestampRefresh(30000);
+    const { applyBranding } = useAppShellEnvironmentEffects({
+        isRenameBranchFormOpen,
+        renameBranchNameInputRef,
+        setIsWebAppMode,
+        workspaceOpen,
+        btwSession,
+        agents,
+        agentsRef,
+        currentChatJid,
+        activeChatJidRef,
+        userProfile,
+        userProfileRef,
+        brandingRef,
+    });
 
-    useEffect(() => {
-        if (!isRenameBranchFormOpen) return;
-        requestAnimationFrame(() => {
-            if (isRenameBranchFormOpen) {
-                renameBranchNameInputRef.current?.focus();
-                renameBranchNameInputRef.current?.select?.();
-            }
-        });
-    }, [isRenameBranchFormOpen]);
-
-    useEffect(() => {
-        return initTheme();
-    }, []);
-
-    useEffect(() => {
-        return watchStandaloneWebAppMode(setIsWebAppMode);
-    }, []);
-
-    useEffect(() => {
-        setLocalStorageItem('workspaceOpen', String(workspaceOpen));
-    }, [workspaceOpen]);
-
-    useEffect(() => {
-        return installStandaloneMobileViewportFix();
-    }, []);
-
-    useEffect(() => {
-        if (!btwSession) {
-            setLocalStorageItem(BTW_SESSION_KEY, '');
-            return;
-        }
-        setLocalStorageItem(BTW_SESSION_KEY, JSON.stringify({
-            question: btwSession.question || '',
-            answer: btwSession.answer || '',
-            thinking: btwSession.thinking || '',
-            error: btwSession.error || null,
-            status: btwSession.status || 'success',
-        }));
-    }, [btwSession]);
-
-    useEffect(() => {
-        agentsRef.current = agents || {};
-    }, [agents]);
-
-    useEffect(() => {
-        activeChatJidRef.current = currentChatJid;
-    }, [currentChatJid]);
-
-    useEffect(() => {
-        userProfileRef.current = userProfile || { name: 'You', avatar_url: null, avatar_background: null };
-    }, [userProfile]);
-
-    const applyBranding = useCallback((name, avatarUrl, avatarVersion = null) => {
-        if (typeof document === 'undefined') return;
-        const title = (name || '').trim() || 'PiClaw';
-        if (brandingRef.current.title !== title) {
-            document.title = title;
-            const titleMeta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-            if (titleMeta && titleMeta.getAttribute('content') !== title) {
-                titleMeta.setAttribute('content', title);
-            }
-            brandingRef.current.title = title;
-        }
-
-        const favicon = document.getElementById('dynamic-favicon');
-        if (!favicon) return;
-        const defaultHref = favicon.getAttribute('data-default') || favicon.getAttribute('href') || '/favicon.ico';
-        const baseHref = avatarUrl || defaultHref;
-        const avatarKey = avatarUrl ? `${baseHref}|${avatarVersion || ''}` : baseHref;
-        if (brandingRef.current.avatarBase !== avatarKey) {
-            const cacheBust = avatarUrl ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}v=${avatarVersion || Date.now()}` : baseHref;
-            favicon.setAttribute('href', cacheBust);
-            brandingRef.current.avatarBase = avatarKey;
-        }
-    }, []);
-
-    const {
-        addFileRef,
-        removeFileRef,
-        clearFileRefs,
-        setFileRefsFromCompose,
-        showIntentToast,
-        openFileFromPill,
-        attachActiveEditorFile,
-        addMessageRef,
-        scrollToMessage,
-        removeMessageRef,
-        clearMessageRefs,
-        setMessageRefsFromCompose,
-        handleComposeSubmitError,
-    } = useComposeReferenceOrchestration({
+    const composeReferenceActions = useComposeReferenceOrchestration({
         setIntentToast,
         intentToastTimerRef,
         editorOpen,
@@ -601,11 +304,11 @@ function MainApp({ locationParams, navigate }) {
         setFileRefs,
         setMessageRefs,
         currentChatJid,
-        getThread: api.getThread,
+        getThread,
         setPosts,
     });
 
-    removeFileRefRef.current = removeFileRef;
+    removeFileRefRef.current = composeReferenceActions.removeFileRef;
 
     const {
         noteAgentActivity,
@@ -727,61 +430,39 @@ function MainApp({ locationParams, navigate }) {
     // Derive filtered posts with queued placeholders hidden.
     const posts = useMemo(() => filterQueuedPosts(rawPosts), [rawPosts, followupQueueItems, filterQueuedPosts]);
 
-    const removeStalledPost = useCallback(() => {
-        const stalledId = stalledPostIdRef.current;
-        if (!stalledId) return;
-        setPosts((prev) => (prev ? prev.filter((post) => post.id !== stalledId) : prev));
-        stalledPostIdRef.current = null;
-    }, [setPosts]);
+    const recoveryCallbacks = useAgentRecoveryCallbacks({
+        isAgentRunningRef,
+        lastSilenceNoticeRef,
+        lastAgentEventRef,
+        currentTurnIdRef,
+        thoughtExpandedRef,
+        draftExpandedRef,
+        draftBufferRef,
+        thoughtBufferRef,
+        pendingRequestRef,
+        lastAgentResponseRef,
+        stalledPostIdRef,
+        scrollToBottomRef,
+        setCurrentTurnId,
+        setAgentDraft,
+        setAgentPlan,
+        setAgentThought,
+        setPendingRequest,
+        setAgentStatus,
+        setPosts,
+        dedupePosts,
+    });
 
+    useViewStateRefSync({
+        viewStateRef,
+        currentHashtag,
+        searchQuery,
+        searchOpen,
+    });
 
-    const {
-        handleSplitterMouseDown,
-        handleSplitterTouchStart,
-        handleEditorSplitterMouseDown,
-        handleEditorSplitterTouchStart,
-        handleDockSplitterMouseDown,
-        handleDockSplitterTouchStart,
-    } = useSplitters({ appShellRef, sidebarWidthRef, editorWidthRef, dockHeightRef });
+    const splitterHandlers = useSplitters({ appShellRef, sidebarWidthRef, editorWidthRef, dockHeightRef });
 
-    const finalizeStalledResponse = useCallback(() => {
-        finalizeStalledResponseState({
-            isAgentRunningRef,
-            lastSilenceNoticeRef,
-            lastAgentEventRef,
-            currentTurnIdRef,
-            thoughtExpandedRef,
-            draftExpandedRef,
-            draftBufferRef,
-            thoughtBufferRef,
-            pendingRequestRef,
-            lastAgentResponseRef,
-            stalledPostIdRef,
-            scrollToBottomRef,
-            setCurrentTurnId,
-            setAgentDraft,
-            setAgentPlan,
-            setAgentThought,
-            setPendingRequest,
-            setAgentStatus,
-            setPosts,
-            dedupePosts,
-        });
-    }, [setCurrentTurnId]);
-
-    useEffect(() => {
-        viewStateRef.current = { currentHashtag, searchQuery, searchOpen };
-    }, [currentHashtag, searchQuery, searchOpen]);
-
-
-    const {
-        refreshQueueState,
-        refreshContextUsage,
-        refreshAutoresearchStatus,
-        refreshAgentStatus,
-        handleUiVersionDrift,
-        handleConnectionStatusChange,
-    } = useAgentStatusLifecycle({
+    const agentStatusLifecycle = useAgentStatusLifecycle({
         currentChatJid,
         activeChatJidRef,
         queueRefreshGenRef,
@@ -827,23 +508,14 @@ function MainApp({ locationParams, navigate }) {
             tabStoreHasUnsaved: () => tabStore.hasUnsaved(),
             isAgentRunningRef,
             pendingRequestRef,
-            showIntentToast,
+            showIntentToast: composeReferenceActions.showIntentToast,
         },
         setConnectionStatus,
         setPendingRequestForConnection: setPendingRequest,
         hasConnectedOnceRef,
     });
 
-
-    const {
-        handleHashtagClick,
-        handleBackToTimeline,
-        handleSearch,
-        enterSearchMode,
-        exitSearchMode,
-        isMainTimelineView,
-        handleDeletePost,
-    } = useTimelineViewActions({
+    const timelineViewActions = useTimelineViewActions({
         currentHashtag,
         searchQuery,
         searchOpen,
@@ -866,17 +538,7 @@ function MainApp({ locationParams, navigate }) {
         loadMoreRef,
     });
 
-    const navigateToSearchResult = useCallback(() => {}, []);
-
-    const {
-        updateAgentProfile,
-        updateUserProfile,
-        applyModelState,
-        refreshModelState,
-        refreshActiveChatAgents,
-        refreshCurrentChatBranches,
-        refreshModelAndQueueState,
-    } = useChatRefreshLifecycle({
+    const chatRefreshLifecycle = useChatRefreshLifecycle({
         getAgents,
         setAgents,
         setUserProfile,
@@ -897,77 +559,44 @@ function MainApp({ locationParams, navigate }) {
         setSupportsThinking,
         setActiveModelUsage,
         agentsRef,
-        refreshQueueState,
-        refreshContextUsage,
-        refreshAutoresearchStatus,
+        refreshQueueState: agentStatusLifecycle.refreshQueueState,
+        refreshContextUsage: agentStatusLifecycle.refreshContextUsage,
+        refreshAutoresearchStatus: agentStatusLifecycle.refreshAutoresearchStatus,
     });
 
     const isComposeBoxAgentActive = isAgentTurnActive || agentStatus !== null;
 
-    const handleInjectQueuedFollowup = useCallback((queuedItem) => {
-        handleInjectQueuedFollowupAction({
-            queuedItem,
-            followupQueueItemsRef,
-            dismissedQueueRowIdsRef,
-            currentChatJid,
-            refreshQueueState,
-            setFollowupQueueItems,
-            showIntentToast,
-            steerAgentQueueItem,
-            removeAgentQueueItem,
-        });
-    }, [currentChatJid, refreshQueueState, setFollowupQueueItems, showIntentToast]);
+    const followupActions = useFollowupActionsOrchestration({
+        currentChatJid,
+        followupQueueItemsRef,
+        dismissedQueueRowIdsRef,
+        refreshQueueState: agentStatusLifecycle.refreshQueueState,
+        setFollowupQueueItems,
+        showIntentToast: composeReferenceActions.showIntentToast,
+        clearQueuedSteerStateIfStale,
+        steerAgentQueueItem,
+        removeAgentQueueItem,
+        refreshActiveChatAgents: chatRefreshLifecycle.refreshActiveChatAgents,
+        refreshCurrentChatBranches: chatRefreshLifecycle.refreshCurrentChatBranches,
+        refreshContextUsage: agentStatusLifecycle.refreshContextUsage,
+        refreshAutoresearchStatus: agentStatusLifecycle.refreshAutoresearchStatus,
+    });
 
-    const handleRemoveQueuedFollowup = useCallback((queuedItem) => {
-        handleRemoveQueuedFollowupAction({
-            queuedItem,
-            followupQueueItemsRef,
-            dismissedQueueRowIdsRef,
-            currentChatJid,
-            refreshQueueState,
-            setFollowupQueueItems,
-            showIntentToast,
-            clearQueuedSteerStateIfStale,
-            steerAgentQueueItem,
-            removeAgentQueueItem,
-        });
-    }, [clearQueuedSteerStateIfStale, currentChatJid, refreshQueueState, setFollowupQueueItems, showIntentToast]);
-
-    const handleMessageResponse = useCallback((response) => {
-        handleMessageResponseRefresh({
-            response,
-            refreshActiveChatAgents,
-            refreshCurrentChatBranches,
-            refreshContextUsage,
-            refreshAutoresearchStatus,
-            refreshQueueState,
-        });
-    }, [refreshActiveChatAgents, refreshAutoresearchStatus, refreshCurrentChatBranches, refreshContextUsage, refreshQueueState]);
-
-    const {
-        handleExtensionPanelAction,
-        closeBtwPanel,
-        handleBtwIntercept,
-        handleBtwRetry,
-        handleBtwInject,
-        handleOpenFloatingWidget,
-        handleCloseFloatingWidget,
-        handleFloatingWidgetEvent,
-    } = useSidepanelOrchestration({
+    const sidepanelActions = useSidepanelOrchestration({
         currentChatJid,
         currentRootChatJid,
         isComposeBoxAgentActive,
-        showIntentToast,
+        showIntentToast: composeReferenceActions.showIntentToast,
         setPendingExtensionPanelActions,
-        refreshAutoresearchStatus,
+        refreshAutoresearchStatus: agentStatusLifecycle.refreshAutoresearchStatus,
         stopAutoresearch,
         dismissAutoresearch,
         streamSidePrompt,
         btwAbortRef,
         btwSession,
         setBtwSession,
-        sendAgentMessage: api.sendAgentMessage,
-        handleMessageResponse,
+        sendAgentMessage,
+        handleMessageResponse: followupActions.handleMessageResponse,
         dismissedLiveWidgetKeysRef,
         setFloatingWidget,
         getAgentStatus,
@@ -976,7 +605,7 @@ function MainApp({ locationParams, navigate }) {
         getAgentModels,
         getActiveChatAgents,
         getChatBranches,
-        getTimeline: api.getTimeline,
+        getTimeline,
         rawPosts,
         activeChatAgents,
         currentChatBranches,
@@ -988,10 +617,7 @@ function MainApp({ locationParams, navigate }) {
         isAgentTurnActive,
     });
 
-    const {
-        refreshCurrentView,
-        applyLiveGeneratedWidgetUpdate,
-    } = useViewRefreshLifecycle({
+    const viewRefreshLifecycle = useViewRefreshLifecycle({
         currentChatJid,
         currentRootChatJid,
         currentHashtag,
@@ -1009,12 +635,12 @@ function MainApp({ locationParams, navigate }) {
         snapshotCurrentChatPaneState,
         restoreChatPaneState,
         dismissedQueueRowIdsRef,
-        refreshQueueState,
-        refreshAgentStatus,
-        refreshContextUsage,
+        refreshQueueState: agentStatusLifecycle.refreshQueueState,
+        refreshAgentStatus: agentStatusLifecycle.refreshAgentStatus,
+        refreshContextUsage: agentStatusLifecycle.refreshContextUsage,
         viewStateRef,
         refreshTimeline,
-        refreshModelAndQueueState,
+        refreshModelAndQueueState: chatRefreshLifecycle.refreshModelAndQueueState,
         setFloatingWidget,
         dismissedLiveWidgetKeysRef,
     });
@@ -1022,12 +648,12 @@ function MainApp({ locationParams, navigate }) {
     useRealtimeLifecycleOrchestration({
         currentChatJid,
         posts,
-        scrollToMessage,
-        handleConnectionStatusChange,
+        scrollToMessage: composeReferenceActions.scrollToMessage,
+        handleConnectionStatusChange: agentStatusLifecycle.handleConnectionStatusChange,
         loadPosts,
-        refreshCurrentView,
-        updateAgentProfile,
-        updateUserProfile,
+        refreshCurrentView: viewRefreshLifecycle.refreshCurrentView,
+        updateAgentProfile: chatRefreshLifecycle.updateAgentProfile,
+        updateUserProfile: chatRefreshLifecycle.updateUserProfile,
         currentTurnIdRef,
         activeChatJidRef,
         pendingRequestRef,
@@ -1047,10 +673,10 @@ function MainApp({ locationParams, navigate }) {
         lastAgentResponseRef,
         wasAgentActiveRef,
         setActiveTurn,
-        applyLiveGeneratedWidgetUpdate,
+        applyLiveGeneratedWidgetUpdate: viewRefreshLifecycle.applyLiveGeneratedWidgetUpdate,
         setFloatingWidget,
         clearLastActivityFlag,
-        handleUiVersionDrift,
+        handleUiVersionDrift: agentStatusLifecycle.handleUiVersionDrift,
         setAgentStatus,
         setAgentDraft,
         setAgentPlan,
@@ -1061,44 +687,33 @@ function MainApp({ locationParams, navigate }) {
         noteAgentActivity,
         showLastActivity,
         refreshTimeline,
-        refreshModelAndQueueState,
-        refreshActiveChatAgents,
-        refreshCurrentChatBranches,
+        refreshModelAndQueueState: chatRefreshLifecycle.refreshModelAndQueueState,
+        refreshActiveChatAgents: chatRefreshLifecycle.refreshActiveChatAgents,
+        refreshCurrentChatBranches: chatRefreshLifecycle.refreshCurrentChatBranches,
         notifyForFinalResponse,
         setContextUsage,
-        refreshContextUsage,
-        refreshQueueState,
+        refreshContextUsage: agentStatusLifecycle.refreshContextUsage,
+        refreshQueueState: agentStatusLifecycle.refreshQueueState,
         setFollowupQueueItems,
         clearQueuedSteerStateIfStale,
         setSteerQueuedTurnId,
-        applyModelState,
+        applyModelState: chatRefreshLifecycle.applyModelState,
         getAgentContext,
         setExtensionStatusPanels,
         setPendingExtensionPanelActions,
-        refreshActiveEditorFromWorkspace,
-        showIntentToast,
-        removeStalledPost,
+        refreshActiveEditorFromWorkspace: paneRuntime.refreshActiveEditorFromWorkspace,
+        showIntentToast: composeReferenceActions.showIntentToast,
+        removeStalledPost: recoveryCallbacks.removeStalledPost,
         setPosts,
         preserveTimelineScrollTop,
-        finalizeStalledResponse,
+        finalizeStalledResponse: recoveryCallbacks.finalizeStalledResponse,
         connectionStatus,
         agentStatus,
-        refreshAgentStatus,
-        refreshAutoresearchStatus,
+        refreshAgentStatus: agentStatusLifecycle.refreshAgentStatus,
+        refreshAutoresearchStatus: agentStatusLifecycle.refreshAutoresearchStatus,
     });
 
-    const {
-        toggleWorkspace,
-        handleBranchPickerChange,
-        openRenameCurrentBranchForm,
-        closeRenameCurrentBranchForm,
-        handleRenameCurrentBranch,
-        handlePruneCurrentBranch,
-        handleRestoreBranch,
-        handleCreateSessionFromCompose,
-        handlePopOutPane,
-        handlePopOutChat,
-    } = useBranchPaneLifecycle({
+    const branchPaneActions = useBranchPaneLifecycle({
         setWorkspaceOpen,
         currentChatJid,
         chatOnlyMode,
@@ -1111,32 +726,32 @@ function MainApp({ locationParams, navigate }) {
         setIsRenameBranchFormOpen,
         setIsRenamingBranch,
         renameChatBranch,
-        refreshActiveChatAgents,
-        refreshCurrentChatBranches,
-        showIntentToast,
+        refreshActiveChatAgents: chatRefreshLifecycle.refreshActiveChatAgents,
+        refreshCurrentChatBranches: chatRefreshLifecycle.refreshCurrentChatBranches,
+        showIntentToast: composeReferenceActions.showIntentToast,
         currentChatBranches,
         activeChatAgents,
         pruneChatBranch,
         restoreChatBranch,
         branchLoaderMode,
         branchLoaderSourceChatJid,
-        forkChatBranch: api.forkChatBranch,
+        forkChatBranch,
         setBranchLoaderState,
         currentRootChatJid,
         isWebAppMode,
-        getActiveChatAgents: api.getActiveChatAgents,
+        getActiveChatAgents,
         getChatBranches,
         setActiveChatAgents,
         setCurrentChatBranches,
         openEditor,
         tabStripActiveId,
-        editorInstanceRef,
-        dockInstanceRef,
+        editorInstanceRef: paneRuntime.editorInstanceRef,
+        dockInstanceRef: paneRuntime.dockInstanceRef,
         terminalTabPath: TERMINAL_TAB_PATH,
-        dockVisible,
+        dockVisible: paneRuntime.dockVisible,
         resolveTab: (value) => tabStore.get(value),
         closeTab: handleTabClose,
-        setDockVisible,
+        setDockVisible: paneRuntime.setDockVisible,
         editorOpen,
         shellElement: appShellRef.current,
         editorWidthRef,
@@ -1145,116 +760,80 @@ function MainApp({ locationParams, navigate }) {
         readStoredNumber: getLocalStorageNumber,
     });
 
-    // Keyboard shortcut: Ctrl+` to toggle dock (only when dock panes exist)
-    useEffect(() => {
-        if (!hasDockPanes || chatOnlyMode) return;
-        return watchDockToggleShortcut(toggleDock);
-    }, [toggleDock, hasDockPanes, chatOnlyMode]);
-
-    // Keyboard shortcuts: Ctrl+Shift+Z to toggle zen mode, Esc to exit zen
-    useEffect(() => {
-        if (chatOnlyMode) return;
-        return watchZenModeShortcuts({
-            toggleZenMode,
-            exitZenMode,
-            zenMode,
-            isZenModeActive: () => zenMode,
-        });
-    }, [toggleZenMode, exitZenMode, zenMode, chatOnlyMode]);
+    useAppShellShortcuts({
+        hasDockPanes: paneRuntime.hasDockPanes,
+        chatOnlyMode,
+        toggleDock: paneRuntime.toggleDock,
+        toggleZenMode: paneRuntime.toggleZenMode,
+        exitZenMode: paneRuntime.exitZenMode,
+        zenMode: paneRuntime.zenMode,
+    });
 
     const steerQueued = Boolean(steerQueuedTurnId && (steerQueuedTurnId === (agentStatus?.turn_id || currentTurnId)));
 
-    return renderResolvedAppShell({
-        branchLoaderMode,
-        panePopoutMode,
-        branchLoaderState,
-        panePopoutOptions: {
-            appShellRef,
-            editorOpen,
-            hidePanePopoutControls,
-            panePopoutHasMenuActions,
-            panePopoutTitle,
-            tabStripTabs,
-            tabStripActiveId,
-            handleTabActivate,
-            previewTabs,
-            handleTabTogglePreview,
-            editorContainerRef,
-            getPaneContent: () => editorInstanceRef.current?.getContent?.(),
-            panePopoutPath,
+    return renderResolvedAppShell(composeMainAppShellOptions({
+        routing: {
+            branchLoaderMode,
+            panePopoutMode,
+            branchLoaderState,
         },
-        mainShellOptions: {
+        paneRuntime,
+        splitters: splitterHandlers,
+        branchPaneActions,
+        timelineViewActions,
+        composeReferenceActions,
+        sidepanelActions,
+        shellState: {
             appShellRef,
             workspaceOpen,
             editorOpen,
             chatOnlyMode,
-            zenMode,
             isRenameBranchFormOpen,
-            closeRenameCurrentBranchForm,
-            handleRenameCurrentBranch,
             renameBranchNameDraft,
             renameBranchNameInputRef,
             setRenameBranchNameDraft,
             renameBranchDraftState,
             isRenamingBranch,
-            addFileRef,
-            openEditor,
-            openTerminalTab,
-            openVncTab,
-            hasDockPanes,
-            toggleDock,
-            dockVisible,
-            handleSplitterMouseDown,
-            handleSplitterTouchStart,
-            showEditorPaneContainer,
-            tabStripTabs,
-            tabStripActiveId,
-            handleTabActivate,
-            handleTabClose,
-            handleTabCloseOthers,
-            handleTabCloseAll,
-            handleTabTogglePin,
-            handleTabTogglePreview,
-            handleTabEditSource,
-            previewTabs,
-            tabPaneOverrides,
-            toggleZenMode,
-            handlePopOutPane,
             isWebAppMode,
-            editorContainerRef,
-            editorInstanceRef,
-            handleDockSplitterMouseDown,
-            handleDockSplitterTouchStart,
             TERMINAL_TAB_PATH,
-            dockContainerRef,
-            handleEditorSplitterMouseDown,
-            handleEditorSplitterTouchStart,
-            searchQuery,
             isIOSDevice,
             currentBranchRecord,
             currentChatJid,
             currentChatBranches,
-            handleBranchPickerChange,
             formatBranchPickerLabel,
-            openRenameCurrentBranchForm,
-            handlePruneCurrentBranch,
-            currentHashtag,
-            handleBackToTimeline,
             activeSearchScopeLabel,
             posts,
-            isMainTimelineView,
             hasMore,
             loadMore,
             timelineRef,
-            handleHashtagClick,
-            addMessageRef,
-            scrollToMessage,
-            openFileFromPill,
-            handleDeletePost,
-            handleOpenFloatingWidget,
             agents,
             userProfile,
             removingPostIds,
+            extensionStatusPanels,
+            pendingExtensionPanelActions,
+            searchOpen,
+            followupQueueItems,
+            viewStateRef,
+            loadPosts,
+            scrollToBottom,
+            searchScope,
+            tabStripTabs,
+            tabStripActiveId,
+            handleTabActivate,
+            previewTabs,
+            handleTabTogglePreview,
+            panePopoutPath,
+            tabPaneOverrides,
+            handleTabClose,
+            handleTabCloseOthers,
+            handleTabCloseAll,
+            handleTabTogglePin,
+            handleTabEditSource,
+            openEditor,
+            openTerminalTab: paneRuntime.openTerminalTab,
+            openVncTab: paneRuntime.openVncTab,
+        },
+        agentState: {
             agentStatus,
             isCompactionStatus,
             agentDraft,
@@ -1265,45 +844,21 @@ function MainApp({ locationParams, navigate }) {
             currentTurnId,
             steerQueued,
             handlePanelToggle,
+            setPendingRequest,
+            pendingRequestRef,
+            handleInjectQueuedFollowup: followupActions.handleInjectQueuedFollowup,
+            handleRemoveQueuedFollowup: followupActions.handleRemoveQueuedFollowup,
+        },
+        composeState: {
             btwSession,
-            closeBtwPanel,
-            handleBtwRetry,
-            handleBtwInject,
             floatingWidget,
-            handleCloseFloatingWidget,
-            handleFloatingWidgetEvent,
-            extensionStatusPanels,
-            pendingExtensionPanelActions,
-            handleExtensionPanelAction,
-            searchOpen,
-            followupQueueItems,
-            handleInjectQueuedFollowup,
-            handleRemoveQueuedFollowup,
-            viewStateRef,
-            loadPosts,
-            scrollToBottom,
-            searchScope,
-            handleSearch,
-            setSearchScope,
-            enterSearchMode,
-            exitSearchMode,
             fileRefs,
-            removeFileRef,
-            clearFileRefs,
-            setFileRefsFromCompose,
             messageRefs,
-            removeMessageRef,
-            clearMessageRefs,
-            setMessageRefsFromCompose,
-            handleCreateSessionFromCompose,
-            handleRestoreBranch,
-            attachActiveEditorFile,
             followupQueueCount,
-            handleBtwIntercept,
-            handleMessageResponse,
-            handleComposeSubmitError,
-            handlePopOutChat,
+            handleMessageResponse: followupActions.handleMessageResponse,
             isComposeBoxAgentActive,
+        },
+        modelState: {
             activeChatAgents,
             connectionStatus,
             activeModel,
@@ -1315,12 +870,9 @@ function MainApp({ locationParams, navigate }) {
             notificationPermission,
             handleToggleNotifications,
             setActiveModel,
-            applyModelState,
-            setPendingRequest,
-            pendingRequestRef,
-            toggleWorkspace,
+            applyModelState: chatRefreshLifecycle.applyModelState,
         },
-    });
+    }));
 }
 
 function App() {

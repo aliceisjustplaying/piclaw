@@ -58,6 +58,26 @@ Split the shell into a few larger render/event/controller seams rather than many
 ## Updates
 
 ### 2026-03-29
+- Salvaged and merged the later stopped autoresearch tranche (originally `exp-mnc3194t-irdk`) back onto rewritten `main` after the `.bun/` history cleanup, applying the kept source/test changes without reintroducing the bad cache commit ancestry.
+- New typed seams landed in this tranche:
+  - `runtime/web/src/ui/app-pane-runtime-orchestration.ts`
+  - `runtime/web/src/ui/app-shell-bootstrap.ts`
+  - `runtime/web/src/ui/app-shell-environment-effects.ts`
+  - `runtime/web/src/ui/app-followup-actions-orchestration.ts`
+  - `runtime/web/src/ui/app-runtime-callbacks.ts`
+  - `runtime/web/src/ui/app-shell-shortcuts.ts`
+  - `runtime/web/src/ui/app-main-shell-composition.ts`
+- Current size reduction in this ticket after the latest merge-back: `runtime/web/src/app.ts` `1332 → 884` lines.
+- Validation for the merged branch state:
+  - focused web tests → `186 pass, 0 fail`
+  - `bun run build:web`
+  - `bun run lint`
+  - `bun run typecheck`
+  - `bun run check:stale-dist`
+- Assessment: this tranche is still modular rather than cheat-y. The largest newly landed modules remain bounded (`app-pane-runtime-orchestration.ts` 293 lines, `app-runtime-callbacks.ts` 145 lines, `app-followup-actions-orchestration.ts` 143 lines), and most of the remaining `app.ts` mass is now top-level state/ref declarations plus final shell option assembly.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
+
+### 2026-03-29
 - Merged back autoresearch branch `autoresearch/exp-mnc0gztp-go8e` into `main` after a much larger modular tranche focused on orchestration domains and reusable shell utilities.
 - New typed seams landed in this tranche:
   - `runtime/web/src/ui/app-chat-refresh-lifecycle.ts`
