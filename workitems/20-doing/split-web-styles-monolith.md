@@ -240,8 +240,11 @@ Approximate ranges are intentional; exact cut points should follow section comme
   - confirmed `.editor-pane-container` and `.tab-strip` appeared
   - compose box and timeline remained present while the editor pane opened
   - selected workspace row state remained visible
-- Overlay-specific smoke coverage is still pending for image modal / attachment preview surfaces.
-- Captured smoke artifacts under `generated/css-smoke/` and `generated/css-smoke-deep/` for follow-up review.
+- Performed an overlay-focused Playwright smoke pass:
+  - attachment preview modal opened successfully from a timeline attachment preview control
+  - confirmed `.attachment-preview-modal` / `.attachment-preview-shell` rendered with the expected title for the selected file
+  - no inline post-content images were present in the current timeline snapshot, so true image-modal click-through coverage is still pending on a chat that contains clickable inline images
+- Captured smoke artifacts under `generated/css-smoke/`, `generated/css-smoke-deep/`, and `generated/css-smoke-overlays/` for follow-up review.
 - Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 1, deps: 1, risk: 2)
 
 ### 2026-03-29
