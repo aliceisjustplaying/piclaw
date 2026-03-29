@@ -238,3 +238,101 @@ export function runSilenceWatchdogTick(options: RunSilenceWatchdogTickOptions): 
     void reconcileSilentTurn();
   }
 }
+
+export interface FinalizeStalledResponseOptions {
+  isAgentRunningRef: RefBox<boolean>;
+  lastSilenceNoticeRef: RefBox<number>;
+  lastAgentEventRef: RefBox<number | null>;
+  currentTurnIdRef: RefBox<string | null>;
+  thoughtExpandedRef: RefBox<boolean>;
+  draftExpandedRef: RefBox<boolean>;
+  draftBufferRef: RefBox<string>;
+  thoughtBufferRef: RefBox<string>;
+  pendingRequestRef: RefBox<any>;
+  lastAgentResponseRef: RefBox<any>;
+  stalledPostIdRef: RefBox<string | number | null>;
+  scrollToBottomRef: RefBox<(() => void) | null>;
+  setCurrentTurnId: (value: string | null) => void;
+  setAgentDraft: StateSetter<any>;
+  setAgentPlan: StateSetter<any>;
+  setAgentThought: StateSetter<any>;
+  setPendingRequest: StateSetter<any>;
+  setAgentStatus: StateSetter<any>;
+  setPosts: StateSetter<any[] | null>;
+  dedupePosts: (posts: any[]) => any[];
+  now?: () => number;
+  nowIso?: () => string;
+}
+
+/** Finalize a stalled run by either surfacing an error status or appending a local warning post. */
+export function finalizeStalledResponse(options: FinalizeStalledResponseOptions): void {
+  const {
+    isAgentRunningRef,
+    lastSilenceNoticeRef,
+    lastAgentEventRef,
+    currentTurnIdRef,
+    thoughtExpandedRef,
+    draftExpandedRef,
+    draftBufferRef,
+    thoughtBufferRef,
+    pendingRequestRef,
+    lastAgentResponseRef,
+    stalledPostIdRef,
+    scrollToBottomRef,
+    setCurrentTurnId,
+    setAgentDraft,
+    setAgentPlan,
+    setAgentThought,
+    setPendingRequest,
+    setAgentStatus,
+    setPosts,
+    dedupePosts,
+    now = () => Date.now(),
+    nowIso = () => new Date().toISOString(),
+  } = options;
+
+  if (!isAgentRunningRef.current) return;
+
+  isAgentRunningRef.current = false;
+  lastSilenceNoticeRef.current = 0;
+  lastAgentEventRef.current = null;
+  currentTurnIdRef.current = null;
+  setCurrentTurnId(null);
+  thoughtExpandedRef.current = false;
+  draftExpandedRef.current = false;
+
+  const partial = (draftBufferRef.current || '').trim();
+  draftBufferRef.current = '';
+  thoughtBufferRef.current = '';
+  setAgentDraft({ text: '', totalLines: 0 });
+  setAgentPlan('');
+  setAgentThought({ text: '', totalLines: 0 });
+  setPendingRequest(null);
+  pendingRequestRef.current = null;
+  lastAgentResponseRef.current = null;
+
+  if (!partial) {
+    setAgentStatus({ type: 'error', title: 'Response stalled - No content received' });
+    return;
+  }
+
+  const warning = '\n\n⚠️ Response may be incomplete - the model stopped responding';
+  const content = `${partial}${warning}`;
+  const id = now();
+  const timestamp = nowIso();
+  const localPost = {
+    id,
+    timestamp,
+    data: {
+      type: 'agent_response',
+      content,
+      agent_id: 'default',
+      is_local_stall: true,
+    },
+  };
+
+  stalledPostIdRef.current = id;
+  setPosts((prev) => (prev ? dedupePosts([...prev, localPost]) : [localPost]));
+  scrollToBottomRef.current?.();
+  setAgentStatus(null);
+}

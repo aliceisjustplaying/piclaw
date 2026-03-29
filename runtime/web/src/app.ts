@@ -118,6 +118,7 @@ import {
 } from './ui/app-status-refresh-orchestration.js';
 import { handleAppSseEvent } from './ui/app-sse-events.js';
 import {
+    finalizeStalledResponse as finalizeStalledResponseState,
     reconcileSilentTurn as reconcileSilentTurnState,
     refreshAgentStatusForChat,
     runSilenceWatchdogTick,
@@ -1074,49 +1075,28 @@ function MainApp({ locationParams, navigate }) {
     } = useSplitters({ appShellRef, sidebarWidthRef, editorWidthRef, dockHeightRef });
 
     const finalizeStalledResponse = useCallback(() => {
-        if (!isAgentRunningRef.current) return;
-        isAgentRunningRef.current = false;
-        lastSilenceNoticeRef.current = 0;
-        lastAgentEventRef.current = null;
-        currentTurnIdRef.current = null;
-        setCurrentTurnId(null);
-        thoughtExpandedRef.current = false;
-        draftExpandedRef.current = false;
-
-        const partial = (draftBufferRef.current || '').trim();
-        draftBufferRef.current = '';
-        thoughtBufferRef.current = '';
-        setAgentDraft({ text: '', totalLines: 0 });
-        setAgentPlan('');
-        setAgentThought({ text: '', totalLines: 0 });
-        setPendingRequest(null);
-        pendingRequestRef.current = null;
-        lastAgentResponseRef.current = null;
-
-        if (!partial) {
-            setAgentStatus({ type: 'error', title: 'Response stalled - No content received' });
-            return;
-        }
-
-        const warning = '\n\n⚠️ Response may be incomplete - the model stopped responding';
-        const content = `${partial}${warning}`;
-        const id = Date.now();
-        const timestamp = new Date().toISOString();
-        const localPost = {
-            id,
-            timestamp,
-            data: {
-                type: 'agent_response',
-                content,
-                agent_id: 'default',
-                is_local_stall: true,
-            },
-        };
-
-        stalledPostIdRef.current = id;
-        setPosts((prev) => (prev ? dedupePosts([...prev, localPost]) : [localPost]));
-        scrollToBottomRef.current?.();
-        setAgentStatus(null);
+        finalizeStalledResponseState({
+            isAgentRunningRef,
+            lastSilenceNoticeRef,
+            lastAgentEventRef,
+            currentTurnIdRef,
+            thoughtExpandedRef,
+            draftExpandedRef,
+            draftBufferRef,
+            thoughtBufferRef,
+            pendingRequestRef,
+            lastAgentResponseRef,
+            stalledPostIdRef,
+            scrollToBottomRef,
+            setCurrentTurnId,
+            setAgentDraft,
+            setAgentPlan,
+            setAgentThought,
+            setPendingRequest,
+            setAgentStatus,
+            setPosts,
+            dedupePosts,
+        });
     }, [setCurrentTurnId]);
 
     useEffect(() => {

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
+  finalizeStalledResponse,
   reconcileSilentTurn,
   refreshAgentStatusForChat,
   runSilenceWatchdogTick,
@@ -159,4 +160,45 @@ test('runSilenceWatchdogTick emits waiting status and triggers re-sync after fin
 
   expect(statuses).toEqual([{ type: 'waiting', title: 'Re-syncing after a quiet period…' }]);
   expect(reconciles).toBe(1);
+});
+
+test('finalizeStalledResponse appends local warning post when partial draft exists', () => {
+  const setAgentStatusCalls: any[] = [];
+  const setPostsCalls: any[] = [];
+
+  finalizeStalledResponse({
+    isAgentRunningRef: { current: true },
+    lastSilenceNoticeRef: { current: 5 },
+    lastAgentEventRef: { current: 1000 },
+    currentTurnIdRef: { current: 'turn-1' },
+    thoughtExpandedRef: { current: true },
+    draftExpandedRef: { current: true },
+    draftBufferRef: { current: 'partial output' },
+    thoughtBufferRef: { current: 'thinking' },
+    pendingRequestRef: { current: { id: 1 } },
+    lastAgentResponseRef: { current: { post: { id: 1 } } },
+    stalledPostIdRef: { current: null },
+    scrollToBottomRef: { current: () => undefined },
+    setCurrentTurnId: () => undefined,
+    setAgentDraft: () => undefined,
+    setAgentPlan: () => undefined,
+    setAgentThought: () => undefined,
+    setPendingRequest: () => undefined,
+    setAgentStatus: (next) => setAgentStatusCalls.push(next),
+    setPosts: (next) => setPostsCalls.push(next),
+    dedupePosts: (posts) => posts,
+    now: () => 42,
+    nowIso: () => '2026-01-01T00:00:00.000Z',
+  });
+
+  expect(typeof setPostsCalls[0]).toBe('function');
+  const appended = setPostsCalls[0]([{ id: 1, data: { content: 'a' } }]);
+  expect(appended.at(-1)).toMatchObject({
+    id: 42,
+    data: {
+      type: 'agent_response',
+      is_local_stall: true,
+    },
+  });
+  expect(setAgentStatusCalls.at(-1)).toBeNull();
 });
