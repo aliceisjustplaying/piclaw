@@ -999,7 +999,10 @@ class VncPaneInstance implements PaneInstance {
         if (!token) {
             throw new Error('No live VNC session is available to transfer.');
         }
-        return { vnc_handoff: token };
+        return {
+            pane_path: buildVncTabPath(this.targetId),
+            vnc_handoff: token,
+        };
     }
 
     getContent() { return undefined; }

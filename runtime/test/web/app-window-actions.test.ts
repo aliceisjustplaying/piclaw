@@ -86,6 +86,42 @@ test('popOutPane transfers pane state and closes the source tab after navigation
   expect(toastCalls).toEqual([]);
 });
 
+test('popOutPane allows transfer params to replace the pane path', async () => {
+  const openedWindow = {
+    document: { title: '', body: { innerHTML: '' } },
+    location: {
+      replace: (url: string) => {
+        openedWindow.lastUrl = url;
+      },
+    },
+    lastUrl: '',
+  } as any;
+
+  globalThis.window = {
+    open: () => openedWindow,
+    matchMedia: () => ({ matches: false }),
+    navigator: { userAgent: 'Desktop', maxTouchPoints: 0 },
+  } as any;
+
+  const result = await popOutPane({
+    hasWindow: true,
+    isWebAppMode: false,
+    path: 'piclaw://vnc',
+    label: 'VNC',
+    currentChatJid: 'web:branch',
+    baseHref: 'https://example.test/?chat_jid=web%3Abranch',
+    resolveSourceTransfer: async () => ({
+      pane_path: 'piclaw://vnc/lab',
+      vnc_handoff: 'token-1',
+    }),
+    closeSourcePaneIfTransferred: () => undefined,
+  });
+
+  expect(result).toBe(true);
+  expect(openedWindow.lastUrl).toContain('pane_path=piclaw%3A%2F%2Fvnc%2Flab');
+  expect(openedWindow.lastUrl).toContain('vnc_handoff=token-1');
+});
+
 test('popOutPane keeps the source pane open when no transferable session state exists', async () => {
   const closed: string[] = [];
   const openedWindow = {
