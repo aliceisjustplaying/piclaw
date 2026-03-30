@@ -1096,16 +1096,16 @@
     border: none;
     border-radius: 0;
     background: transparent;
-    color: var(--text-secondary);
+    color: var(--accent-color);
     transition: color var(--ui-transition-fast), opacity var(--ui-transition-fast);
     pointer-events: none;
-    opacity: 0.82;
+    opacity: 0.95;
 }
 
 .compose-session-trigger:hover .compose-session-trigger-icon,
 .compose-session-trigger:focus-visible .compose-session-trigger-icon,
 .compose-session-trigger.active .compose-session-trigger-icon {
-    color: var(--text-primary);
+    color: var(--accent-color);
     opacity: 1;
 }
 
