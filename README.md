@@ -146,45 +146,8 @@ Type `/login` in the web chat to configure providers and models. The terminal (`
 > You do **not** need to set provider API keys in piclaw environment variables.
 > PiClaw reuses provider credentials configured in Pi Agent settings.
 
-### Web terminal
 
-> [!NOTE]
-> The authenticated web terminal is **disabled by default**.
-
-Enable it with either:
-
-```bash
-# Source / compose flow
-PICLAW_WEB_TERMINAL_ENABLED=1 make up
-```
-
-or:
-
-```bash
-# GHCR docker run flow
-docker run -d \
-  --name piclaw \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -e PUID="$(id -u)" \
-  -e PGID="$(id -g)" \
-  -e PICLAW_WEB_PORT=8080 \
-  -e PICLAW_WEB_TERMINAL_ENABLED=1 \
-  -v "$(pwd)/home:/config" \
-  -v "$(pwd)/workspace:/workspace" \
-  ghcr.io/rcarmo/piclaw:latest
-```
-
-Then:
-
-1. Open the web UI.
-2. Use the workspace header **hamburger menu**.
-3. Choose **Open terminal in tab** or **Show terminal dock**.
-4. Run `pi /login`.
-5. Complete Pi Agent settings for your preferred provider/model.
-
-> [!IMPORTANT]
-> If `/model` shows no available models, finish `pi /login` first.
+The web terminal is disabled by default. Set `PICLAW_WEB_TERMINAL_ENABLED=1` to enable it. See [docs/configuration.md](docs/configuration.md) for details.
 
 > [!NOTE]
 > The `/login` card flow works with GitHub Copilot, Codex, and standard OpenAI providers. For providers that need manual configuration, use `pi /login` in the terminal.

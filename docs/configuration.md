@@ -75,6 +75,24 @@ For the full operator guide — including required forwarded headers, Cloudflare
 
 Leave this disabled for direct/non-proxied deployments.
 
+## Web terminal
+
+The authenticated web terminal is **disabled by default**. Enable it with:
+
+```bash
+PICLAW_WEB_TERMINAL_ENABLED=1
+```
+
+Pass this as an environment variable to `docker run`, `docker-compose.yml`, or `make up`.
+
+Once enabled:
+
+1. Open the web UI.
+2. Use the workspace header **hamburger menu**.
+3. Choose **Open terminal in tab** or **Show terminal dock**.
+4. Run `pi /login` to configure providers if needed.
+
+
 ## Runtime and agent
 
 | Variable | Default | Purpose |
