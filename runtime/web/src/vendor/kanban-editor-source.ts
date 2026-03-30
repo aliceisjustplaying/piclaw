@@ -277,9 +277,10 @@ function ItemMenuButton({ onArchive, isEditing, onCancelEdit }: any) {
     </div>`;
 }
 
-function Card({ card, laneId, cardIndex, onUpdate, onDelete, onArchive }: any) {
+function Card({ card, laneId, cardIndex, onUpdate, onDelete, onArchive, onMoveCard }: any) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(card.title);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -297,7 +298,38 @@ function Card({ card, laneId, cardIndex, onUpdate, onDelete, onArchive }: any) {
     e.dataTransfer!.setData('text/plain', card.id);
     setTimeout(() => { (e.target as HTMLElement).classList.add('is-dragging'); }, 0);
   };
-  const handleDragEnd = (e: DragEvent) => { draggedCard = null; (e.target as HTMLElement).classList.remove('is-dragging'); };
+  const handleDragEnd = (e: DragEvent) => {
+    draggedCard = null;
+    setDropPosition(null);
+    (e.target as HTMLElement).classList.remove('is-dragging');
+  };
+  const updateDropPosition = (e: DragEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setDropPosition(e.clientY >= rect.top + rect.height / 2 ? 'after' : 'before');
+  };
+  const handleDragOver = (e: DragEvent) => {
+    if (!draggedCard || isEditing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer!.dropEffect = 'move';
+    updateDropPosition(e);
+  };
+  const handleDragLeave = (e: DragEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+      setDropPosition(null);
+    }
+  };
+  const handleDrop = (e: DragEvent) => {
+    if (!draggedCard || isEditing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const insertAfter = e.clientY >= rect.top + rect.height / 2;
+    onMoveCard(draggedCard.card, draggedCard.fromLaneId, laneId, cardIndex + (insertAfter ? 1 : 0));
+    setDropPosition(null);
+    draggedCard = null;
+  };
   const handleCheck = () => { onUpdate({ ...card, checked: !card.checked, checkChar: card.checked ? ' ' : 'x' }); };
   const saveEdit = () => { if (editTitle.trim()) onUpdate({ ...card, title: editTitle.trim() }); setIsEditing(false); };
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -308,7 +340,10 @@ function Card({ card, laneId, cardIndex, onUpdate, onDelete, onArchive }: any) {
   const cancelEdit = () => { setEditTitle(card.title); setIsEditing(false); };
 
   return html`
-    <div class="kanban-plugin__item-wrapper">
+    <div class="kanban-plugin__item-wrapper ${dropPosition ? `is-drop-${dropPosition}` : ''}"
+      onDragOver=${handleDragOver}
+      onDragLeave=${handleDragLeave}
+      onDrop=${handleDrop}>
       <div class="kanban-plugin__item ${card.checked ? 'is-complete' : ''} ${isEditing ? 'is-editing' : ''}"
         draggable=${!isEditing}
         onKeyDown=${(e: KeyboardEvent) => {
@@ -442,7 +477,8 @@ function Lane({ lane, laneIndex, onUpdate, onDelete, onAddCard, onUpdateCard, on
             <${Card} key=${card.id} card=${card} laneId=${lane.id} cardIndex=${index}
               onUpdate=${(c: CardData) => onUpdateCard(lane.id, c)}
               onDelete=${(c: CardData) => onDeleteCard(lane.id, c)}
-              onArchive=${onArchiveCard} />`)}
+              onArchive=${onArchiveCard}
+              onMoveCard=${onMoveCard} />`)}
         </div>
         ${isAddingCard ? html`<${ItemForm} onAdd=${handleAddCard} onCancel=${() => setIsAddingCard(false)} />` : null}
       </div>
@@ -618,12 +654,13 @@ function Board({ initialContent }: { initialContent: string }) {
       `Archived “${summarizeCardLabel(c)}”`,
     );
   };
-  const moveCard = (c: CardData, from: string, to: string) => {
+  const moveCard = (c: CardData, from: string, to: string, toIndex?: number) => {
     if (!board) return;
     const targetLane = board.lanes.find((lane) => lane.id === to) || null;
-    const nextBoard = moveCardInBoard(board, { cardId: c.id, fromLaneId: from, toLaneId: to });
+    const nextBoard = moveCardInBoard(board, { cardId: c.id, fromLaneId: from, toLaneId: to, toIndex });
     if (nextBoard === board) return;
-    saveBoard(nextBoard, `Moved “${summarizeCardLabel(c)}” to “${summarizeLaneLabel(targetLane)}”`);
+    const action = from === to ? 'Reordered' : 'Moved';
+    saveBoard(nextBoard, `${action} “${summarizeCardLabel(c)}” in “${summarizeLaneLabel(targetLane)}”`);
   };
   const restoreFromArchive = (c: CardData) => {
     if (!board) return;

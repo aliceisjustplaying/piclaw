@@ -21,3 +21,14 @@ test('kanban editor source surfaces undo state in the toolbar', () => {
   expect(source).toContain('Last change: ${latestUndoEntry.label}');
   expect(source).toContain('title=${latestUndoEntry ? `Undo: ${latestUndoEntry.label} (Ctrl+Z)` : \'Undo (Ctrl+Z)\'}');
 });
+
+test('kanban editor source supports intra-lane card reordering drop targets', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'runtime', 'web', 'src', 'vendor', 'kanban-editor-source.ts'),
+    'utf8',
+  );
+
+  expect(source).toContain("const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);");
+  expect(source).toContain("onMoveCard(draggedCard.card, draggedCard.fromLaneId, laneId, cardIndex + (insertAfter ? 1 : 0));");
+  expect(source).toContain('class="kanban-plugin__item-wrapper ${dropPosition ? `is-drop-${dropPosition}` : \'\'}"');
+});
