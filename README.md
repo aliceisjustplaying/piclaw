@@ -48,7 +48,7 @@ Open `http://localhost:8080`.
 > If you plan to use SSHFS (`sshfs` inside the container), start with FUSE-enabled permissions:
 >
 > ```bash
-docker run -d \
+> docker run -d \
 >   --name piclaw \
 >   --restart unless-stopped \
 >   -p 8080:8080 \
