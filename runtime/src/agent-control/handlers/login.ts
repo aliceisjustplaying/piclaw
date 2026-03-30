@@ -45,6 +45,7 @@ interface AuthStorageLike {
 }
 
 interface ModelRegistryLike {
+  refresh?: () => void;
   getAll(): Array<{ id: string; name: string; provider: string; contextWindow?: number }>;
 }
 
@@ -128,6 +129,10 @@ function getAuthStorage(session: AgentSession, modelRegistry: ModelRegistry): Au
 
 function getModelRegistry(session: AgentSession, modelRegistry: ModelRegistry): ModelRegistryLike {
   return ((session as AgentSession & { modelRegistry?: ModelRegistryLike }).modelRegistry ?? modelRegistry) as ModelRegistryLike;
+}
+
+function refreshModelRegistry(registry: ModelRegistryLike): void {
+  registry.refresh?.();
 }
 
 interface ProviderStatus {
@@ -525,6 +530,7 @@ async function handleStep2(
     backupFile(getAuthJsonPath());
     authStorage.set(providerId, { type: "api_key", key: apiKey });
     authStorage.reload();
+    refreshModelRegistry(registry);
     // Show Card 3 with models for this provider, or activate directly when only one exists.
     return await showCard3OrComplete(session, modelRegistry, def, providerId, name, registry);
   }
@@ -542,6 +548,7 @@ async function handleStep2(
     }
 
     authStorage.reload();
+    refreshModelRegistry(registry);
     const cred = authStorage.get(providerId);
     if (cred?.type === "oauth") {
       return await showCard3OrComplete(session, modelRegistry, def, providerId, name, registry);
@@ -583,6 +590,7 @@ async function handleStep2(
       authStorage.set(providerId, undefined as unknown as Record<string, unknown>);
       authStorage.reload();
     }
+    refreshModelRegistry(registry);
     if (def?.isCustom) {
       const modelsJson = readJsonFile(getModelsJsonPath()) as { providers?: Record<string, unknown> };
       if (modelsJson.providers?.[providerId]) {

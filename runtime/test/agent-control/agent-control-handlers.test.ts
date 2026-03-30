@@ -315,6 +315,39 @@ test("login config writes stay inside the overridden pi-agent dir", async () => 
   expect(modelsJson.providers?.ollama?.models?.map((entry: { id: string }) => entry.id)).toEqual(["llama3:latest", "qwen3:latest"]);
 });
 
+test("login refreshes model registry before activating newly authenticated provider models", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const applyControlCommand = await getControl();
+  let refreshCalls = 0;
+  const loginRegistry = {
+    authStorage: {
+      get: (provider: string) => provider === "github-copilot" ? ({ type: "oauth" } as const) : undefined,
+      set: () => {},
+      reload: () => {},
+    },
+    refresh: () => { refreshCalls += 1; },
+    getAvailable: () => [],
+    getAll: () => refreshCalls > 0
+      ? [{ provider: "github-copilot", id: "gpt-4.1", name: "GPT 4.1", reasoning: true }]
+      : [],
+  };
+  const session = new TestAgentControlSession(ws.workspace, loginRegistry);
+
+  const result = await applyControlCommand(session as any, loginRegistry as any, {
+    type: "login",
+    provider: `__step2 ${JSON.stringify({ provider: "github-copilot", method: "oauth_check" })}`,
+    raw: "/login __step2",
+  });
+
+  expect(refreshCalls).toBeGreaterThan(0);
+  expect(result.status).toBe("success");
+  expect(result.model_label).toBe("github-copilot/gpt-4.1");
+  expect(session.model?.provider).toBe("github-copilot");
+  expect(session.model?.id).toBe("gpt-4.1");
+});
+
 test("agent control cycle and agent identity commands", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });

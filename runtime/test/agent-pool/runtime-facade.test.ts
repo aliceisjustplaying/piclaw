@@ -31,11 +31,13 @@ function createFacade(overrides: Partial<ConstructorParameters<typeof AgentRunti
 }
 
 test("AgentRuntimeFacade reports available models and context usage", async () => {
+  let refreshCalls = 0;
   const session = {
     model: { provider: "openai", id: "gpt-test", reasoning: true },
     thinkingLevel: "high",
     getContextUsage: () => ({ tokens: 10, contextWindow: 100, percent: 10 }),
     modelRegistry: {
+      refresh: () => { refreshCalls += 1; },
       getAvailable: () => [
         { provider: "openai", id: "gpt-test" },
         { provider: "anthropic", id: "claude-test" },
@@ -47,6 +49,7 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
   fixture.pool.set("web:default", { session, lastUsed: Date.now() });
 
   const available = await fixture.facade.getAvailableModels("web:default");
+  expect(refreshCalls).toBe(1);
   expect(available.current).toBe("openai/gpt-test");
   expect(available.models).toEqual(["openai/gpt-test", "anthropic/claude-test"]);
   expect(available.thinking_level).toBe("high");

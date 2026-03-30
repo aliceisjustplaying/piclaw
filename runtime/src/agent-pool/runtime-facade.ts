@@ -59,6 +59,7 @@ export class AgentRuntimeFacade {
   async getAvailableModels(chatJid: string): Promise<AvailableModelsResult> {
     const session = await this.options.getOrCreate(chatJid);
     const registry = (session as AgentSession & { modelRegistry?: ModelRegistry }).modelRegistry ?? this.options.modelRegistry;
+    registry.refresh();
     const available = registry.getAvailable();
     const models = available.map((model) => `${model.provider}/${model.id}`);
     const currentModel = session.model ? `${session.model.provider}/${session.model.id}` : null;
