@@ -31,6 +31,7 @@ make build-piclaw    # full build: vendor bundle + web assets + TypeScript
 make vendor          # rebuild vendored assets
 make lint            # ESLint
 make test            # full test suite
+make ci-fast         # canonical fast CI guardrails + web build
 make local-install   # pack, install globally, restart piclaw
 # or: PICLAW_SKIP_RESTART=1 make local-install  # install only; let the agent call exit_process later
 ```

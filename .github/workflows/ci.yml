@@ -23,11 +23,5 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check for silent swallow regressions
-        run: bun run check:silent-swallows
-
-      - name: Check structured logging guardrails
-        run: bun run check:structured-logging
-
-      - name: Build web bundles and run web regression tests
-        run: make build-web
+      - name: Run canonical fast CI contract
+        run: make ci-fast

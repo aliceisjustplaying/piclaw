@@ -96,13 +96,11 @@ jobs:
           STATIC_TIMEOUT_SEC: "120"
           HTTP_TIMEOUT_SEC: "180"
         run: |
-          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
-          chmod +x ./scripts/docker/publish-smoke-test.sh
-          ./scripts/docker/publish-smoke-test.sh \
-            "$IMAGE_REF" \
-            linux/amd64 \
-            "${{ needs.resolve-runtime-versions.outputs.bun_version }}" \
-            "${{ needs.resolve-runtime-versions.outputs.restic_version }}"
+          make publish-smoke \
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" \
+            PLATFORM="linux/amd64" \
+            EXPECTED_BUN_VERSION="${{ needs.resolve-runtime-versions.outputs.bun_version }}" \
+            EXPECTED_RESTIC_VERSION="${{ needs.resolve-runtime-versions.outputs.restic_version }}"
 
   # Build ARM64 image on native ARM runner
   build-arm64:
@@ -155,13 +153,11 @@ jobs:
           STATIC_TIMEOUT_SEC: "120"
           HTTP_TIMEOUT_SEC: "180"
         run: |
-          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
-          chmod +x ./scripts/docker/publish-smoke-test.sh
-          ./scripts/docker/publish-smoke-test.sh \
-            "$IMAGE_REF" \
-            linux/arm64 \
-            "${{ needs.resolve-runtime-versions.outputs.bun_version }}" \
-            "${{ needs.resolve-runtime-versions.outputs.restic_version }}"
+          make publish-smoke \
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" \
+            PLATFORM="linux/arm64" \
+            EXPECTED_BUN_VERSION="${{ needs.resolve-runtime-versions.outputs.bun_version }}" \
+            EXPECTED_RESTIC_VERSION="${{ needs.resolve-runtime-versions.outputs.restic_version }}"
 
   # Merge digests into a single multi-arch manifest
   merge:

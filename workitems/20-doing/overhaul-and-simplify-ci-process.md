@@ -22,28 +22,24 @@ blocked-by: []
 
 ## Summary
 
-Piclaw’s current validation surface has grown into a broad mix of Bun scripts,
-Make targets, audit flows, and GitHub workflow behavior. That makes CI harder
-to reason about than it should be, increases the chance that local success does
-not match CI success, and slows down maintenance whenever new checks are added
-or refactored.
+Piclaw’s current validation surface mixes Bun scripts, Make targets, audit
+flows, and GitHub Actions shell snippets. That makes CI harder to reason about
+than it should be, increases the chance that local success does not match CI
+success, and slows down maintenance whenever new checks are added or refactored.
 
-This ticket tracks a deliberate simplification pass over the CI process so that:
+This ticket tracks a deliberate simplification pass so that:
 
-- the canonical validation entry points are explicit
+- canonical validation entry points are explicit
 - local developer workflows and CI workflows use the same commands where practical
-- flaky or duplicated checks are reduced
-- packaging / install validation remains aligned with the authoritative container runtime
-
-This is broader than a single workflow-file cleanup: it should produce a
-clearer, smaller, and more deterministic validation contract for the repo.
+- duplicated inline workflow logic is reduced
+- packaging / release smoke checks stay aligned with the authoritative container runtime
 
 ## Acceptance Criteria
 
 - [ ] The repo has a clearly documented canonical CI command set (for example: fast checks, full quality, release/publish validation).
 - [ ] GitHub Actions workflow steps are simplified to use those canonical commands instead of ad-hoc duplicated shell logic where practical.
 - [ ] Redundant or overlapping CI checks are identified and either removed or intentionally justified.
-- [ ] The resulting CI flow is easier to understand from the workflow files and README/docs.
+- [ ] The resulting CI flow is easier to understand from workflow files and docs.
 - [ ] Local developer validation and CI validation are materially closer after the change.
 - [ ] Any follow-up work that is too large for this tranche is split into explicit linked tickets.
 
@@ -80,25 +76,53 @@ Why Path B is weaker:
 ## Updates
 
 ### 2026-03-30
-- Created directly in `20-doing` per explicit user instruction to add a doing ticket for CI simplification.
-- Scope is intentionally broad enough to cover workflow simplification and command-surface cleanup, but still constrained to CI contract clarity rather than unrelated runtime refactors.
-- Note: this temporarily exceeds the preferred doing-lane WIP limit because the user explicitly requested immediate tracking plus implementation work elsewhere in the same session.
+- First CI simplification tranche landed on branch `feature/ci-process-simplification` and was later recovered onto `main` during branch cleanup.
+- Added canonical repo-owned CI entry points:
+  - `bun run ci:fast`
+  - `make ci-fast`
+  - `bun run ci:publish-smoke`
+  - `make publish-smoke`
+- Simplified workflow usage:
+  - `.github/workflows/ci.yml` now installs dependencies and calls `make ci-fast`
+  - `.github/workflows/publish.yml` now calls `make publish-smoke` for both AMD64 and ARM64 image smoke checks instead of duplicating the shell-script wrapper block inline
+- Updated docs so developer/release guidance references the same repo-owned commands.
+- Validation evidence for this tranche:
+  - `bun run ci:fast` → exit `0`
+  - YAML syntax parsed successfully for `.github/workflows/ci.yml` and `.github/workflows/publish.yml`
+  - `make -n publish-smoke IMAGE_REF=test PLATFORM=linux/amd64 EXPECTED_BUN_VERSION=1 EXPECTED_RESTIC_VERSION=1` expands to the canonical repo-owned smoke command as intended
+  - full local `make publish-smoke ...` execution is still environment-limited in this container because `docker` is not available here, so runtime coverage for the smoke itself remains delegated to GitHub runners / Docker-capable environments
+- Remaining likely follow-up: decide whether the version-resolution and publish cleanup/pruning logic should remain in workflow-local shell/github-script form or move behind additional repo-owned wrappers.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
+
+### 2026-03-30
+- Created directly in `20-doing` to track the CI simplification work requested in chat.
+- First-pass workflow inventory on current `main`:
+  - `.github/workflows/ci.yml` installs dependencies, then runs `check:silent-swallows`, `check:structured-logging`, and `make build-web` as separate inline workflow steps
+  - `.github/workflows/publish.yml` already delegates the image smoke test to `scripts/docker/publish-smoke-test.sh`, but still duplicates the same step wrapper in the AMD64 and ARM64 jobs
+- Immediate simplification targets for this tranche:
+  - add a canonical fast CI command so `ci.yml` stops spelling out the same sequence inline
+  - add a canonical publish-smoke entry point so `publish.yml` can call a repo-owned command instead of repeated shell blocks
 - Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 1, deps: 2, risk: 1)
 
 ## Notes
 
 - Likely related surfaces:
-  - `.github/workflows/*.yml`
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/publish.yml`
+  - `scripts/docker/publish-smoke-test.sh`
   - `package.json`
   - `Makefile`
-  - `README.md`
+  - `docs/development.md`
+  - `docs/release.md`
 - Keep container/runtime install assumptions explicit:
   - Supervisor-managed runtime in the container
   - global Bun root under `/usr/local/lib/bun`
 
 ## Links
 
+- `.github/workflows/ci.yml`
 - `.github/workflows/publish.yml`
+- `scripts/docker/publish-smoke-test.sh`
 - `package.json`
 - `Makefile`
 - `README.md`

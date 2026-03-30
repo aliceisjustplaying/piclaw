@@ -8,6 +8,8 @@
 #   pack           – Pack piclaw into a .tgz (depends on build-piclaw).
 #   local-install  – Pack, install globally, and optionally restart.
 #   lint/test      – Run ESLint and bun test suite.
+#   ci-fast        – Run the canonical fast CI guardrails + web build.
+#   publish-smoke  – Smoke-test a published piclaw image via env-provided args.
 #   up/down/enter  – Docker Compose lifecycle helpers.
 #   sync-version   – Sync package.json version to VERSION file.
 #   bump-*         – Version bump helpers.
@@ -37,7 +39,7 @@ PI_AGENT_VERSION ?= $(shell jq -r '.dependencies["@mariozechner/pi-coding-agent"
 WEB_BUILD_TEST_TIMEOUT_MS ?= 20000
 
 .PHONY: help up down enter build build-piclaw build-web build-ts vendor update-mermaid-vendor pack \
-        local-install restart lint test test-coverage \
+        local-install restart lint test test-coverage ci-fast publish-smoke \
         dual-tag tag-ghcr sync-version bump-minor bump-patch push
 
 help: ## Show this help
@@ -176,6 +178,13 @@ test: ## Run piclaw tests
 
 test-coverage: ## Run piclaw tests with coverage
 	cd runtime && bun run test:coverage
+
+ci-fast: ## Run the canonical fast CI contract used by GitHub Actions
+	bun run ci:fast
+
+publish-smoke: ## Smoke-test a published piclaw image (requires IMAGE_REF, PLATFORM, EXPECTED_BUN_VERSION, EXPECTED_RESTIC_VERSION)
+	@: "$${IMAGE_REF:?set IMAGE_REF}" "$${PLATFORM:?set PLATFORM}" "$${EXPECTED_BUN_VERSION:?set EXPECTED_BUN_VERSION}" "$${EXPECTED_RESTIC_VERSION:?set EXPECTED_RESTIC_VERSION}"
+	bun run ci:publish-smoke
 
 # ── Versioning ───────────────────────────────────────────────────────
 
