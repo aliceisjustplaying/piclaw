@@ -105,21 +105,6 @@ bun run build             # recompile TypeScript (optional — Bun runs .ts dire
 
 See [docs/install-from-repo.md](docs/install-from-repo.md) for scope and caveats.
 
-### Repo ownership rules
-
-The repo root is the maintainer/operator boundary; `runtime/` is the packaged implementation boundary.
-
-- `workitems/` — canonical project work-item store for this repo
-- `docs/` — repo/operator/architecture/install documentation
-- `runtime/docs/` — packaged/runtime-facing documentation only
-- `scripts/` — repo-level dev/operator entrypoints and audits
-- `runtime/scripts/` — packaged helper scripts that ship with piclaw
-- `artifacts/` — durable repo-level evidence and audit outputs
-- `runtime/generated/` — transient runtime-generated build/test/cache output
-
-See `docs/architecture.md` for the full layout and placement policy.
-
-Intentional exceptions remain intentionally named `kanban` when they describe the visual/editor surface rather than the repo work-item store — for example `kanban-management` and `*.kanban.md`.
 
 ### Build from source
 
