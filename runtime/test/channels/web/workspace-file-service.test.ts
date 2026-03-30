@@ -8,10 +8,47 @@ import { expect, test } from "bun:test";
 import "../../helpers.js";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
+import { gzipSync } from "zlib";
+
+import { zipSync, strToU8 } from "fflate";
 
 import { initDatabase } from "../../../src/db.js";
 import { WorkspaceFileService } from "../../../src/channels/web/workspace/file-service.js";
 import { WORKSPACE_DIR } from "../../../src/core/config.js";
+
+function createTarBuffer(entries: Array<{ name: string; content: string }>): Buffer {
+  const blocks: Buffer[] = [];
+
+  for (const entry of entries) {
+    const content = Buffer.from(entry.content, "utf8");
+    const header = Buffer.alloc(512, 0);
+    Buffer.from(entry.name).copy(header, 0, 0, Math.min(Buffer.byteLength(entry.name), 100));
+    Buffer.from("0000777\0", "ascii").copy(header, 100);
+    Buffer.from("0000000\0", "ascii").copy(header, 108);
+    Buffer.from("0000000\0", "ascii").copy(header, 116);
+    Buffer.from(sizeToTarOctal(content.length), "ascii").copy(header, 124);
+    Buffer.from("00000000000\0", "ascii").copy(header, 136);
+    header[156] = "0".charCodeAt(0);
+    Buffer.from("ustar\0", "ascii").copy(header, 257);
+    Buffer.from("00", "ascii").copy(header, 263);
+    Buffer.from("agent\0", "ascii").copy(header, 265);
+    Buffer.from("agent\0", "ascii").copy(header, 297);
+    for (let i = 148; i < 156; i += 1) header[i] = 0x20;
+    const checksum = header.reduce((sum, byte) => sum + byte, 0);
+    Buffer.from(checksum.toString(8).padStart(6, "0") + "\0 ", "ascii").copy(header, 148);
+    blocks.push(header);
+    blocks.push(content);
+    const remainder = content.length % 512;
+    if (remainder !== 0) blocks.push(Buffer.alloc(512 - remainder, 0));
+  }
+
+  blocks.push(Buffer.alloc(1024, 0));
+  return Buffer.concat(blocks);
+}
+
+function sizeToTarOctal(size: number): string {
+  return size.toString(8).padStart(11, "0") + "\0";
+}
 
 function setupWorkspaceDir() {
   initDatabase();
@@ -27,13 +64,18 @@ function setupWorkspaceDir() {
   return { prefix, base, cleanup, service: new WorkspaceFileService() };
 }
 
-test("getFile handles invalid, directory, text/json/image and binary modes", () => {
+test("getFile handles invalid, directory, text/json/image, archive and binary modes", () => {
   const { prefix, base, cleanup, service } = setupWorkspaceDir();
   try {
     writeFileSync(join(base, "note.txt"), "hello\nworld\n", "utf8");
     writeFileSync(join(base, "raw.json"), '{"a":1}', "utf8");
     writeFileSync(join(base, "binary.bin"), Buffer.from([0, 159, 146, 150]));
     writeFileSync(join(base, "image.png"), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    writeFileSync(join(base, "bundle.zip"), Buffer.from(zipSync({ "notes/readme.txt": strToU8("hello"), "data.json": strToU8('{"a":1}') })));
+    writeFileSync(join(base, "archive.tar.gz"), gzipSync(createTarBuffer([
+      { name: "docs/readme.txt", content: "hello tar" },
+      { name: "report.csv", content: "a,b\n1,2\n" },
+    ])));
 
     expect(service.getFile("../../etc/passwd").status).toBe(400);
     expect(service.getFile(prefix).status).toBe(400); // directory path
@@ -51,6 +93,20 @@ test("getFile handles invalid, directory, text/json/image and binary modes", () 
     expect(image.status).toBe(200);
     expect((image.body as any).kind).toBe("image");
     expect((image.body as any).url).toContain(`/workspace/raw?path=${encodeURIComponent(`${prefix}/image.png`)}`);
+
+    const zipPreview = service.getFile(`${prefix}/bundle.zip`);
+    expect(zipPreview.status).toBe(200);
+    expect((zipPreview.body as any).kind).toBe("text");
+    expect((zipPreview.body as any).text).toContain(`ZIP archive: ${prefix}/bundle.zip`);
+    expect((zipPreview.body as any).text).toContain("notes/readme.txt");
+    expect((zipPreview.body as any).text).toContain("data.json");
+
+    const tarPreview = service.getFile(`${prefix}/archive.tar.gz`);
+    expect(tarPreview.status).toBe(200);
+    expect((tarPreview.body as any).kind).toBe("text");
+    expect((tarPreview.body as any).text).toContain(`tar.gz archive: ${prefix}/archive.tar.gz`);
+    expect((tarPreview.body as any).text).toContain("docs/readme.txt");
+    expect((tarPreview.body as any).text).toContain("report.csv");
 
     const binaryPreview = service.getFile(`${prefix}/binary.bin`);
     expect(binaryPreview.status).toBe(200);

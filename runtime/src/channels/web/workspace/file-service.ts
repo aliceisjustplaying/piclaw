@@ -10,6 +10,7 @@
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { readdir } from "fs/promises";
 import path from "path";
+import { gunzipSync } from "zlib";
 
 import { Zip, ZipDeflate, ZipPassThrough } from "fflate";
 
@@ -20,6 +21,139 @@ import { contentTypeForPath, detectBinary, formatMtime, isImageFile, isTextFile 
 import { isHiddenPath, resolveWorkspacePath, shouldIgnorePath, toRelativePath } from "./paths.js";
 
 const log = createLogger("web.workspace.file-service");
+
+interface ArchiveEntrySummary {
+  name: string;
+  compressedSize: number | null;
+  uncompressedSize: number;
+  isDirectory: boolean;
+}
+
+function parseZipEntries(buffer: Buffer, maxEntries = 200): { entries: ArchiveEntrySummary[]; totalEntries: number; truncated: boolean } {
+  const eocdSignature = 0x06054b50;
+  const cdSignature = 0x02014b50;
+  const minEocdSize = 22;
+  const maxCommentSize = 0xffff;
+  const searchStart = Math.max(0, buffer.length - (minEocdSize + maxCommentSize));
+
+  let eocdOffset = -1;
+  for (let offset = buffer.length - minEocdSize; offset >= searchStart; offset -= 1) {
+    if (buffer.readUInt32LE(offset) === eocdSignature) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw new Error("ZIP end-of-central-directory record not found");
+  }
+
+  const entryCount = buffer.readUInt16LE(eocdOffset + 10);
+  const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
+
+  const entries: ArchiveEntrySummary[] = [];
+  let offset = centralDirectoryOffset;
+  let totalEntries = 0;
+
+  while (offset + 46 <= buffer.length && totalEntries < entryCount) {
+    if (buffer.readUInt32LE(offset) !== cdSignature) break;
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const externalAttrs = buffer.readUInt32LE(offset + 38);
+    const nameStart = offset + 46;
+    const nameEnd = nameStart + fileNameLength;
+    if (nameEnd > buffer.length) break;
+    const name = buffer.toString("utf8", nameStart, nameEnd);
+    const isDirectory = name.endsWith("/") || ((externalAttrs >>> 16) & 0o170000) === 0o040000;
+    totalEntries += 1;
+    if (entries.length < maxEntries) {
+      entries.push({
+        name,
+        compressedSize,
+        uncompressedSize,
+        isDirectory,
+      });
+    }
+    offset = nameEnd + extraLength + commentLength;
+  }
+
+  return {
+    entries,
+    totalEntries,
+    truncated: totalEntries > entries.length,
+  };
+}
+
+function isTarGzPath(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return lower.endsWith(".tar.gz") || lower.endsWith(".tgz");
+}
+
+function parseTarEntries(buffer: Buffer, maxEntries = 200): { entries: ArchiveEntrySummary[]; totalEntries: number; truncated: boolean } {
+  const entries: ArchiveEntrySummary[] = [];
+  let offset = 0;
+  let totalEntries = 0;
+
+  while (offset + 512 <= buffer.length) {
+    const header = buffer.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+
+    const rawName = header.toString("utf8", 0, 100).replace(/\0.*$/, "");
+    const rawPrefix = header.toString("utf8", 345, 500).replace(/\0.*$/, "");
+    const sizeOctal = header.toString("utf8", 124, 136).replace(/\0.*$/, "").trim();
+    const typeFlag = header.toString("utf8", 156, 157) || "0";
+    const size = sizeOctal ? parseInt(sizeOctal.replace(/\s/g, ""), 8) || 0 : 0;
+    const name = rawPrefix ? `${rawPrefix}/${rawName}` : rawName;
+    const isDirectory = typeFlag === "5" || name.endsWith("/");
+
+    if (!name) break;
+
+    totalEntries += 1;
+    if (entries.length < maxEntries) {
+      entries.push({
+        name,
+        compressedSize: null,
+        uncompressedSize: size,
+        isDirectory,
+      });
+    }
+
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+
+  return {
+    entries,
+    totalEntries,
+    truncated: totalEntries > entries.length,
+  };
+}
+
+function formatArchiveListing(label: string, relPath: string, stats: { size: number }, parsed: { entries: ArchiveEntrySummary[]; totalEntries: number; truncated: boolean }): string {
+  const lines = [
+    `${label}: ${relPath}`,
+    `Entries: ${parsed.totalEntries}`,
+    `Archive size: ${stats.size} bytes`,
+    "",
+  ];
+
+  for (const entry of parsed.entries) {
+    const kind = entry.isDirectory ? "dir " : "file";
+    const compressionLabel = entry.compressedSize != null && entry.compressedSize !== entry.uncompressedSize
+      ? `, ${entry.compressedSize} B compressed`
+      : "";
+    const sizeLabel = entry.isDirectory ? "" : ` (${entry.uncompressedSize} B${compressionLabel})`;
+    lines.push(`${kind}  ${entry.name}${sizeLabel}`);
+  }
+
+  if (parsed.truncated) {
+    lines.push("");
+    lines.push(`… showing first ${parsed.entries.length} entries of ${parsed.totalEntries}.`);
+  }
+
+  return lines.join("\n");
+}
 
 function normalizeEntryName(raw: string | null | undefined): string | null {
   const name = (raw || "").trim();
@@ -49,6 +183,7 @@ export class WorkspaceFileService {
       const relPath = toRelativePath(targetPath);
       const contentType = contentTypeForPath(targetPath);
       const isImage = isImageFile(targetPath);
+      const ext = path.extname(targetPath).toLowerCase();
 
       if (isImage) {
         const rawUrl = `/workspace/raw?path=${encodeURIComponent(relPath)}`;
@@ -80,6 +215,40 @@ export class WorkspaceFileService {
       }
 
       const buffer = readFileSync(targetPath, { encoding: null }) as Buffer;
+
+      if (!isEditMode && (ext === ".zip" || isTarGzPath(targetPath))) {
+        try {
+          const isZip = ext === ".zip";
+          const parsed = isZip ? parseZipEntries(buffer) : parseTarEntries(gunzipSync(buffer));
+          return {
+            status: 200,
+            body: {
+              path: relPath,
+              name: path.basename(targetPath),
+              kind: "text",
+              content_type: contentType,
+              size: stats.size,
+              mtime: formatMtime(stats),
+              text: formatArchiveListing(isZip ? "ZIP archive" : "tar.gz archive", relPath, stats, parsed),
+              truncated: parsed.truncated,
+            },
+          };
+        } catch {
+          return {
+            status: 200,
+            body: {
+              path: relPath,
+              name: path.basename(targetPath),
+              kind: "binary",
+              content_type: contentType,
+              size: stats.size,
+              mtime: formatMtime(stats),
+              truncated: false,
+            },
+          };
+        }
+      }
+
       const slice = buffer.subarray(0, maxBytes);
       const truncated = buffer.length > maxBytes;
 
