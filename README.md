@@ -80,7 +80,6 @@ cd /workspace && pi
 >
 > One reason this path exists is to support people who want to run PiClaw on low-end ARM SBCs, lightweight VMs, or other sandboxed environments where Docker is not the best fit or is not available.
 >
-> The repository root is the install/package boundary. The nested `runtime/` directory is the implementation subtree used by the packaged CLI, web assets, extensions, skills, packaged helper scripts, and packaged runtime docs.
 
 ```bash
 bun add -g github:rcarmo/piclaw
