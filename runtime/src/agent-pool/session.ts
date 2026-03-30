@@ -52,6 +52,7 @@ const OPTIONAL_EXTENSIONS: { path: string; envGate?: string }[] = [
   { path: resolve(EXTENSIONS_DIR, "browser", "cdp-browser", "index.ts") },
   { path: resolve(EXTENSIONS_DIR, "platform", "windows", "win-ui", "index.ts") },
   { path: resolve(EXTENSIONS_DIR, "viewers", "office-viewer", "index.ts") },
+  { path: resolve(EXTENSIONS_DIR, "integrations", "office-tools", "index.ts") },
   { path: resolve(EXTENSIONS_DIR, "viewers", "drawio-editor", "index.ts") },
 ];
 

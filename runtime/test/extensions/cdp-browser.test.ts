@@ -49,6 +49,16 @@ describe("cdp-browser extension", () => {
     expect(result.details.ms).toBe(1);
   });
 
+  test("print_pdf validates target before attempting browser work", async () => {
+    const fake = createFakeApi();
+    cdpBrowserExtension(fake.api);
+    const tool = fake.tools.get("cdp_browser");
+    expect(tool).toBeDefined();
+
+    await expect(tool!.execute("call-0", { action: "print_pdf" }, undefined, undefined, { cwd: "/tmp" }))
+      .rejects.toThrow("url or match is required for print_pdf action");
+  });
+
   test("sleep action respects cancellation signal", async () => {
     const fake = createFakeApi();
     cdpBrowserExtension(fake.api);
