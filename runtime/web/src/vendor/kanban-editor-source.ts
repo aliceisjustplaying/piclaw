@@ -116,6 +116,15 @@ function unescapeMarkdownLine(line: string): string {
   return line;
 }
 
+function escapeHtml(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function sanitizeMarkdownUrl(rawUrl: string): string {
   const text = String(rawUrl || '').trim();
   if (!text) return '#';
