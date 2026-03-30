@@ -76,7 +76,7 @@ cd /workspace && pi
 >
 > **Experimental for now**: Bun-first, Linux/macOS, and intended to avoid a manual build step, but not yet positioned as the main production install route or a generally supported deployment target.
 >
-> It also runs directly on Windows — and there is even a PowerShell skill — but Windows is **not officially supported**. It technically works, but you're on your own.
+> It also runs directly on Windows — with native desktop automation via Win32 FFI — but Windows is **not officially supported**. It technically works, but you're on your own.
 >
 > One reason this path exists is to support people who want to run PiClaw on low-end ARM SBCs, lightweight VMs, or other sandboxed environments where Docker is not the best fit or is not available.
 >
@@ -253,6 +253,21 @@ Open the built-in editor from a text-file preview.
 - **`win_*` tools** — bundled Windows-only desktop automation via `bun:ffi` + IAccessible for window enumeration, screenshots, tree inspection, clicking, typing, and graceful/forced close
 
 The Windows desktop tools are safe to ship cross-platform because they no-op off Windows, while `cdp_browser` works across Linux, macOS, and Windows when a Chromium-based browser is available.
+
+
+### Windows support (experimental)
+
+PiClaw runs natively on Windows via `bun install`. The bundled `win_*` tools provide full desktop automation through `bun:ffi` calling directly into Win32 system DLLs — no PowerShell, no compiled helpers, nothing for Defender to flag:
+
+- `win_list_windows` — enumerate visible windows with titles, PIDs, bounds
+- `win_screenshot` — capture any window to BMP/PNG (works through lock screen)
+- `win_find_elements` — discover UI elements via IAccessible/MSAA (sees inside Edge, VS Code, WPF, UWP)
+- `win_click` — click by coordinates or element name
+- `win_type` — send keystrokes with Unicode support
+- `win_tree` — dump the full accessibility tree for a window
+- `win_kill` — close or force-kill windows by title
+
+These tools no-op on non-Windows platforms. Not officially supported. Works anyway.
 
 ### Viewers
 
