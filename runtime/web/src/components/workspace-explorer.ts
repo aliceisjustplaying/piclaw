@@ -2116,23 +2116,6 @@ export function WorkspaceExplorer({
                                     ${showHidden ? 'Hide hidden files' : 'Show hidden files'}
                                 </button>
 
-                                ${selectedPath && html`<div class="workspace-menu-separator"></div>`}
-                                ${selectedPath && !selectedIsDir && html`
-                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuOpenEditor} disabled=${!canEdit}>Open in editor</button>
-                                `}
-                                ${selectedCanRename && html`
-                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuRename}>Rename selected</button>
-                                `}
-                                ${selectedCanDownload && html`
-                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuDownload}>Download selected file</button>
-                                `}
-                                ${selectedFolderDownloadUrl && html`
-                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuDownloadFolder}>Download selected folder (zip)</button>
-                                `}
-                                ${selectedCanDelete && html`
-                                    <button class="workspace-menu-item danger" role="menuitem" onClick=${handleMenuDelete}>Delete selected file</button>
-                                `}
-
                                 ${(onOpenTerminalTab || onOpenVncTab || onToggleTerminal) && html`<div class="workspace-menu-separator"></div>`}
                                 ${onOpenTerminalTab && html`
                                     <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuOpenTerminalTab}>
@@ -2148,6 +2131,23 @@ export function WorkspaceExplorer({
                                     <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuToggleTerminal}>
                                         ${terminalVisible ? 'Hide terminal dock' : 'Show terminal dock'}
                                     </button>
+                                `}
+
+                                ${selectedPath && html`<div class="workspace-menu-separator"></div>`}
+                                ${selectedPath && !selectedIsDir && html`
+                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuOpenEditor} disabled=${!canEdit}>Open in editor</button>
+                                `}
+                                ${selectedCanRename && html`
+                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuRename}>Rename selected</button>
+                                `}
+                                ${selectedCanDownload && html`
+                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuDownload}>Download selected file</button>
+                                `}
+                                ${selectedFolderDownloadUrl && html`
+                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuDownloadFolder}>Download selected folder (zip)</button>
+                                `}
+                                ${selectedCanDelete && html`
+                                    <button class="workspace-menu-item danger" role="menuitem" onClick=${handleMenuDelete}>Delete selected file</button>
                                 `}
                             </div>
                         `}

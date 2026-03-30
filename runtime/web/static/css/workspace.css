@@ -214,12 +214,15 @@
     left: 0;
     min-width: 230px;
     max-width: min(320px, 90vw);
+    max-height: min(420px, calc(100dvh - 88px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
     padding: 6px;
-    z-index: 50;
+    z-index: 80;
     display: flex;
     flex-direction: column;
     gap: 4px;
