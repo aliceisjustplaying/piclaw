@@ -85,6 +85,8 @@ export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrat
     helpers,
   } = options;
 
+  const showIntentToast = interaction.composeReferenceActions.showIntentToast;
+
   const timelineViewActions = useTimelineViewActions({
     currentHashtag: searchState.currentHashtag,
     searchQuery: searchState.searchQuery,
@@ -155,7 +157,7 @@ export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrat
       tabStoreHasUnsaved: services.tabStoreHasUnsaved,
       isAgentRunningRef: refs.isAgentRunningRef,
       pendingRequestRef: refs.pendingRequestRef,
-      showIntentToast: interaction.composeReferenceActions.showIntentToast,
+      showIntentToast,
     },
     setConnectionStatus: setters.setConnectionStatus,
     hasConnectedOnceRef: refs.hasConnectedOnceRef,
@@ -203,6 +205,7 @@ export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrat
     notifyForFinalResponse: interaction.notifyForFinalResponse,
     setSteerQueuedTurnId: setters.setSteerQueuedTurnId,
     refreshActiveEditorFromWorkspace: paneRuntime.refreshActiveEditorFromWorkspace,
+    showIntentToast,
     removeStalledPost: interaction.recoveryCallbacks.removeStalledPost,
     preserveTimelineScrollTop: timeline.preserveTimelineScrollTop,
     finalizeStalledResponse: interaction.recoveryCallbacks.finalizeStalledResponse,
@@ -220,7 +223,7 @@ export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrat
     followupQueueItemsRef: refs.followupQueueItemsRef,
     dismissedQueueRowIdsRef: refs.dismissedQueueRowIdsRef,
     setFollowupQueueItems: setters.setFollowupQueueItems,
-    showIntentToast: interaction.composeReferenceActions.showIntentToast,
+    showIntentToast,
     clearQueuedSteerStateIfStale: interaction.clearQueuedSteerStateIfStale,
     steerAgentQueueItem: services.steerAgentQueueItem,
     removeAgentQueueItem: services.removeAgentQueueItem,
