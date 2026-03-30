@@ -1,10 +1,10 @@
 ---
 id: repair-clean-worktree-tooling-and-reload-contract
 title: Repair clean-worktree tooling and reload contract
-status: next
+status: doing
 priority: high
 created: 2026-03-29
-updated: 2026-03-29
+updated: 2026-03-30
 estimate: L
 risk: medium
 tags:
@@ -92,6 +92,36 @@ Why this is weaker:
 - [ ] Evidence and commands are recorded in `## Updates`.
 
 ## Updates
+
+### 2026-03-30
+- Continued active implementation on branch `feature/repair-clean-worktree-tooling-and-reload-contract`.
+- Path A tranche landed locally:
+  - added `runtime/scripts/repo-dev-command.ts` to run repo-owned `build`, `lint`, and `typecheck` through deterministic repo-local tool paths instead of cwd-sensitive bare `tsc` / `eslint`
+  - updated root `package.json` scripts to call that helper
+  - implemented `PICLAW_SKIP_RESTART=1` handling in `Makefile` `local-install`
+  - added focused coverage in `runtime/test/scripts/repo-dev-command.test.ts`
+- Validation evidence so far:
+  - `cd runtime && bun test test/scripts/vendor-workflow.test.ts test/scripts/repo-dev-command.test.ts` → `5 pass, 0 fail`
+  - repo checkout: `bun run lint` and `bun run typecheck` → exit `0`
+  - fresh detached worktree with `node_modules/` removed each time:
+    - `bun run lint` → exit `0`
+    - `bun run typecheck` → exit `0`
+    - `bun run build:web` → exit `0`
+- Non-destructive reload-contract smoke now recorded in the authoritative container environment:
+  - `cd /workspace/piclaw && PICLAW_SKIP_RESTART=1 make local-install` → exit `0`
+  - install completed at `/usr/local/lib/bun/install/global/node_modules/piclaw`
+  - restart was explicitly skipped and logged as `[local-install] Skipping restart (PICLAW_SKIP_RESTART=1)`
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
+
+### 2026-03-30
+- Lane change: `10-next` → `20-doing` because implementation of Path A has started.
+- Fresh detached worktree validation reproduced the remaining failures exactly:
+  - `bun run build:web` now succeeds from a clean worktree after the earlier vendor self-heal work
+  - `bun run lint` still fails by falling through to system `eslint` 6.4.0 instead of the repo toolchain
+  - `bun run typecheck` still fails with `tsc: command not found`
+- Implementation intent for this tranche: add a repo-owned dependency/bootstrap command path for build/lint/typecheck so clean worktrees do not depend on cwd-sensitive PATH lookup, and implement the missing `PICLAW_SKIP_RESTART` contract in `make local-install`.
+- Note: this ticket is now active alongside the newly added CI simplification ticket because the user explicitly requested both tracking and implementation work in the same session.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
 
 ### 2026-03-29
 - Created after board prioritization and Adaptive Card selection of **Worktree Tooling** as the next refactor focus.

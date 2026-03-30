@@ -6,7 +6,7 @@
 #   build-ts       – Type-check TypeScript (tsc --noEmit). No generated/dist/ output.
 #   build-piclaw   – Full build: build-web (vendor + bundles) + build-ts.
 #   pack           – Pack piclaw into a .tgz (depends on build-piclaw).
-#   local-install  – Pack, install globally, and restart (full cycle).
+#   local-install  – Pack, install globally, and optionally restart.
 #   lint/test      – Run ESLint and bun test suite.
 #   up/down/enter  – Docker Compose lifecycle helpers.
 #   sync-version   – Sync package.json version to VERSION file.
@@ -140,7 +140,7 @@ restart: ## Restart piclaw (auto-detects supervisor or systemd)
 		echo "[restart] No service manager found; try: make local-install"; \
 	fi
 
-local-install: pack ## Pack, install globally, and restart piclaw
+local-install: pack ## Pack, install globally, and restart piclaw (set PICLAW_SKIP_RESTART=1 to skip restart)
 	@set -e; \
 	VERSION=$$(jq -r .version package.json); \
 	TGZ="$$(ls -t $(PACK_DIR)/piclaw-*.tgz | head -1)"; \
@@ -158,8 +158,12 @@ local-install: pack ## Pack, install globally, and restart piclaw
 	if [ -d "$$DEST_REAL/extensions" ] && [ -d "$$DEST_REAL/node_modules" ]; then \
 		sudo ln -sfn "$$DEST_REAL/node_modules" "$$DEST_REAL/extensions/node_modules" 2>/dev/null || true; \
 	fi; \
-	echo "[local-install] Restarting piclaw..."; \
-	$(MAKE) restart; \
+	if [ "$${PICLAW_SKIP_RESTART:-0}" = "1" ]; then \
+		echo "[local-install] Skipping restart (PICLAW_SKIP_RESTART=1)"; \
+	else \
+		echo "[local-install] Restarting piclaw..."; \
+		$(MAKE) restart; \
+	fi; \
 	echo "[local-install] Done (v$${VERSION})"
 
 # ── Quality ──────────────────────────────────────────────────────────
