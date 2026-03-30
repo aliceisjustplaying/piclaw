@@ -27,7 +27,7 @@ Inspired by [agentbox](https://github.com/rcarmo/agentbox) and [nanoclaw](https:
 >
 > Source builds are mainly for development. If something looks wrong in production, validate it against GHCR first.
 
-### Run from GHCR
+### Run with Docker
 
 ```bash
 mkdir -p ./home ./workspace
@@ -68,6 +68,15 @@ To use `pi` interactively inside the container:
 docker exec -u agent -it piclaw bash
 cd /workspace && pi
 ```
+
+| Mount | Container path | Contents |
+|---|---|---|
+| Home | `/config` | Agent home (`.pi/`, `.gitconfig`, `.bashrc`) |
+| Workspace | `/workspace` | Projects, notes, and piclaw state |
+
+> [!WARNING]
+> Never delete `/workspace/.piclaw/store/messages.db`. It contains chat history, media, and task state.
+
 
 ### Install directly from the repo with Bun
 
@@ -128,16 +137,6 @@ The default compose container name is `pibox`:
 docker exec -u agent -it pibox bash
 cd /workspace && pi
 ```
-
-## Volumes
-
-| Mount | Container path | Contents |
-|---|---|---|
-| Home | `/config` | Agent home (`.pi/`, `.gitconfig`, `.bashrc`) |
-| Workspace | `/workspace` | Projects, notes, and piclaw state |
-
-> [!WARNING]
-> Never delete `/workspace/.piclaw/store/messages.db`. It contains chat history, media, and task state.
 
 ## Configure models
 
