@@ -141,7 +141,7 @@ cd /workspace && pi
 
 ## Configure models
 
-Run `pi /login` inside the container or from the optional web terminal.
+Type `/login` in the web chat to configure providers and models. The terminal (`pi /login`) is also available as a fallback.
 
 > [!IMPORTANT]
 > You do **not** need to set provider API keys in piclaw environment variables.
@@ -188,7 +188,7 @@ Then:
 > If `/model` shows no available models, finish `pi /login` first.
 
 > [!NOTE]
-> Provider login is currently **terminal-first**. Chat-level `/login` passthrough is still tracked in `workitems/20-doing/login-command-passthrough.md`.
+> The `/login` card flow works with GitHub Copilot, Codex, and standard OpenAI providers. For providers that need manual configuration, use `pi /login` in the terminal.
 
 ## Web UI
 
