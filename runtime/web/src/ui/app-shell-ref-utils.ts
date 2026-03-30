@@ -1,17 +1,26 @@
+function normalizeRefValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : '';
+  }
+  if (typeof value === 'bigint') {
+    return String(value);
+  }
+  return '';
+}
+
 export function appendUniqueStringRef(
   previous: string[] | null | undefined,
   value: unknown,
 ): string[] {
-  if (typeof value !== 'string') {
-    return Array.isArray(previous) ? previous : [];
-  }
-
-  const normalized = value.trim();
-  if (!normalized) {
-    return Array.isArray(previous) ? previous : [];
-  }
-
   const current = Array.isArray(previous) ? previous : [];
+  const normalized = normalizeRefValue(value);
+  if (!normalized) {
+    return current;
+  }
+
   if (current.includes(normalized)) {
     return current;
   }
@@ -24,11 +33,7 @@ export function removeStringRef(
   value: unknown,
 ): string[] {
   const current = Array.isArray(previous) ? previous : [];
-  if (typeof value !== 'string') {
-    return current;
-  }
-
-  const normalized = value.trim();
+  const normalized = normalizeRefValue(value);
   if (!normalized) {
     return current;
   }
@@ -49,8 +54,7 @@ export function normalizeComposeRefs(next: unknown): string[] {
   const seen = new Set<string>();
 
   for (const value of next) {
-    if (typeof value !== 'string') continue;
-    const normalized = value.trim();
+    const normalized = normalizeRefValue(value);
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     deduped.push(normalized);
