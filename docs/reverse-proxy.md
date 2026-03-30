@@ -41,9 +41,9 @@ or in `.piclaw/config.json`:
 
 This maps to the runtime config consumed by:
 
-- `piclaw/src/utils/request-client.ts`
-- `piclaw/src/channels/web/http/security.ts`
-- `piclaw/src/channels/web/request-origin.ts`
+- `runtime/src/utils/request-client.ts`
+- `runtime/src/channels/web/http/security.ts`
+- `runtime/src/channels/web/auth/request-origin.ts`
 
 ## Forwarded headers piclaw expects
 

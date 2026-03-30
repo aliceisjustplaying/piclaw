@@ -76,8 +76,8 @@ If you need direct access, you can call the module directly:
 
 ```bash
 PICLAW_KEYCHAIN_KEY="your-master-key" \
-  bun -e 'import { initDatabase } from "./piclaw/src/db.js";
-    import { setKeychainEntry } from "./piclaw/src/secure/keychain.js";
+  bun -e 'import { initDatabase } from "./runtime/src/db.ts";
+    import { setKeychainEntry } from "./runtime/src/secure/keychain.ts";
     initDatabase();
     await setKeychainEntry({
       name: "github/foo/bar",

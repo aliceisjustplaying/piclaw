@@ -1,10 +1,11 @@
 ---
 id: queued-messages-do-not-immediately-appear-at-bottom-of-queue
 title: Queued messages do not immediately appear at the bottom of the queue
-status: next
+status: done
 priority: medium
 created: 2026-03-17
-updated: 2026-03-28
+updated: 2026-03-30
+completed: 2026-03-30
 estimate: M
 risk: medium
 tags:
@@ -41,6 +42,13 @@ bug.
 - A regression test exists for the observed append/visibility case.
 
 ## Updates
+
+### 2026-03-30
+- Lane change: `10-next` → `50-done` per explicit user instruction to close the ticket.
+- Closure rationale: current web queue handling already includes immediate queued-submit refresh (`runtime/web/src/ui/app-auth-bootstrap.ts`), optimistic `agent_followup_queued` append plus authoritative refresh (`runtime/web/src/ui/app-sse-events.ts`), and append-to-bottom semantics in `runtime/web/src/ui/app-followup-queue.ts`.
+- Verification: focused queue coverage passed via `cd runtime && bun test test/web/app-followup-queue.test.ts test/web/queue-state.test.ts test/channels/web/web-channel.test.ts --timeout 30000`.
+- No distinct remaining implementation gap was confirmed during review; if a fresh repro appears, reopen with a narrower reproduction case rather than keeping this as a speculative active bug.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-28
 - Lane retained: `10-next` via web next-card decision.

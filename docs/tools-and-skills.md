@@ -162,8 +162,8 @@ Direct commands (no LLM round-trip):
 | `/scheduled [filter]` | Alias for `/tasks` |
 
 > [!NOTE]
-> Provider-auth `/login` is currently terminal-first (`pi /login` in the terminal pane or `docker exec`).
-> Chat-level `/login` passthrough is tracked in the project work item `login-command-passthrough`.
+> Provider auth works via `pi /login` in the terminal or the experimental `/login` card flow in the web UI.
+> The card-based `/login` flow supports GitHub Copilot, Codex, and standard OpenAI providers. Anthropic is untested. The terminal remains the reliable fallback.
 
 `/search` performs a workspace full‑text search (notes + skills) without calling the LLM:
 
