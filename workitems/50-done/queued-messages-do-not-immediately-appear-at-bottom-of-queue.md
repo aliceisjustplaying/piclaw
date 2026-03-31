@@ -1,10 +1,11 @@
 ---
 id: queued-messages-do-not-immediately-appear-at-bottom-of-queue
 title: Queued messages do not immediately appear at the bottom of the queue
-status: doing
+status: done
 priority: medium
 created: 2026-03-17
-updated: 2026-03-30
+updated: 2026-03-31completed: 2026-03-31
+
 estimate: M
 risk: medium
 tags:
@@ -41,6 +42,12 @@ bug.
 - A regression test exists for the observed append/visibility case.
 
 ## Updates
+
+### 2026-03-31
+- Lane change: `20-doing` → `50-done` after verification of the queued-followup row-id reuse fix on `main`.
+- Closeout evidence: commit `146f4d21` (`Fix queued followup row-id reuse in web queue`) addresses the reopened negative synthetic `row_id` collision case.
+- Targeted verification passed: `bun test runtime/test/web/app-followup-queue.test.ts runtime/test/web/app-status-refresh-orchestration.test.ts runtime/test/channels/web/queued-followup-lifecycle-service.test.ts --timeout 30000` → `15 pass`, `0 fail`.
+- Regression coverage now explicitly includes the reopened failure mode: `queued followup lifecycle does not reuse deferred negative row ids after removal`.
 
 ### 2026-03-30
 - Lane change: `50-done` → `20-doing` after a fresh live repro showed the ticket was closed prematurely.
