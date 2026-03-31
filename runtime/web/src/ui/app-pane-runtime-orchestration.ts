@@ -79,6 +79,14 @@ export function isWorkspaceUpdateRelevantForPath(activePath: string, updates: un
   });
 }
 
+export async function invokePaneAfterAttachToHost(
+  instance: { afterAttachToHost?: (context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }) => Promise<void> | void } | null | undefined,
+  context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null },
+): Promise<void> {
+  if (typeof instance?.afterAttachToHost !== 'function') return;
+  await instance.afterAttachToHost(context);
+}
+
 export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestrationOptions) {
   const {
     panePopoutMode,
@@ -583,6 +591,14 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
       });
     }
 
+    void invokePaneAfterAttachToHost(instance, {
+      path: activeId,
+      hostMode: panePopoutMode ? 'popout' : 'main',
+      transferState: pendingHostTransfer?.payload || null,
+    }).catch((error) => {
+      console.warn('[pane-attach] afterAttachToHost failed:', error);
+    });
+
     requestAnimationFrame(() => instance.focus?.());
 
     if (pendingTransfer) {
@@ -641,6 +657,18 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
 
     const instance = ext.mount(container, { mode: 'view' });
     dockInstanceRef.current = instance;
+    void invokePaneAfterAttachToHost(instance, {
+      path: terminalTabPath,
+      hostMode: panePopoutMode ? 'popout' : 'main',
+      transferState: pendingPaneHostTransferRef.current?.path === terminalTabPath
+        ? (pendingPaneHostTransferRef.current.payload || null)
+        : null,
+    }).catch((error) => {
+      console.warn('[pane-attach] afterAttachToHost failed:', error);
+    });
+    if (pendingPaneHostTransferRef.current?.path === terminalTabPath) {
+      pendingPaneHostTransferRef.current = null;
+    }
     requestAnimationFrame(() => instance.focus?.());
 
     return () => {

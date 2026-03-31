@@ -56,7 +56,7 @@ import {
     githubDark,
 } from './vendor/codemirror.js';
 import { getWorkspaceBranch, getWorkspaceFile, updateWorkspaceFile } from '../../../web/src/api.js';
-import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability } from '../../../web/src/panes/pane-types.js';
+import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability, PaneHostAttachContext, PaneHostDetachContext } from '../../../web/src/panes/pane-types.js';
 import { frontmatterExtension } from './markdown/frontmatter.js';
 import { footnoteExtension } from './markdown/footnote.js';
 import { hashtagExtension } from './markdown/tag.js';
@@ -877,6 +877,22 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     onClose(cb: () => void): void {
         this.closeCb = cb;
+    }
+
+    beforeDetachFromHost(_context: PaneHostDetachContext): void {
+        const viewState = this.captureViewState();
+        if (viewState && this.viewStateChangeCb) {
+            this.viewStateChangeCb(viewState);
+        }
+        this.updateStatusText('Moving pane…');
+    }
+
+    afterAttachToHost(_context: PaneHostAttachContext): void {
+        this.updateWhitespaceControlState();
+        this.updateGutterWidth();
+        this.updateSaveButton();
+        this.updateStatusText(this.dirty ? 'Unsaved changes' : 'All changes saved');
+        requestAnimationFrame(() => this.focus());
     }
 
     exportHostTransferState(): Record<string, unknown> | null {

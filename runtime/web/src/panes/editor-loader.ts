@@ -19,6 +19,8 @@ interface ExtendedEditorPaneInstance extends PaneInstance {
     restoreViewState?(viewState: TabViewState): void;
     getPath?(): string;
     setPath?(newPath: string): void;
+    beforeDetachFromHost?(context: { path?: string; target: 'popout' }): Promise<void> | void;
+    afterAttachToHost?(context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<void> | void;
     exportHostTransferState?(): Record<string, unknown> | null;
 }
 
@@ -186,6 +188,14 @@ class LazyEditorInstance implements PaneInstance {
     onClose(cb: () => void): void {
         this.queuedCloseCb = cb;
         if (this.real?.onClose) this.real.onClose(cb);
+    }
+
+    beforeDetachFromHost(context: { path?: string; target: 'popout' }): Promise<void> | void {
+        return this.real?.beforeDetachFromHost?.(context);
+    }
+
+    afterAttachToHost(context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<void> | void {
+        return this.real?.afterAttachToHost?.(context);
     }
 
     exportHostTransferState(): Record<string, unknown> | null {

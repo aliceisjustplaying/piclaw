@@ -30,7 +30,9 @@ interface RefBox<T> {
 }
 
 interface PaneTransferInstanceLike {
+  beforeDetachFromHost?: (context: { path?: string; target: 'popout' }) => Promise<void> | void;
   preparePopoutTransfer?: () => Promise<Record<string, string> | null> | Record<string, string> | null;
+  afterAttachToHost?: (context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }) => Promise<void> | void;
   exportHostTransferState?: () => Record<string, unknown> | null;
   getContent?: () => string | undefined;
   isDirty?: () => boolean;

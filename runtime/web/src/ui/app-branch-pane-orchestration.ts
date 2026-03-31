@@ -5,6 +5,7 @@ interface RefBox<T> {
 }
 
 interface PaneTransferInstanceLike {
+  beforeDetachFromHost?: (context: { path?: string; target: 'popout' }) => Promise<void> | void;
   preparePopoutTransfer?: () => Promise<Record<string, string> | null> | Record<string, string> | null;
 }
 
@@ -59,6 +60,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export async function invokePaneBeforeDetachFromHost(
+  instance: PaneTransferInstanceLike | null | undefined,
+  panePath: string,
+): Promise<void> {
+  if (typeof instance?.beforeDetachFromHost !== 'function') return;
+  await instance.beforeDetachFromHost({
+    path: panePath,
+    target: 'popout',
+  });
+}
+
 /** Resolve optional popout transfer payload from the active editor/dock source pane instance. */
 export async function resolvePanePopoutTransfer(options: ResolvePanePopoutTransferOptions): Promise<Record<string, string> | null> {
   const {
@@ -74,6 +86,7 @@ export async function resolvePanePopoutTransfer(options: ResolvePanePopoutTransf
 
   if (panePath === terminalTabPath) {
     const dockInstance = dockInstanceRef.current;
+    await invokePaneBeforeDetachFromHost(dockInstance, panePath);
     if (typeof dockInstance?.preparePopoutTransfer !== 'function') {
       return null;
     }
@@ -107,6 +120,8 @@ export async function resolvePanePopoutTransfer(options: ResolvePanePopoutTransf
       }
     }
   }
+
+  await invokePaneBeforeDetachFromHost(sourceInstance, panePath);
 
   if (typeof sourceInstance?.preparePopoutTransfer === 'function') {
     const explicitTransfer = await sourceInstance.preparePopoutTransfer();

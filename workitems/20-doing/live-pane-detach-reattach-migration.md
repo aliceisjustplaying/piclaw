@@ -209,6 +209,12 @@ Core ideas:
   - `PaneInstance.exportHostTransferState?()`
   - opaque `pane_transfer` payload storage/consumption for pop-out bootstraps
   - editor is the first adopter through the generic host-transfer path
+- Added pane lifecycle hooks around detach/attach:
+  - `PaneInstance.beforeDetachFromHost?()`
+  - `PaneInstance.afterAttachToHost?()`
+  - detach flow now invokes the hook before preparing transfer data
+  - host mount flow now invokes the hook after attaching a pane to the new host
+  - editor is the first adopter of the lifecycle hooks
 - Remaining gap for later slices: this is still claim/ownership orchestration plus host-transfer state handoff on top of reopen-backed pane startup, not full live pane instance migration.
 
 ## Definition of Done

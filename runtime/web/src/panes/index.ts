@@ -6,7 +6,7 @@
  * The editor extension is lazy-loaded (CodeMirror stays out of core bundle).
  */
 
-export type { PanePlacement, PaneCapability, PaneContext, PaneInstance, WebPaneExtension } from './pane-types.js';
+export type { PanePlacement, PaneCapability, PaneContext, PaneHostAttachContext, PaneHostDetachContext, PaneInstance, WebPaneExtension } from './pane-types.js';
 export { paneRegistry } from './pane-registry.js';
 export { editorPaneExtension, preloadEditorBundle } from './editor-loader.js';
 export { terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH } from './terminal-pane.js';

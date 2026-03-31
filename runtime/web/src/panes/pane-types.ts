@@ -35,6 +35,22 @@ export interface PaneContext {
     mode: "edit" | "view";
 }
 
+export interface PaneHostDetachContext {
+    /** Logical pane path being detached. */
+    path?: string;
+    /** Current transfer target requested by the host. */
+    target: "popout";
+}
+
+export interface PaneHostAttachContext {
+    /** Logical pane path now attached to this host. */
+    path?: string;
+    /** Whether the receiving host is the main shell or a standalone pane shell. */
+    hostMode: "main" | "popout";
+    /** Optional transfer state payload consumed during attach. */
+    transferState?: Record<string, unknown> | null;
+}
+
 /**
  * A mounted pane instance. The host communicates with the pane
  * through this interface after mount().
@@ -66,6 +82,12 @@ export interface PaneInstance {
 
     /** Register callback for close requests. */
     onClose?(cb: () => void): void;
+
+    /** Optional lifecycle hook before the host detaches this pane. */
+    beforeDetachFromHost?(context: PaneHostDetachContext): Promise<void> | void;
+
+    /** Optional lifecycle hook after the pane attaches to a host. */
+    afterAttachToHost?(context: PaneHostAttachContext): Promise<void> | void;
 
     /**
      * Optional generic host-transfer export hook.

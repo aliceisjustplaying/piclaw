@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   applyStoredPaneLayout,
   closeTransferredPaneSource,
+  invokePaneBeforeDetachFromHost,
   navigateToSelectedBranch,
   resolvePanePopoutTransfer,
 } from '../../web/src/ui/app-branch-pane-orchestration.js';
@@ -30,6 +31,17 @@ test('navigateToSelectedBranch ignores same/blank chats and navigates when selec
 
   expect(calls).toHaveLength(1);
   expect(calls[0]).toContain('chat_jid=web%3Abranch');
+});
+
+test('invokePaneBeforeDetachFromHost calls the pane detach lifecycle hook when present', async () => {
+  const calls: Array<{ path?: string; target: 'popout' }> = [];
+  await invokePaneBeforeDetachFromHost({
+    beforeDetachFromHost: async (context) => {
+      calls.push(context);
+    },
+  }, '/workspace/notes.md');
+
+  expect(calls).toEqual([{ path: '/workspace/notes.md', target: 'popout' }]);
 });
 
 test('resolvePanePopoutTransfer uses active editor transfer first, then dock terminal transfer', async () => {
@@ -78,6 +90,25 @@ test('resolvePanePopoutTransfer activates an inactive tab before requesting tran
 
   await expect(resultPromise).resolves.toEqual({ pane_path: 'piclaw://vnc/lab' });
   expect(activateCalls).toEqual(['piclaw://vnc/lab']);
+});
+
+test('resolvePanePopoutTransfer runs beforeDetachFromHost before preparing transfer data', async () => {
+  const order: string[] = [];
+  await expect(resolvePanePopoutTransfer({
+    panePath: '/workspace/notes.md',
+    tabStripActiveId: '/workspace/notes.md',
+    editorInstanceRef: { current: {
+      beforeDetachFromHost: async () => { order.push('before'); },
+      preparePopoutTransfer: async () => {
+        order.push('prepare');
+        return { editor_popout: 'token-1' };
+      },
+    } },
+    dockInstanceRef: { current: null },
+    terminalTabPath: '/__terminal__',
+  })).resolves.toEqual({ editor_popout: 'token-1' });
+
+  expect(order).toEqual(['before', 'prepare']);
 });
 
 test('resolvePanePopoutTransfer falls back to generic editor transfer payloads', async () => {
