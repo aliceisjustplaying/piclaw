@@ -23,6 +23,7 @@ describe("tool-activation extension", () => {
     expect(getDefaultActiveToolNames()).toContain("attach_file");
     expect(getDefaultActiveToolNames()).toContain("messages");
     expect(getDefaultActiveToolNames()).toContain("keychain");
+    expect(getDefaultActiveToolNames()).toContain("exit_process");
     expect(getDefaultActiveToolNames()).not.toContain("list_models");
     expect(getDefaultActiveToolNames("win32")).toContain("powershell");
     expect(getDefaultActiveToolNames("win32")).not.toContain("bash");
@@ -70,6 +71,8 @@ describe("tool-activation extension", () => {
     const tool = fake.tools.get("activate_tools");
     const result = await tool.execute("t1", { names: ["messages", "missing_tool"] });
     expect(result.content[0].text).toContain("1 accepted");
+    expect(result.content[0].text).toContain("same turn");
+    expect(result.details.availability).toBe("same_turn");
     expect(result.details.newlyActivated).toEqual(["messages"]);
     expect(result.details.missing).toEqual(["missing_tool"]);
     expect(fake.api.getActiveTools()).toContain("messages");
@@ -95,6 +98,7 @@ describe("tool-activation extension", () => {
 
     const activated = await activateToolset.execute("t2", { name: "data" });
     expect(activated.details.toolset).toBe("data");
+    expect(activated.details.availability).toBe("same_turn");
     expect(fake.api.getActiveTools()).toContain("messages");
     expect(fake.api.getActiveTools()).toContain("introspect_sql");
     expect(fake.api.getActiveTools()).toContain("keychain");
@@ -112,6 +116,7 @@ describe("tool-activation extension", () => {
     const result = await tool.execute("t4", { name: "unknown" });
     expect(result.content[0].text).toContain("Unknown toolset");
     expect(result.details.ok).toBe(false);
+    expect(result.details.availability).toBe("same_turn");
     expect(result.details.available_toolsets.length).toBeGreaterThan(1);
   });
 

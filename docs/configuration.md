@@ -150,6 +150,7 @@ Built-in default baseline:
 - `attach_file`
 - `messages`
 - `keychain`
+- `exit_process`
 
 Add more always-active tools in `.piclaw/config.json` under `tools.additionalDefaultTools`:
 
@@ -179,6 +180,7 @@ Notes:
 - `reset_active_tools` restores this configured default set, not just the built-in baseline.
 - Unknown tool names are ignored when the active tool list is applied.
 - On Windows, `bash` is replaced by the `powershell` tool in the default active set.
+- Newly activated tools become available immediately to subsequent tool/model steps in the same turn; keep critical control tools in the default baseline or config-defined defaults.
 
 ## Authentication (TOTP + passkeys)
 

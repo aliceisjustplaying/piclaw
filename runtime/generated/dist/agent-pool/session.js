@@ -18,6 +18,8 @@ import { fileURLToPath } from "url";
 import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager, } from "@mariozechner/pi-coding-agent";
 import { SESSIONS_DIR, WORKSPACE_DIR } from "../core/config.js";
 import { builtinExtensionFactories } from "../extensions/index.js";
+import { installSameTurnToolActivationPatch } from "./tool-activation-compat.js";
+installSameTurnToolActivationPatch();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
  * Bundled extension paths that are loaded when their activation env vars

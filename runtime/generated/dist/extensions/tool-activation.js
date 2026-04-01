@@ -76,12 +76,14 @@ const DEFAULT_ACTIVE_TOOL_NAMES = [
     "attach_file",
     "messages",
     "keychain",
+    "exit_process",
 ];
 const TOOL_ACTIVATION_HINT = [
     "## Tool Activation",
     "Keep the active tool set small by default.",
     "If you are unsure which capability is available, call list_internal_tools.",
     "Use activate_tools or activate_toolset to enable only what you need.",
+    "Newly activated tools become available immediately to subsequent tool/model steps in the same turn.",
     "Use reset_active_tools to return to the default configured tool set.",
 ].join("\n");
 const ActivateToolsSchema = Type.Object({
@@ -161,7 +163,8 @@ function formatActivationSummary(result, label) {
     if (result.missing.length > 0) {
         lines.push(`Missing tools: ${result.missing.join(", ")}.`);
     }
-    lines.push("Changes apply to subsequent model/tool steps immediately.");
+    lines.push("Changes apply immediately to subsequent tool/model steps in the same turn.");
+    lines.push("For frequently used or safety-critical tools, prefer the default active baseline or config-defined defaults.");
     return lines.join("\n");
 }
 /** Extension factory that registers lazy tool activation controls. */
@@ -184,7 +187,10 @@ export const toolActivation = (pi) => {
             const result = applyActiveToolNames(pi, params.names, params.mode);
             return {
                 content: [{ type: "text", text: formatActivationSummary(result, "Tool activation updated") }],
-                details: result,
+                details: {
+                    availability: "same_turn",
+                    ...result,
+                },
             };
         },
     });
@@ -199,7 +205,11 @@ export const toolActivation = (pi) => {
             if (!toolset) {
                 return {
                     content: [{ type: "text", text: `Unknown toolset: ${params.name}. Available toolsets: ${TOOLSETS.map((entry) => entry.name).join(", ")}.` }],
-                    details: { ok: false, available_toolsets: TOOLSETS.map((entry) => ({ name: entry.name, description: entry.description })) },
+                    details: {
+                        ok: false,
+                        availability: "same_turn",
+                        available_toolsets: TOOLSETS.map((entry) => ({ name: entry.name, description: entry.description })),
+                    },
                 };
             }
             const result = applyActiveToolNames(pi, expandToolsetToolNames(toolset), params.mode);
@@ -207,6 +217,7 @@ export const toolActivation = (pi) => {
                 content: [{ type: "text", text: formatActivationSummary(result, `Toolset \"${toolset.name}\" activated`) }],
                 details: {
                     ok: true,
+                    availability: "same_turn",
                     toolset: toolset.name,
                     toolset_description: toolset.description,
                     available_toolsets: TOOLSETS.map((entry) => ({ name: entry.name, description: entry.description })),
@@ -226,7 +237,7 @@ export const toolActivation = (pi) => {
             const result = applyActiveToolNames(pi, defaults, "replace");
             return {
                 content: [{ type: "text", text: formatActivationSummary(result, "Active tools reset") }],
-                details: { defaults, ...result },
+                details: { availability: "same_turn", defaults, ...result },
             };
         },
     });

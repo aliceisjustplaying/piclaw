@@ -29,6 +29,9 @@ import {
 
 import { SESSIONS_DIR, WORKSPACE_DIR } from "../core/config.js";
 import { builtinExtensionFactories } from "../extensions/index.js";
+import { installSameTurnToolActivationPatch } from "./tool-activation-compat.js";
+
+installSameTurnToolActivationPatch();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

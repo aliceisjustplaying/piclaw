@@ -25,6 +25,9 @@ Default always-active set:
 - `attach_file`
 - `messages`
 - `keychain`
+- `exit_process`
+
+Newly activated tools become available immediately to subsequent tool/model steps in the same turn. For critical actions, keep the needed tool in the default baseline or promote it with config.
 
 You can extend that baseline with `.piclaw/config.json`:
 
@@ -62,6 +65,7 @@ You can extend that baseline with `.piclaw/config.json`:
 - `send_dashboard_widget` — post the built-in host-backed live dashboard widget to the web UI timeline
 - `exec_batch` — run multiple shell commands and return concise summaries for each
 - `powershell` — Windows-only replacement for the default shell tool; active instead of `bash` on Windows hosts
+- `exit_process` — gracefully terminate piclaw so Supervisor restarts it; kept always active because lifecycle control should not depend on same-turn lazy activation
 
 `messages` `search` accepts `query`, `chat_jid` (or `*`/`all`), `role`, `after`, `before`, `since`, `limit`, `offset`, and `details_max_chars` for controlling detail payloads.
 `messages` `get` accepts `row_ids`, optional `chat_jid`, `role`, `context_before`, `context_after`, and `details_max_chars`.
