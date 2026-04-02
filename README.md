@@ -13,19 +13,11 @@ It is built for people who want a practical, stateful agent they can run locally
 - **Streaming web UI** — real-time chat with Markdown, KaTeX, Mermaid, and Adaptive Cards
 - **Persistent agent state** — SQLite-backed messages, media, tasks, token usage, and encrypted keychain
 - **Workspace-native workflow** — browse files, preview documents, upload attachments, edit code, and reference files in prompts
-- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, Chromium CDP browser automation, and Windows UI automation
+- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, and browser automation
 - **Agent control features** — steering, queued follow-ups, threading, side prompts, autoresearch experiment loops, and scheduled tasks
 - **Optional auth and channels** — passkeys/TOTP for the web UI, plus optional WhatsApp integration
 
 ## Quick start
-
-> [!IMPORTANT]
-> The supported runtime path is the published image:
-> **`ghcr.io/rcarmo/piclaw`**.
->
-> Source builds are mainly for development. If something looks wrong in production, validate it against GHCR first.
-
-### Run with Docker
 
 ```bash
 mkdir -p ./home ./workspace
@@ -40,32 +32,7 @@ docker run -d \
   ghcr.io/rcarmo/piclaw:latest
 ```
 
-Open `http://localhost:8080`.
-
-> [!NOTE] 
-> If you plan to use SSHFS (`sshfs` inside the container), start with FUSE-enabled permissions:
->
-> ```bash
-> docker run -d \
->   --name piclaw \
->   --restart unless-stopped \
->   -p 8080:8080 \
->   --device /dev/fuse \
->   --cap-add SYS_ADMIN \
->   -e PICLAW_WEB_PORT=8080 \
->   -v "$(pwd)/home:/config" \
->   -v "$(pwd)/workspace:/workspace" \
->   ghcr.io/rcarmo/piclaw:latest
-> ```
->
-> Depending on host/container security policy, `--security-opt apparmor:unconfined` may also be required.
-
-To use `pi` interactively inside the container:
-
-```bash
-docker exec -u agent -it piclaw bash
-cd /workspace && pi
-```
+Open `http://localhost:8080` and type `/login` to configure your LLM provider.
 
 | Mount | Container path | Contents |
 |---|---|---|
@@ -75,127 +42,49 @@ cd /workspace && pi
 > [!WARNING]
 > Never delete `/workspace/.piclaw/store/messages.db`. It contains chat history, media, and task state.
 
-
-### Install directly from the repo with Bun
-
-> [!NOTE]
-> This is the Docker-free install path.
->
-> **Experimental for now**: Bun-first, Linux/macOS, and intended to avoid a manual build step, but not yet positioned as the main production install route or a generally supported deployment target.
->
-> It also runs directly on Windows — with native desktop automation via Win32 FFI — but Windows is **not officially supported**. It technically works, but you're on your own.
->
-> One reason this path exists is to support people who want to run PiClaw on low-end ARM SBCs, lightweight VMs, or other sandboxed environments where Docker is not the best fit or is not available.
->
-
-```bash
-bun add -g github:rcarmo/piclaw
-```
-
-A `postinstall` script runs automatically to fetch the draw.io viewer (~35 MB),
-which is too large to commit to git. All other vendored assets and web bundles
-are committed and available immediately.
-
-If `postinstall` is skipped (e.g. `--ignore-scripts`), run manually:
-
-```bash
-bun run build:vendor:drawio
-```
-
-For a full development rebuild (requires devDependencies):
-
-```bash
-bun install               # includes devDependencies
-bun run build:web         # rebuild web bundles from source
-bun run build             # recompile TypeScript (optional — Bun runs .ts directly)
-```
-
-See [docs/install-from-repo.md](docs/install-from-repo.md) for scope and caveats.
-
-
-## Configure models
-
-Type `/login` in the web chat to configure providers and models. The terminal (`pi /login`) is also available as a fallback.
-
 > [!IMPORTANT]
-> You do **not** need to set provider API keys in piclaw environment variables.
-> PiClaw reuses provider credentials configured in Pi Agent settings.
-
-
-The web terminal is disabled by default. Set `PICLAW_WEB_TERMINAL_ENABLED=1` to enable it. See [docs/configuration.md](docs/configuration.md) for details.
-
-> [!NOTE]
-> The `/login` card flow works with GitHub Copilot, Codex, and standard OpenAI providers. For providers that need manual configuration, use `pi /login` in the terminal.
+> You do **not** need to set provider API keys in piclaw environment variables. PiClaw reuses provider credentials configured in Pi Agent settings.
 
 ## Web UI
 
 PiClaw is single-user, mobile-friendly, and streams updates over SSE.
 
-### Chat features
+### Chat
 
 - Thought and draft panels during streaming
 - Live steering and queued follow-ups
 - Adaptive Cards with persisted submissions
 - `/btw` side conversations
-- File attachments and downloads
-- Link previews
-- Threaded follow-up turns
+- File attachments, link previews, and threaded turns
 - Themes and tinting via `/theme` and `/tint`
 - Mobile-friendly layout with webapp manifest
 
-### Workspace explorer
+### Workspace
 
-The sidebar shows `/workspace` with auto-refresh.
-
-- Preview files
-- Add file-reference pills to prompts
-- Upload files by drag-and-drop
-- View folder sizes in the starburst explorer
+- Sidebar file browser with auto-refresh and drag-and-drop upload
+- File-reference pills in prompts
+- Folder sizes in the starburst explorer
 
 ### Editor
 
-Open the built-in editor from a text-file preview.
-
-- CodeMirror 6
-- Search and replace
-- Save with dirty-state tracking
-- Line wrapping, numbers, active-line highlight
-- Syntax highlighting for JS/TS, Python, Go, JSON, CSS, HTML, YAML, SQL, XML/SVG, Markdown, and Shell
-- Lazy-loaded local bundle; no CDN dependency
-
-### Browser and desktop automation
-
-- **`cdp_browser`** — bundled Chromium/Edge/Chrome automation via the Chrome DevTools Protocol for tab listing, navigation, JS evaluation, DOM clicking, and screenshots
-- **`win_*` tools** — bundled Windows-only desktop automation via `bun:ffi` + IAccessible for window enumeration, screenshots, tree inspection, clicking, typing, and graceful/forced close
-
-The Windows desktop tools are safe to ship cross-platform because they no-op off Windows, while `cdp_browser` works across Linux, macOS, and Windows when a Chromium-based browser is available.
-
-
-### Windows support (experimental)
-
-PiClaw runs natively on Windows via `bun install`. The bundled `win_*` tools provide full desktop automation through `bun:ffi` calling directly into Win32 system DLLs — no PowerShell, no compiled helpers, nothing for Defender to flag:
-
-- `win_list_windows` — enumerate visible windows with titles, PIDs, bounds
-- `win_screenshot` — capture any window to BMP/PNG (works through lock screen)
-- `win_find_elements` — discover UI elements via IAccessible/MSAA (sees inside Edge, VS Code, WPF, UWP)
-- `win_click` — click by coordinates or element name
-- `win_type` — send keystrokes with Unicode support
-- `win_tree` — dump the full accessibility tree for a window
-- `win_kill` — close or force-kill windows by title
-
-These tools no-op on non-Windows platforms. Not officially supported. Works anyway.
+- CodeMirror 6 with syntax highlighting for JS/TS, Python, Go, JSON, CSS, HTML, YAML, SQL, XML/SVG, Markdown, and Shell
+- Search and replace, dirty-state tracking, line wrapping
+- Lazy-loaded local bundle — no CDN dependency
 
 ### Viewers
 
 - **Draw.io** — self-hosted editor with SVG/PNG/XML export back to workspace
 - **Office documents** — `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`
 - **CSV/TSV** — dedicated table viewer
-- **PDF** — inline viewer
-- **Images** — inline image viewer
-- **Video** — dedicated tab-based viewer
-- **Kanban boards** — `*.kanban.md` files open in a drag-and-drop board editor (Obsidian Kanban compatible)
-- **Mindmaps** — `*.mindmap.yaml` files open in a D3/SVG visual editor
+- **PDF, images, video** — inline viewers
+- **Kanban boards** — `*.kanban.md` in a drag-and-drop board editor (Obsidian Kanban compatible)
+- **Mindmaps** — `*.mindmap.yaml` in a D3/SVG visual editor
 - **VNC remote display** — connect to remote machines from a tab (experimental)
+
+### Automation
+
+- **`cdp_browser`** — Chromium/Edge/Chrome automation via CDP for navigation, JS evaluation, DOM clicking, and screenshots
+- **`win_*` tools** — Windows-only desktop automation via Win32 FFI for window enumeration, screenshots, element inspection, clicking, typing, and process management. No-ops on non-Windows platforms.
 
 ## Configuration
 
@@ -204,30 +93,49 @@ Key environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `PICLAW_WEB_PORT` | `8080` | Web UI port |
-| `PICLAW_WEB_TERMINAL_ENABLED` | `0` | Enable the authenticated web terminal |
-| `PICLAW_WEB_TOTP_SECRET` | _(empty)_ | Base32 TOTP secret; enables login gate (or leave unset and initialize with `/totp`) |
+| `PICLAW_WEB_TERMINAL_ENABLED` | `0` | Enable the authenticated Ghostty-based web terminal |
+| `PICLAW_WEB_TOTP_SECRET` | _(empty)_ | Base32 TOTP secret; enables login gate (or initialize with `/totp`) |
 | `PICLAW_WEB_PASSKEY_MODE` | `totp-fallback` | `totp-fallback`, `passkey-only`, or `totp-only` |
 | `PICLAW_ASSISTANT_NAME` | `PiClaw` | Display name in the UI |
 | `PICLAW_KEYCHAIN_KEY` | _(empty)_ | Master key for encrypted secret storage |
 | `PICLAW_TRUST_PROXY` | `0` | Enable when behind a reverse proxy or tunnel |
 
-For the full list, auth setup (TOTP/passkeys), and reverse proxy configuration, see [docs/configuration.md](docs/configuration.md).
+For the full list, auth setup (TOTP/passkeys), reverse proxy configuration, and SSHFS/FUSE support, see [docs/configuration.md](docs/configuration.md).
+
+## Other install methods
+
+### Install without Docker
+
+```bash
+bun add -g github:rcarmo/piclaw
+```
+
+Experimental. Linux/macOS/Windows. See [docs/install-from-repo.md](docs/install-from-repo.md).
+
+### Build from source
+
+See [docs/development.md](docs/development.md).
 
 ## Documentation
 
-- [Configuration](docs/configuration.md)
-- [Reverse proxy / Cloudflare Tunnel](docs/reverse-proxy.md)
+**Setup & operations**
+- [Configuration](docs/configuration.md) — environment variables, auth, reverse proxy, SSHFS
+- [Install from repo](docs/install-from-repo.md) — Bun-based Docker-free install
+- [Release process](docs/release.md) — versioning, tagging, publishing
+
+**Architecture & internals**
 - [Architecture](docs/architecture.md)
-- [Development](docs/development.md)
-- [Extension UI contract](docs/extension-ui-contract.md)
-- [Web pane extensions](docs/web-pane-extensions.md)
-- [Storage model](docs/storage.md)
 - [Runtime flows](docs/runtime-flows.md)
+- [Storage model](docs/storage.md)
+- [Web pane extensions](docs/web-pane-extensions.md)
+- [Extension UI contract](docs/extension-ui-contract.md)
+
+**Reference**
 - [Tools and skills](docs/tools-and-skills.md)
 - [Keychain](docs/keychain.md)
 - [WhatsApp](docs/whatsapp.md)
 - [Cross-instance interop](docs/cross-instance-ipc.md)
-- [Release process](docs/release.md)
+- [Development](docs/development.md)
 
 ## Credits
 
