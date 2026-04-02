@@ -1,12 +1,10 @@
-# `piclaw` — a web-first sandbox for `pi`
+# `piclaw` — your self-hosted AI workspace
 
 ![PiClaw](docs/icon-256.png)
 
-PiClaw packages the [Pi Coding Agent](https://github.com/badlogic/pi-mono) into a self-hosted Debian sandbox with a streaming web UI, persistent sessions, scheduled tasks, workspace tooling, and optional WhatsApp support.
+PiClaw packages the [Pi Coding Agent](https://github.com/badlogic/pi-mono) into a self-hosted workspace with a streaming web UI, multi-provider LLM support, persistent state, and a growing collection of built-in tools — code editor, terminal, VNC client, document viewers, kanban boards, and autonomous experiment loops.
 
 It is built for people who want a practical, stateful agent they can run locally or in a container without stitching together half a dozen separate services.
-
-Inspired by [agentbox](https://github.com/rcarmo/agentbox) and [nanoclaw](https://github.com/qwibitai/nanoclaw).
 
 ## Why PiClaw
 
