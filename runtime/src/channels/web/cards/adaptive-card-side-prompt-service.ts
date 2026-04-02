@@ -591,7 +591,12 @@ export class WebAdaptiveCardSidePromptService {
       return this.options.json({ error: "Missing or invalid prompt" }, 400);
     }
 
-    const runSidePrompt = this.options.agentPool.runSidePrompt ?? (() => failMissingDependency("agentPool.runSidePrompt"));
+    const runSidePrompt = async (nextChatJid: string, nextPrompt: string, nextOptions?: SidePromptOptions) => {
+      if (typeof this.options.agentPool.runSidePrompt !== "function") {
+        return failMissingDependency("agentPool.runSidePrompt");
+      }
+      return await this.options.agentPool.runSidePrompt(nextChatJid, nextPrompt, nextOptions);
+    };
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {

@@ -3380,24 +3380,27 @@ test("web channel exposes side prompts through /agent/side-prompt", async () => 
 
 test("web channel streams side prompts through /agent/side-prompt/stream", async () => {
   const webMod = await import("../../../src/channels/web.js");
+  class SidePromptAgentPoolStub {
+    modelRegistry = { id: "registry" };
+    async runSidePrompt(chatJid: string, prompt: string, options: any) {
+      if (!this.modelRegistry) throw new Error("missing modelRegistry binding");
+      options?.onThinkingDelta?.("plan");
+      options?.onTextDelta?.("answer");
+      return {
+        status: "success",
+        result: `answer:${prompt}`,
+        thinking: "plan",
+        model: `model-for:${chatJid}`,
+        stopReason: "stop",
+      };
+    }
+    isStreaming() { return false; }
+    async runAgent() { return { status: "success", result: "ok" }; }
+    async getContextUsageForChat() { return null; }
+  }
   const web = new (webMod.WebChannel as any)({
     queue: { enqueue: () => {} },
-    agentPool: {
-      runSidePrompt: async (chatJid: string, prompt: string, options: any) => {
-        options?.onThinkingDelta?.("plan");
-        options?.onTextDelta?.("answer");
-        return {
-          status: "success",
-          result: `answer:${prompt}`,
-          thinking: "plan",
-          model: `model-for:${chatJid}`,
-          stopReason: "stop",
-        };
-      },
-      isStreaming: () => false,
-      runAgent: async () => ({ status: "success", result: "ok" }),
-      getContextUsageForChat: async () => null,
-    },
+    agentPool: new SidePromptAgentPoolStub(),
   });
 
   const req = new Request("http://test/agent/side-prompt/stream", {
