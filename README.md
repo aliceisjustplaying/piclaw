@@ -71,6 +71,14 @@ PiClaw is single-user, mobile-friendly, and streams updates over SSE.
 - Search and replace, dirty-state tracking, line wrapping
 - Lazy-loaded local bundle — no CDN dependency
 
+
+### Terminal
+
+- Ghostty-based web terminal — a real shell in the browser, not a simulation
+- Runs as a dock panel or a standalone tab
+- Detachable into popout windows with live session transfer
+- Disabled by default; enable with `PICLAW_WEB_TERMINAL_ENABLED=1`
+
 ### Viewers
 
 - **Draw.io** — self-hosted editor with SVG/PNG/XML export back to workspace
