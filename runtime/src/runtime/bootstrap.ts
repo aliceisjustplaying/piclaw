@@ -169,10 +169,6 @@ export async function bootstrapRuntime(deps: RuntimeBootstrapDeps): Promise<void
 
   const senders = deps.createRuntimeSenders(web, whatsapp, pushover);
   deps.startRuntimeWorkers(queue, agentPool, web, senders);
-  // Queue restart recovery as soon as workers are online. Do not wait for
-  // WhatsApp to finish its initial connect/reconnect path, which may be slow
-  // or flaky on some installs and would otherwise delay web recovery.
-  deps.queueStartupResumePendingIpc();
 
   await whatsapp.connect();
 

@@ -63,8 +63,16 @@ export type {
 } from "./agent-pool/contracts.js";
 
 /** How long (ms) an idle session stays cached before being disposed. */
-const IDLE_TTL = 10 * 60 * 1000; // 10 minutes
-const CLEANUP_INTERVAL = 60 * 1000; // check every minute
+const DEFAULT_IDLE_TTL = 2 * 60 * 1000; // 2 minutes
+const DEFAULT_CLEANUP_INTERVAL = 30 * 1000; // check every 30 seconds
+
+function parsePositiveMs(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(String(value || "").trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const IDLE_TTL = parsePositiveMs(process.env.PICLAW_SESSION_IDLE_TTL_MS, DEFAULT_IDLE_TTL);
+const CLEANUP_INTERVAL = parsePositiveMs(process.env.PICLAW_SESSION_CLEANUP_INTERVAL_MS, DEFAULT_CLEANUP_INTERVAL);
 
 /**
  * Manages a pool of persistent AgentSession instances keyed by chat JID.
