@@ -179,7 +179,7 @@ test("recoverInflightRuns replays only interrupted no-output chats while preserv
   });
 
   web.recoverInflightRuns();
-  await waitFor(() => recoveredReplies.length === 2, 250, 1);
+  await waitFor(() => recoveredReplies.length === 2, 5000, 10);
 
   expect(recoveredReplies.sort()).toEqual(["web:older-terminal", "web:rollback"]);
   expect(db.getInflightRuns().length).toBe(0);

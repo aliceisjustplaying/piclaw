@@ -24,6 +24,9 @@ function createRequest(path: string, init: RequestInit = {}): Request {
 }
 
 function createFixture(overrides: Partial<WebServerLifecycleGatewayDeps> = {}) {
+  let workspaceVisible = false;
+  let workspaceShowHidden = false;
+
   const state = {
     loadStateCalls: 0,
     initThemeCalls: 0,
@@ -87,6 +90,8 @@ function createFixture(overrides: Partial<WebServerLifecycleGatewayDeps> = {}) {
       state.handleRequestCalls.push(new URL(req.url).pathname);
       return json({ pathname: new URL(req.url).pathname }, 200);
     },
+    getWorkspaceVisible: () => workspaceVisible,
+    getWorkspaceShowHidden: () => workspaceShowHidden,
     startWorkspaceWatcher: () => {
       state.startWorkspaceWatcherCalls += 1;
       return watcher;
@@ -174,6 +179,12 @@ function createFixture(overrides: Partial<WebServerLifecycleGatewayDeps> = {}) {
     server,
     terminalOwner,
     vncOwner,
+    setWorkspaceVisible: (value: boolean) => {
+      workspaceVisible = value;
+    },
+    setWorkspaceShowHidden: (value: boolean) => {
+      workspaceShowHidden = value;
+    },
     service: new WebServerLifecycleGatewayService(deps),
   };
 }
@@ -324,6 +335,11 @@ describe("web server lifecycle gateway service", () => {
     expect(fixture.state.logWarn[0]?.meta?.operation).toBe("start.bind_retry");
     expect(fixture.state.logError[0]?.meta?.operation).toBe("load_tls_options");
     expect(fixture.state.serveCalls[1]?.tls).toBeUndefined();
+    expect(fixture.state.startWorkspaceWatcherCalls).toBe(0);
+
+    fixture.setWorkspaceVisible(true);
+    await fixture.service.syncWorkspaceWatcher();
+
     expect(fixture.state.startWorkspaceWatcherCalls).toBe(1);
     expect(fixture.state.purgeCalls).toHaveLength(1);
     expect(fixture.state.intervalCalls).toHaveLength(1);
@@ -335,6 +351,8 @@ describe("web server lifecycle gateway service", () => {
     const fixture = createFixture();
 
     await fixture.service.start();
+    fixture.setWorkspaceVisible(true);
+    await fixture.service.syncWorkspaceWatcher();
     await fixture.service.stop();
 
     expect(fixture.state.sseCloseCalls).toBe(1);
@@ -346,5 +364,28 @@ describe("web server lifecycle gateway service", () => {
     expect(fixture.service.server).toBeNull();
     expect(fixture.service.workspaceWatcher).toBeNull();
     expect(fixture.service.linkPreviewCachePurgeTimer).toBeNull();
+  });
+
+  test("syncWorkspaceWatcher toggles watcher lifecycle and restarts on hidden-mode changes", async () => {
+    const fixture = createFixture();
+
+    await fixture.service.start();
+    expect(fixture.state.startWorkspaceWatcherCalls).toBe(0);
+
+    fixture.setWorkspaceVisible(true);
+    await fixture.service.syncWorkspaceWatcher();
+    expect(fixture.state.startWorkspaceWatcherCalls).toBe(1);
+    expect(fixture.state.watcherCloseCalls).toBe(0);
+
+    fixture.setWorkspaceShowHidden(true);
+    await fixture.service.syncWorkspaceWatcher();
+    expect(fixture.state.startWorkspaceWatcherCalls).toBe(2);
+    expect(fixture.state.watcherCloseCalls).toBe(1);
+
+    fixture.setWorkspaceVisible(false);
+    await fixture.service.syncWorkspaceWatcher();
+    expect(fixture.state.watcherCloseCalls).toBe(2);
+
+    await fixture.service.stop();
   });
 });
