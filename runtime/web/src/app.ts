@@ -151,6 +151,7 @@ function MainApp({ locationParams, navigate }) {
             renameBranchNameInputRef: surface.renameBranchNameInputRef,
             setIsWebAppMode: surface.setIsWebAppMode,
             workspaceOpen: surface.workspaceOpen,
+            setWorkspaceOpen: surface.setWorkspaceOpen,
             btwSession: surface.btwSession,
             agents: surface.agents,
             agentsRef: surface.agentsRef,

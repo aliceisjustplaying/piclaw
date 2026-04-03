@@ -1,5 +1,11 @@
-import { useCallback, useEffect } from '../vendor/preact-htm.js';
+import { useCallback, useEffect, useRef } from '../vendor/preact-htm.js';
 import { setLocalStorageItem } from '../utils/storage.js';
+import {
+  DESKTOP_WORKSPACE_LAYOUT_MEDIA_QUERY,
+  persistWorkspaceOpenPreference,
+  readStoredWorkspaceOpenPreference,
+  resolveWorkspaceLayoutBucket,
+} from './workspace-visibility.js';
 import { initTheme } from './theme.js';
 import { useTimestampRefresh } from './app-helpers.js';
 import { watchStandaloneWebAppMode } from './app-resume.js';
@@ -15,6 +21,7 @@ export interface UseAppShellEnvironmentEffectsOptions {
   renameBranchNameInputRef: RefBox<any>;
   setIsWebAppMode: (next: boolean) => void;
   workspaceOpen: boolean;
+  setWorkspaceOpen: (next: boolean) => void;
   btwSession: any;
   agents: Record<string, unknown> | null | undefined;
   agentsRef: RefBox<Record<string, unknown>>;
@@ -56,6 +63,7 @@ export function useAppShellEnvironmentEffects(options: UseAppShellEnvironmentEff
     renameBranchNameInputRef,
     setIsWebAppMode,
     workspaceOpen,
+    setWorkspaceOpen,
     btwSession,
     agents,
     agentsRef,
@@ -83,9 +91,36 @@ export function useAppShellEnvironmentEffects(options: UseAppShellEnvironmentEff
 
   useEffect(() => watchStandaloneWebAppMode(setIsWebAppMode), [setIsWebAppMode]);
 
+  const workspaceLayoutBucketRef = useRef(resolveWorkspaceLayoutBucket());
+
   useEffect(() => {
-    setLocalStorageItem('workspaceOpen', String(workspaceOpen));
+    persistWorkspaceOpenPreference(workspaceOpen, {
+      bucket: workspaceLayoutBucketRef.current,
+    });
   }, [workspaceOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+
+    const media = window.matchMedia(DESKTOP_WORKSPACE_LAYOUT_MEDIA_QUERY);
+    const applyLayoutPreference = () => {
+      const nextBucket = resolveWorkspaceLayoutBucket(window);
+      if (workspaceLayoutBucketRef.current === nextBucket) return;
+      workspaceLayoutBucketRef.current = nextBucket;
+      setWorkspaceOpen(readStoredWorkspaceOpenPreference({
+        bucket: nextBucket,
+        defaultValue: false,
+      }));
+    };
+
+    if (media.addEventListener) media.addEventListener('change', applyLayoutPreference);
+    else if (media.addListener) media.addListener(applyLayoutPreference);
+
+    return () => {
+      if (media.removeEventListener) media.removeEventListener('change', applyLayoutPreference);
+      else if (media.removeListener) media.removeListener(applyLayoutPreference);
+    };
+  }, [setWorkspaceOpen]);
 
   useEffect(() => installStandaloneMobileViewportFix(), []);
 
