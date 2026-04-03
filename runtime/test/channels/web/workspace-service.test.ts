@@ -106,6 +106,24 @@ test("workspace tree clamps depth and respects hidden files", async () => {
   expect(namesHidden).toContain(".hidden.txt");
 });
 
+test("workspace watch path filtering excludes internal runtime state by default", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const { shouldIgnoreWatchPath, resolveWorkspacePath } = await importFresh<typeof import("../src/channels/web/workspace/paths.js")>(
+    "../src/channels/web/workspace/paths.js"
+  );
+  const path = await import("node:path");
+  const rootPath = resolveWorkspacePath("")!;
+
+  expect(shouldIgnoreWatchPath(path.join(rootPath, ".piclaw", "data"), false)).toBe(true);
+  expect(shouldIgnoreWatchPath(path.join(rootPath, ".pi", "skills"), true)).toBe(true);
+  expect(shouldIgnoreWatchPath(path.join(rootPath, "exports", "report.csv"), false)).toBe(true);
+  expect(shouldIgnoreWatchPath(path.join(rootPath, ".github", "workflows"), false)).toBe(true);
+  expect(shouldIgnoreWatchPath(path.join(rootPath, ".github", "workflows"), true)).toBe(false);
+  expect(shouldIgnoreWatchPath(path.join(rootPath, "src", "index.ts"), false)).toBe(false);
+});
+
 test("workspace tree truncates when entry cap is reached", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
