@@ -21,6 +21,7 @@ function createIdentitySnapshot(overrides: Partial<WebChannelIdentitySnapshot> =
 describe("web channel endpoint context factory", () => {
   test("reuses stable auth/ui/content/agent-status contexts", async () => {
     const panelCalls: Array<{ turnId: string; panel: "thought" | "draft"; expanded: boolean }> = [];
+    const watcherSyncCalls: string[] = [];
     let identity = createIdentitySnapshot();
 
     const channel = {
@@ -35,6 +36,9 @@ describe("web channel endpoint context factory", () => {
       getAgentStatus: () => ({ type: "thinking" }),
       uiBridge: {
         handleUiResponse: () => ({ status: "ok" as const }),
+      },
+      syncWorkspaceWatcher: () => {
+        watcherSyncCalls.push("sync");
       },
       authGateway: {
         createTotpContext: () => ({ kind: "totp" }),
@@ -72,6 +76,7 @@ describe("web channel endpoint context factory", () => {
     expect(channel.workspaceVisible).toBe(true);
     ui.setWorkspaceShowHidden(true);
     expect(channel.workspaceShowHidden).toBe(true);
+    expect(watcherSyncCalls).toEqual(["sync", "sync"]);
     ui.setPanelExpanded("turn-1", "thought", true);
     expect(panelCalls).toEqual([{ turnId: "turn-1", panel: "thought", expanded: true }]);
     expect(ui.handleUiResponse("req-1", { ok: true }).status).toBe("ok");
