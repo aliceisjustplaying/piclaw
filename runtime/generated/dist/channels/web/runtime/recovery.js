@@ -4,6 +4,7 @@
 import { clearInflightMarker, getAgentReplyStateAfter, getAllChatCursors, getDb, getDeferredQueuedFollowups, getInflightRuns, getMessagesSince, rollbackInflightRun, } from "../../../db.js";
 import { createLogger } from "../../../utils/logger.js";
 const log = createLogger("web.recovery");
+const RECOVERY_LANE_KEY = "web-recovery";
 function getKnownChatJids() {
     const rows = getDb().prepare(`
     SELECT chat_jid FROM chat_cursors
@@ -121,7 +122,7 @@ export function recoverInflightRuns(ctx, store = defaultStore) {
             // single queued task for the chat instead of racing duplicate replays.
             ctx.enqueue(async () => {
                 await ctx.processChat(inflight.chatJid, ctx.defaultAgentId);
-            }, `resume:${inflight.chatJid}`, `chat:${inflight.chatJid}`);
+            }, `resume:${inflight.chatJid}`, RECOVERY_LANE_KEY);
         }
     }
 }
@@ -147,6 +148,6 @@ export function resumePendingChats(ctx, chatJid, store = defaultStore) {
         });
         ctx.enqueue(async () => {
             await ctx.processChat(jid, ctx.defaultAgentId);
-        }, `resume:${jid}`, `chat:${jid}`);
+        }, `resume:${jid}`, RECOVERY_LANE_KEY);
     }
 }

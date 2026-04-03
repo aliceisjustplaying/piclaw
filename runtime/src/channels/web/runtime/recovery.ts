@@ -18,6 +18,7 @@ import {
 import { createLogger } from "../../../utils/logger.js";
 
 const log = createLogger("web.recovery");
+const RECOVERY_LANE_KEY = "web-recovery";
 
 /** Runtime callbacks required for inflight recovery/pending resume orchestration. */
 export interface WebRecoveryContext {
@@ -170,7 +171,7 @@ export function recoverInflightRuns(
       // single queued task for the chat instead of racing duplicate replays.
       ctx.enqueue(async () => {
         await ctx.processChat(inflight.chatJid, ctx.defaultAgentId);
-      }, `resume:${inflight.chatJid}`, `chat:${inflight.chatJid}`);
+      }, `resume:${inflight.chatJid}`, RECOVERY_LANE_KEY);
     }
   }
 }
@@ -201,6 +202,6 @@ export function resumePendingChats(
     });
     ctx.enqueue(async () => {
       await ctx.processChat(jid, ctx.defaultAgentId);
-    }, `resume:${jid}`, `chat:${jid}`);
+    }, `resume:${jid}`, RECOVERY_LANE_KEY);
   }
 }
