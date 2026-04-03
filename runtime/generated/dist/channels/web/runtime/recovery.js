@@ -121,6 +121,9 @@ export function recoverInflightRuns(ctx, store = defaultStore) {
             // immediate startup recovery and later IPC-driven recovery collapse to a
             // single queued task for the chat instead of racing duplicate replays.
             ctx.enqueue(async () => {
+                if ((ctx.recoveryDelayMs ?? 0) > 0) {
+                    await (ctx.sleep ? ctx.sleep(ctx.recoveryDelayMs) : Bun.sleep(ctx.recoveryDelayMs));
+                }
                 await ctx.processChat(inflight.chatJid, ctx.defaultAgentId);
             }, `resume:${inflight.chatJid}`, RECOVERY_LANE_KEY);
         }
@@ -147,6 +150,9 @@ export function resumePendingChats(ctx, chatJid, store = defaultStore) {
             chatJid: jid,
         });
         ctx.enqueue(async () => {
+            if ((ctx.recoveryDelayMs ?? 0) > 0) {
+                await (ctx.sleep ? ctx.sleep(ctx.recoveryDelayMs) : Bun.sleep(ctx.recoveryDelayMs));
+            }
             await ctx.processChat(jid, ctx.defaultAgentId);
         }, `resume:${jid}`, RECOVERY_LANE_KEY);
     }

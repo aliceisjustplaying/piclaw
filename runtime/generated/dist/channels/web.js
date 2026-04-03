@@ -60,6 +60,9 @@ export class WebChannel {
     runtimeFollowupFacade;
     endpointFacade;
     controlPlaneService;
+    syncWorkspaceWatcher() {
+        return this.serverLifecycleGateway.syncWorkspaceWatcher();
+    }
     constructor(opts) {
         initializeWebChannelConstructor(this, opts, {
             defaultChatJid: DEFAULT_CHAT_JID,

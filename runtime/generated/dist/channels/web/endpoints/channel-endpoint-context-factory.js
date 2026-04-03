@@ -69,10 +69,12 @@ export function createWebChannelEndpointContexts(channel, options) {
                     getWorkspaceVisible: () => channel.workspaceVisible,
                     setWorkspaceVisible: (value) => {
                         channel.workspaceVisible = value;
+                        channel.syncWorkspaceWatcher?.();
                     },
                     getWorkspaceShowHidden: () => channel.workspaceShowHidden,
                     setWorkspaceShowHidden: (value) => {
                         channel.workspaceShowHidden = value;
+                        channel.syncWorkspaceWatcher?.();
                     },
                     setPanelExpanded: (turnId, panel, expanded) => {
                         channel.setPanelExpanded(turnId, panel, expanded);

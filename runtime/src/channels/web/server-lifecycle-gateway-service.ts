@@ -73,6 +73,8 @@ export interface WebServerLifecycleGatewayDeps extends JsonResponder {
   initTheme(): void;
   handleRequest(req: Request): Promise<Response>;
   startWorkspaceWatcher(): WatcherLike;
+  getWorkspaceVisible(): boolean;
+  getWorkspaceShowHidden(): boolean;
   purgeExpiredLinkPreviewImageCache(nowIso: string, limit: number): { purgedEntries: number; purgedMedia: number };
   authGateway: AuthGatewayLike;
   terminalService: TerminalServiceLike;
@@ -88,6 +90,7 @@ export interface WebServerLifecycleGatewayDeps extends JsonResponder {
 }
 
 export interface WebServerLifecycleGatewayChannel extends JsonResponder, WorkspaceWatcherChannel {
+  syncWorkspaceWatcher?(): void;
   loadState(): void;
   handleRequest(req: Request): Promise<Response>;
   authGateway: AuthGatewayLike;
@@ -108,6 +111,8 @@ export function createWebServerLifecycleGateway(
     initTheme: () => initTheme(),
     handleRequest: (req) => channel.handleRequest(req),
     startWorkspaceWatcher: () => startWorkspaceWatcher(channel),
+    getWorkspaceVisible: () => channel.workspaceVisible,
+    getWorkspaceShowHidden: () => channel.workspaceShowHidden,
     purgeExpiredLinkPreviewImageCache: (nowIso, limit) => purgeExpiredLinkPreviewImageCache(nowIso, limit),
     authGateway: channel.authGateway,
     terminalService: channel.terminalService,
@@ -121,6 +126,8 @@ export class WebServerLifecycleGatewayService {
   server: Bun.Server<WebSocketSessionData> | null = null;
   workspaceWatcher: WatcherLike | null = null;
   linkPreviewCachePurgeTimer: unknown | null = null;
+  private workspaceWatcherShowHidden: boolean | null = null;
+  private workspaceWatcherSyncPromise: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: WebServerLifecycleGatewayDeps) {}
 
@@ -193,7 +200,7 @@ export class WebServerLifecycleGatewayService {
 
     if (lastBindError) throw lastBindError;
 
-    this.workspaceWatcher = this.deps.startWorkspaceWatcher();
+    await this.syncWorkspaceWatcher();
     const purgeNow = () => {
       const result = this.deps.purgeExpiredLinkPreviewImageCache(new Date().toISOString(), 256);
       if (result.purgedEntries > 0) {
@@ -226,9 +233,11 @@ export class WebServerLifecycleGatewayService {
     }
     this.server?.stop(true);
     this.server = null;
+    await this.workspaceWatcherSyncPromise;
     if (this.workspaceWatcher) {
       await this.workspaceWatcher.close();
       this.workspaceWatcher = null;
+      this.workspaceWatcherShowHidden = null;
     }
   }
 
@@ -265,6 +274,54 @@ export class WebServerLifecycleGatewayService {
       return this.deps.json({ error: "WebSocket upgrade failed" }, 400);
     }
     return undefined;
+  }
+
+  async syncWorkspaceWatcher(): Promise<void> {
+    this.workspaceWatcherSyncPromise = this.workspaceWatcherSyncPromise
+      .then(async () => {
+        const visible = this.deps.getWorkspaceVisible();
+        const showHidden = this.deps.getWorkspaceShowHidden();
+        if (!visible) {
+          if (this.workspaceWatcher) {
+            await this.workspaceWatcher.close();
+            this.workspaceWatcher = null;
+            this.workspaceWatcherShowHidden = null;
+            this.logger.info("Workspace watcher disabled", {
+              operation: "workspace_watcher.disable",
+            });
+          }
+          return;
+        }
+
+        if (this.workspaceWatcher && this.workspaceWatcherShowHidden === showHidden) {
+          return;
+        }
+
+        if (this.workspaceWatcher) {
+          await this.workspaceWatcher.close();
+          this.workspaceWatcher = null;
+          this.workspaceWatcherShowHidden = null;
+          this.logger.info("Workspace watcher restarting", {
+            operation: "workspace_watcher.restart",
+            showHidden,
+          });
+        } else {
+          this.logger.info("Workspace watcher enabling", {
+            operation: "workspace_watcher.enable",
+            showHidden,
+          });
+        }
+
+        this.workspaceWatcher = this.deps.startWorkspaceWatcher();
+        this.workspaceWatcherShowHidden = showHidden;
+      })
+      .catch((err) => {
+        this.logger.error("Failed to synchronize workspace watcher", {
+          operation: "workspace_watcher.sync",
+          err,
+        });
+      });
+    await this.workspaceWatcherSyncPromise;
   }
 
   handleVncWebSocketUpgrade(req: Request, server?: Bun.Server<WebSocketSessionData>): Response | undefined {
