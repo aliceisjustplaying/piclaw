@@ -18,6 +18,7 @@ import { buildTree, compressPaths } from "./tree.js";
 import { resolveWorkspacePath, shouldIgnoreWatchPath, toRelativePath } from "./paths.js";
 
 const log = createLogger("web.workspace-watcher");
+export const DEFAULT_WORKSPACE_WATCH_DEPTH = 4;
 
 /** Describes a detected workspace file change for SSE broadcast. */
 export type WorkspaceUpdate = {
@@ -95,7 +96,7 @@ export function startWorkspaceWatcher(
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const throttler = createWorkspaceUpdateThrottle(onUpdate, 1000);
   const watchers = new Map<string, FSWatcher>();
-  const maxDepth = 8;
+  const maxDepth = DEFAULT_WORKSPACE_WATCH_DEPTH;
 
   const queuePath = (absPath: string) => {
     if (shouldIgnoreWatchPath(absPath, includeHidden())) return;
@@ -203,6 +204,12 @@ export function startWorkspaceWatcher(
   };
 
   addWatcher(WORKSPACE_DIR, maxDepth);
+  log.info("Workspace watcher ready", {
+    operation: "workspace_watcher.start",
+    includeHidden: includeHidden(),
+    maxDepth,
+    watchCount: watchers.size,
+  });
 
   return {
     close: async () => {
@@ -212,10 +219,15 @@ export function startWorkspaceWatcher(
       }
       throttler.clear();
       pending.clear();
+      const watchCount = watchers.size;
       for (const watcher of watchers.values()) {
         try { watcher.close(); } catch { /* expected: watcher may already be closed during shutdown. */ }
       }
       watchers.clear();
+      log.info("Workspace watcher stopped", {
+        operation: "workspace_watcher.stop",
+        watchCount,
+      });
     },
   };
 }

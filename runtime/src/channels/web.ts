@@ -104,6 +104,10 @@ export class WebChannel implements WebChannelLike {
   private readonly endpointFacade!: WebChannelEndpointFacadeService;
   private readonly controlPlaneService!: WebAgentControlPlaneService;
 
+  syncWorkspaceWatcher(): Promise<void> {
+    return this.serverLifecycleGateway.syncWorkspaceWatcher();
+  }
+
   constructor(opts: WebChannelOpts) {
     initializeWebChannelConstructor(this, opts, {
       defaultChatJid: DEFAULT_CHAT_JID,

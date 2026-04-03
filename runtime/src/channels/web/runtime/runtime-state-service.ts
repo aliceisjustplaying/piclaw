@@ -8,6 +8,8 @@
  */
 
 import type { WebAgentBufferEntry } from "../agent/agent-buffers.js";
+
+const RECOVERY_REPLAY_DELAY_MS = 2000;
 import { AgentBuffers } from "../agent/agent-buffers.js";
 import { AgentStatusStore } from "../agent/agent-status-store.js";
 import { WebChannelState } from "./channel-state.js";
@@ -111,6 +113,8 @@ export class WebChannelRuntimeStateService {
       enqueue: (task, key, laneKey) => this.callbacks.enqueue(task, key, laneKey),
       processChat: (chatJid, agentId, threadRootId) =>
         this.callbacks.processChat(chatJid, agentId, threadRootId ?? undefined),
+      recoveryDelayMs: RECOVERY_REPLAY_DELAY_MS,
+      sleep: (ms) => Bun.sleep(ms),
     };
   }
 

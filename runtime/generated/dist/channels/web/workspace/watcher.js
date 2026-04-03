@@ -14,6 +14,7 @@ import { createLogger } from "../../../utils/logger.js";
 import { buildTree, compressPaths } from "./tree.js";
 import { resolveWorkspacePath, shouldIgnoreWatchPath, toRelativePath } from "./paths.js";
 const log = createLogger("web.workspace-watcher");
+export const DEFAULT_WORKSPACE_WATCH_DEPTH = 4;
 /** Create a throttled callback for workspace change events. */
 export function createWorkspaceUpdateThrottle(onUpdate, throttleMs = 1000) {
     let lastEmit = 0;
@@ -73,7 +74,7 @@ export function startWorkspaceWatcher(onUpdate, includeHidden) {
     let flushTimer = null;
     const throttler = createWorkspaceUpdateThrottle(onUpdate, 1000);
     const watchers = new Map();
-    const maxDepth = 8;
+    const maxDepth = DEFAULT_WORKSPACE_WATCH_DEPTH;
     const queuePath = (absPath) => {
         if (shouldIgnoreWatchPath(absPath, includeHidden()))
             return;
@@ -189,6 +190,12 @@ export function startWorkspaceWatcher(onUpdate, includeHidden) {
         }
     };
     addWatcher(WORKSPACE_DIR, maxDepth);
+    log.info("Workspace watcher ready", {
+        operation: "workspace_watcher.start",
+        includeHidden: includeHidden(),
+        maxDepth,
+        watchCount: watchers.size,
+    });
     return {
         close: async () => {
             if (flushTimer) {
@@ -197,6 +204,7 @@ export function startWorkspaceWatcher(onUpdate, includeHidden) {
             }
             throttler.clear();
             pending.clear();
+            const watchCount = watchers.size;
             for (const watcher of watchers.values()) {
                 try {
                     watcher.close();
@@ -204,6 +212,10 @@ export function startWorkspaceWatcher(onUpdate, includeHidden) {
                 catch { /* expected: watcher may already be closed during shutdown. */ }
             }
             watchers.clear();
+            log.info("Workspace watcher stopped", {
+                operation: "workspace_watcher.stop",
+                watchCount,
+            });
         },
     };
 }

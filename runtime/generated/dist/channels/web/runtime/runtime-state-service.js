@@ -6,6 +6,7 @@
  * buffer delegation so `channels/web.ts` can stay focused on request/runtime
  * orchestration without changing the public WebChannel API.
  */
+const RECOVERY_REPLAY_DELAY_MS = 2000;
 import { AgentBuffers } from "../agent/agent-buffers.js";
 import { AgentStatusStore } from "../agent/agent-status-store.js";
 import { WebChannelState } from "./channel-state.js";
@@ -46,6 +47,8 @@ export class WebChannelRuntimeStateService {
             defaultAgentId: this.options.defaultAgentId,
             enqueue: (task, key, laneKey) => this.callbacks.enqueue(task, key, laneKey),
             processChat: (chatJid, agentId, threadRootId) => this.callbacks.processChat(chatJid, agentId, threadRootId ?? undefined),
+            recoveryDelayMs: RECOVERY_REPLAY_DELAY_MS,
+            sleep: (ms) => Bun.sleep(ms),
         };
     }
     getThreadRootId(chatJid, messageId, store) {
