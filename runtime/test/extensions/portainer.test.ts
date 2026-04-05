@@ -178,6 +178,8 @@ test("portainer capabilities and workflow_help are available without handlers", 
   const requestHelp = await tool.execute("tool-request-help", { action: "request_help" });
   expect(requestHelp.details.request_contract.optional_fields).toContain("headers");
   expect(requestHelp.details.request_contract.inventory_patterns[0].steps[0]).toContain("/api/endpoints");
+  expect(requestHelp.details.request_contract.inventory_patterns[1].steps[2]).toContain("/stats?stream=false");
+  expect(requestHelp.details.request_contract.examples.some((example: any) => String(example.path || "").includes("/docker/containers/04572d64c639/stats"))).toBe(true);
   expect(requestHelp.content[0].text).toContain("path is required");
 
   const capabilities = await tool.execute("tool-cap", { action: "capabilities" });

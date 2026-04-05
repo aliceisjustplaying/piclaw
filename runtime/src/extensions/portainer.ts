@@ -420,6 +420,13 @@ function buildPortainerRequestExamples(): Array<Record<string, unknown>> {
     {
       action: "request",
       method: "GET",
+      path: "/api/endpoints/2/docker/containers/04572d64c639/stats",
+      query: { stream: false },
+      purpose: "Fetch one bounded Docker stats snapshot for charting/reporting without opening a streaming attach session.",
+    },
+    {
+      action: "request",
+      method: "GET",
       path: "/api/stacks/7/file",
       query: { endpointId: 2 },
       purpose: "Fetch stack compose content when you know the stack and endpoint IDs.",
@@ -462,6 +469,15 @@ function buildPortainerRequestHelpPayload(): Record<string, unknown> {
             "GET /api/endpoints to resolve an endpoint ID.",
             "GET /api/endpoints/{id}/docker/... for Docker-native list/inspect surfaces not yet modeled as workflows.",
             "Render the returned inventory/log/config data locally as needed.",
+          ],
+        },
+        {
+          goal: "Collect bounded container memory/CPU stats for charting",
+          steps: [
+            "Use workflow endpoint.list or GET /api/endpoints to pick a reachable endpoint.",
+            "Use workflow container.list or GET /api/endpoints/{id}/docker/containers/json?all=1 to resolve target containers.",
+            "GET /api/endpoints/{id}/docker/containers/{containerId}/stats?stream=false for one non-streaming snapshot per container.",
+            "Aggregate memory/cpu/network fields locally into a chart/report artifact.",
           ],
         },
       ],
@@ -541,7 +557,7 @@ function buildPortainerCapabilitiesPayload(options?: { category?: string; includ
     next_steps: [
       "Set category to inspect one workflow family without pulling the whole surface.",
       "Use workflow_help with one workflow for required fields, guidance, and see_also suggestions.",
-      "Use request_help when you need raw API request fields, response shape, or Docker-proxy request examples.",
+      "Use request_help when you need raw API request fields, response shape, Docker-proxy request examples, or bounded stats-snapshot patterns for charting.",
       "Set include_examples=true on workflow_help only when you need example payloads.",
     ],
   };
@@ -634,7 +650,7 @@ const PORTAINER_TOOL_HINT = [
   "Use portainer to inspect or change the Portainer API profile for the current session.",
   "Use portainer discover to find a likely existing Portainer instance from keychain/env hints.",
   "Use portainer capabilities to list workflow families, portainer recommend for intent-based shortlists, and portainer workflow_help for one workflow's fields/guidance.",
-  "Use portainer contract for the overall tool contract and request_help for raw request fields, response shape, and Docker-proxy request examples.",
+  "Use portainer contract for the overall tool contract and request_help for raw request fields, response shape, Docker-proxy request examples, and bounded stats-snapshot patterns.",
   "Use portainer request for ad-hoc Portainer API calls and portainer workflow for reusable endpoint/stack/container/image/network/volume orchestration.",
   "Keep the raw request path available so future inventory/charting and other Portainer API surfaces do not need bespoke runtime primitives.",
 ].join("\n");
