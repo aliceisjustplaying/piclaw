@@ -246,6 +246,34 @@ describe("messages tool extension", () => {
     expect(search.details.count).toBe(1);
   });
 
+  test("add strips internal tags from agent content before storing", async () => {
+    const { tool } = await getTool();
+    const result = await runWithContext(tool, {
+      action: "add",
+      content: "before <internal>secret</internal> after",
+      type: "agent",
+    });
+
+    expect(result.details.inserted).toBe(1);
+    expect(result.details.message.content).toBe("before  after");
+
+    const search = await runWithContext(tool, { action: "search", query: "before after", chat_jid: chatJid, details_max_chars: 200 });
+    expect(search.details.count).toBe(1);
+    expect(search.details.results[0].content).toBe("before  after");
+  });
+
+  test("add rejects agent content that becomes empty after stripping internal tags", async () => {
+    const { tool } = await getTool();
+    const result = await runWithContext(tool, {
+      action: "add",
+      content: "<internal>secret only</internal>",
+      type: "agent",
+    });
+
+    expect(result.details.inserted).toBe(0);
+    expect(result.content[0].text).toContain("No visible content remains");
+  });
+
   test("delete supports dry_run and does not delete", async () => {
     const parent = insertMessage("Parent message");
     const child = insertMessage("Child message", { thread_id: parent });
@@ -327,6 +355,39 @@ describe("messages tool extension", () => {
     expect(calls[0].isBot).toBe(true);
     expect(calls[0].content).toBe("Agent card message");
     expect(calls[0].contentBlocks).toEqual([{ type: "adaptive_card", card_id: "test-abc" }]);
+  });
+
+  test("post strips internal tags from agent content before broadcast", async () => {
+    const { runMessagesTool } = await importFresh<typeof import("../src/extensions/messages-crud.js")>("../src/extensions/messages-crud.js");
+
+    const calls: Array<{ content: string; isBot: boolean }> = [];
+    const fakePostFn = (_cj: string, c: string, bot: boolean, _mids: number[], _cb?: unknown[]) => {
+      calls.push({ content: c, isBot: bot });
+      return 77777;
+    };
+
+    const result = runMessagesTool(
+      { action: "post", type: "agent", content: "hello <internal>secret</internal> world" },
+      chatJid,
+      fakePostFn,
+    );
+
+    expect(result.details.posted).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({ content: "hello  world", isBot: true });
+  });
+
+  test("post rejects agent content that becomes empty after stripping internal tags", async () => {
+    const { runMessagesTool } = await importFresh<typeof import("../src/extensions/messages-crud.js")>("../src/extensions/messages-crud.js");
+
+    const result = runMessagesTool(
+      { action: "post", type: "agent", content: "<internal>secret only</internal>" },
+      chatJid,
+      () => 12345,
+    );
+
+    expect(result.details.posted).toBe(0);
+    expect(result.content[0].text).toContain("No visible content remains");
   });
 
   test("post without type defaults to user (isBot=false)", async () => {

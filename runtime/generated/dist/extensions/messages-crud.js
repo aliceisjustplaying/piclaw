@@ -4,6 +4,7 @@
 import { Type } from "@sinclair/typebox";
 import { attachMediaToMessage, deleteThreadByRowId, getDb, getMediaIdsForMessage, storeMessage, } from "../db.js";
 import { getChatJid } from "../core/chat-context.js";
+import { stripInternalTags } from "../router.js";
 import { createUuid } from "../utils/ids.js";
 import { prepareFtsQuery } from "../utils/fts-query.js";
 const MessagesSchema = Type.Object({
@@ -354,11 +355,19 @@ function executeGet(params, defaultChat) {
         },
     };
 }
+function sanitizeMessageToolContent(rawContent, isBot) {
+    const trimmed = rawContent?.trim() ?? "";
+    if (!isBot)
+        return trimmed;
+    return stripInternalTags(trimmed);
+}
 function executeAdd(params, defaultChat) {
-    const content = params.content?.trim() ?? "";
+    const isBot = params.type === "agent";
+    const rawContent = params.content?.trim() ?? "";
+    const content = sanitizeMessageToolContent(params.content, isBot);
     if (!content) {
         return {
-            content: [{ type: "text", text: "Provide content for action=add." }],
+            content: [{ type: "text", text: rawContent ? "No visible content remains after stripping internal tags." : "Provide content for action=add." }],
             details: { action: "add", inserted: 0 },
         };
     }
@@ -369,7 +378,6 @@ function executeAdd(params, defaultChat) {
             details: { action: "add", inserted: 0 },
         };
     }
-    const isBot = params.type === "agent";
     const timestamp = new Date().toISOString();
     const rowId = storeMessage({
         id: createUuid("msg"),
@@ -416,10 +424,12 @@ function executeAdd(params, defaultChat) {
     };
 }
 function executePost(params, defaultChat, postFn) {
-    const content = params.content?.trim() ?? "";
+    const isBot = params.type === "agent";
+    const rawContent = params.content?.trim() ?? "";
+    const content = sanitizeMessageToolContent(params.content, isBot);
     if (!content) {
         return {
-            content: [{ type: "text", text: "Provide content for action=post." }],
+            content: [{ type: "text", text: rawContent ? "No visible content remains after stripping internal tags." : "Provide content for action=post." }],
             details: { action: "post", posted: 0 },
         };
     }
@@ -430,7 +440,6 @@ function executePost(params, defaultChat, postFn) {
             details: { action: "post", posted: 0 },
         };
     }
-    const isBot = params.type === "agent";
     const mediaIds = Array.from(new Set((params.media_ids ?? []).filter((id) => Number.isInteger(id) && id > 0)));
     const contentBlocks = Array.isArray(params.content_blocks) ? params.content_blocks : undefined;
     if (postFn) {

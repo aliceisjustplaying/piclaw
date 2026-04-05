@@ -56,6 +56,46 @@ export function formatMessages(messages: NewMessage[], channel?: ChatChannel): s
   return `<messages${channelAttr}>\n${meta}${lines.join("\n")}\n</messages>`;
 }
 
+const INTERNAL_OPEN_PLACEHOLDER = "\u0000PICLAW_INTERNAL_OPEN\u0000";
+const INTERNAL_CLOSE_PLACEHOLDER = "\u0000PICLAW_INTERNAL_CLOSE\u0000";
+
+function protectInternalTagsInsideMarkdownCode(text: string): string {
+  let result = "";
+  let i = 0;
+
+  while (i < text.length) {
+    if (text[i] !== "`") {
+      result += text[i];
+      i += 1;
+      continue;
+    }
+
+    let tickCount = 1;
+    while (i + tickCount < text.length && text[i + tickCount] === "`") tickCount += 1;
+    const delimiter = "`".repeat(tickCount);
+    const closeIndex = text.indexOf(delimiter, i + tickCount);
+
+    if (closeIndex < 0) {
+      result += text.slice(i);
+      break;
+    }
+
+    const segment = text.slice(i, closeIndex + tickCount)
+      .replaceAll("<internal>", INTERNAL_OPEN_PLACEHOLDER)
+      .replaceAll("</internal>", INTERNAL_CLOSE_PLACEHOLDER);
+    result += segment;
+    i = closeIndex + tickCount;
+  }
+
+  return result;
+}
+
+function restoreProtectedInternalTagPlaceholders(text: string): string {
+  return text
+    .replaceAll(INTERNAL_OPEN_PLACEHOLDER, "<internal>")
+    .replaceAll(INTERNAL_CLOSE_PLACEHOLDER, "</internal>");
+}
+
 /**
  * Remove `<internal>…</internal>` blocks from agent output.
  * Content inside these tags is logged but not sent to the user.
@@ -63,29 +103,33 @@ export function formatMessages(messages: NewMessage[], channel?: ChatChannel): s
  * Handles nested tags and malformed blocks by treating <internal> as a
  * depth counter and discarding anything inside. Unclosed tags discard the
  * remainder of the string (safer than leaking hidden content).
+ *
+ * Literal tag examples inside Markdown code spans/fences are preserved so the
+ * agent can explain the control markup without the explanation disappearing.
  */
 export function stripInternalTags(text: string): string {
   if (!text) return "";
+  const protectedText = protectInternalTagsInsideMarkdownCode(text);
   let result = "";
   let depth = 0;
   let i = 0;
-  while (i < text.length) {
-    if (text.startsWith("<internal>", i)) {
+  while (i < protectedText.length) {
+    if (protectedText.startsWith("<internal>", i)) {
       depth += 1;
       i += "<internal>".length;
       continue;
     }
-    if (text.startsWith("</internal>", i)) {
+    if (protectedText.startsWith("</internal>", i)) {
       if (depth > 0) depth -= 1;
       i += "</internal>".length;
       continue;
     }
     if (depth === 0) {
-      result += text[i];
+      result += protectedText[i];
     }
     i += 1;
   }
-  return result.trim();
+  return restoreProtectedInternalTagPlaceholders(result).trim();
 }
 
 /**

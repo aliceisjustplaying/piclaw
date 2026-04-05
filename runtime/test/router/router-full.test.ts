@@ -119,4 +119,19 @@ describe("router", () => {
     expect(stripInternalTags("prefix <internal>missing end"))
       .toBe("prefix");
   });
+
+  test("stripInternalTags preserves literal internal tags inside markdown code spans", () => {
+    expect(stripInternalTags("Use `<internal>` and `</internal>` literally."))
+      .toBe("Use `<internal>` and `</internal>` literally.");
+  });
+
+  test("stripInternalTags preserves literal internal tags inside fenced code blocks", () => {
+    expect(stripInternalTags("```html\n<internal>example</internal>\n```"))
+      .toBe("```html\n<internal>example</internal>\n```");
+  });
+
+  test("formatOutbound keeps code-span literal tags visible on web", () => {
+    expect(formatOutbound("Use `<internal>` literally.", "web"))
+      .toBe("Use `&lt;internal&gt;` literally.");
+  });
 });

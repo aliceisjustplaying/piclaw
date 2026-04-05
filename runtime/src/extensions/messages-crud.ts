@@ -12,6 +12,7 @@ import {
   storeMessage,
 } from "../db.js";
 import { getChatJid } from "../core/chat-context.js";
+import { stripInternalTags } from "../router.js";
 import { createUuid } from "../utils/ids.js";
 import { prepareFtsQuery } from "../utils/fts-query.js";
 
@@ -442,11 +443,19 @@ function executeGet(params: MessagesParams, defaultChat: string): AgentToolResul
   };
 }
 
+function sanitizeMessageToolContent(rawContent: string | undefined, isBot: boolean): string {
+  const trimmed = rawContent?.trim() ?? "";
+  if (!isBot) return trimmed;
+  return stripInternalTags(trimmed);
+}
+
 function executeAdd(params: MessagesParams, defaultChat: string): AgentToolResult<Record<string, unknown>> {
-  const content = params.content?.trim() ?? "";
+  const isBot = params.type === "agent";
+  const rawContent = params.content?.trim() ?? "";
+  const content = sanitizeMessageToolContent(params.content, isBot);
   if (!content) {
     return {
-      content: [{ type: "text", text: "Provide content for action=add." }],
+      content: [{ type: "text", text: rawContent ? "No visible content remains after stripping internal tags." : "Provide content for action=add." }],
       details: { action: "add", inserted: 0 },
     };
   }
@@ -459,7 +468,6 @@ function executeAdd(params: MessagesParams, defaultChat: string): AgentToolResul
     };
   }
 
-  const isBot = params.type === "agent";
   const timestamp = new Date().toISOString();
   const rowId = storeMessage({
     id: createUuid("msg"),
@@ -515,10 +523,12 @@ function executePost(
   defaultChat: string,
   postFn?: (chatJid: string, content: string, isBot: boolean, mediaIds: number[], contentBlocks?: unknown[]) => number | null,
 ): AgentToolResult<Record<string, unknown>> {
-  const content = params.content?.trim() ?? "";
+  const isBot = params.type === "agent";
+  const rawContent = params.content?.trim() ?? "";
+  const content = sanitizeMessageToolContent(params.content, isBot);
   if (!content) {
     return {
-      content: [{ type: "text", text: "Provide content for action=post." }],
+      content: [{ type: "text", text: rawContent ? "No visible content remains after stripping internal tags." : "Provide content for action=post." }],
       details: { action: "post", posted: 0 },
     };
   }
@@ -531,7 +541,6 @@ function executePost(
     };
   }
 
-  const isBot = params.type === "agent";
   const mediaIds = Array.from(new Set((params.media_ids ?? []).filter((id) => Number.isInteger(id) && id > 0)));
   const contentBlocks = Array.isArray(params.content_blocks) ? params.content_blocks : undefined;
 

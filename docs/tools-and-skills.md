@@ -334,10 +334,12 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `situate-daily-notes` | Situation report and Obsidian-style daily summary notes |
 | `timeline-cleanup` | Delete low-value timeline messages by keyword patterns |
 | `proxmox-management` | Manage Proxmox VM lifecycle, USB mapping passthrough, and backup-restore moves |
+| `proxmox-guest-compare-chart` | Compare two Proxmox guests using native `proxmox` data collection and render SVG/CSV outputs |
+| `portainer-container-compare-chart` | Compare two Portainer containers using native `portainer` data collection and render SVG/CSV outputs |
 
 `kanban-management` intentionally keeps its public name for now, but repo-local board paths in this project now live under `workitems/`. Visual/editor semantics such as `*.kanban.md` remain intentionally named.
 
-For agent-driven work, prefer the native `proxmox` tool first. The old packaged Proxmox/Portainer helper CLIs were removed once the chat-scoped native tools and shared workflow engines became the canonical path. For shell-oriented Proxmox lifecycle work that still belongs in the skill layer, use the remaining `proxmox-management` skill wrappers instead.
+For agent-driven work, prefer the native `proxmox` / `portainer` tools first. The old packaged Proxmox/Portainer helper CLIs were removed once the chat-scoped native tools and shared workflow engines became the canonical path. For shell-oriented Proxmox lifecycle work that still belongs in the skill layer, use the remaining `proxmox-management` skill wrappers instead. Comparison/chart skills for Proxmox and Portainer are now colocated with their packaged integration extensions and surfaced via each extension's `resources_discover` hook, rather than living only in the flat packaged-skill tree.
 
 ## Web extension UI note
 
