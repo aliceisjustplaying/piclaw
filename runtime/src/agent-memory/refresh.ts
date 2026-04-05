@@ -178,6 +178,16 @@ function readOptionalText(path: string): string | null {
   }
 }
 
+function readOptionalMarkdown(path: string): string | null {
+  if (!existsSync(path)) return null;
+  try {
+    const text = readFileSync(path, "utf8").trim();
+    return text.length ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 function shiftIsoDate(isoDate: string, deltaDays: number): string {
   const base = new Date(`${isoDate}T00:00:00Z`);
   base.setUTCDate(base.getUTCDate() + deltaDays);
@@ -403,24 +413,23 @@ function buildSidecar(notePath: string, content: string): DailyAgentSidecar {
 
 function formatCompactDay(sidecar: DailyAgentSidecar): string[] {
   const lines: string[] = [];
-  const statusBits = [
-    sidecar.state,
-    sidecar.summarised_until ? `summarised_until ${sidecar.summarised_until}` : null,
-    sidecar.messages_total !== null ? `${sidecar.messages_total} msgs` : null,
-    sidecar.session_trees !== null ? `${sidecar.session_trees} trees` : null,
-    sidecar.session_chats !== null ? `${sidecar.session_chats} chats` : null,
-  ].filter(Boolean).join(" • ");
-
   lines.push(`### ${sidecar.date}`);
   lines.push("");
-  lines.push(`- ${statusBits}`);
+  lines.push(`- State: ${sidecar.state}`);
+  if (sidecar.summarised_until) lines.push(`- Summarised until: ${sidecar.summarised_until}`);
+  if (sidecar.messages_total !== null) lines.push(`- Messages: ${sidecar.messages_total}`);
+  if (sidecar.session_trees !== null) lines.push(`- Session trees: ${sidecar.session_trees}`);
+  if (sidecar.session_chats !== null) lines.push(`- Session chats: ${sidecar.session_chats}`);
   if (sidecar.summary) {
     lines.push("");
-    lines.push(sidecar.summary);
+    lines.push("#### Summary");
+    lines.push("");
+    lines.push(`- ${sidecar.summary.replace(/\s+/g, " ").trim()}`);
   }
   if (sidecar.summary_updates.length > 0) {
     lines.push("");
-    lines.push("Updates:");
+    lines.push("#### Updates");
+    lines.push("");
     for (const update of sidecar.summary_updates) {
       lines.push(`- ${update.replace(/\s+/g, " ").trim()}`);
     }
@@ -444,7 +453,7 @@ function uniqueSnippets(values: Iterable<string>, limit = 24): string[] {
 
 function buildUserMemoryMarkdown(currentState: AgentMemoryCurrentState): string {
   const lines = ["# User memory", ""];
-  const prefs = readOptionalText(resolve(WORKSPACE_DIR, "notes/preferences/agent.md"));
+  const prefs = readOptionalMarkdown(resolve(WORKSPACE_DIR, "notes/preferences/agent.md"));
   if (prefs) {
     lines.push("## Role and preferences", "", prefs, "");
   }
@@ -490,7 +499,7 @@ function buildProjectMemoryMarkdown(currentState: AgentMemoryCurrentState): stri
 
 function buildReferenceMemoryMarkdown(): string {
   const lines = ["# Reference memory", ""];
-  const notesIndex = readOptionalText(resolve(WORKSPACE_DIR, "notes/index.md"));
+  const notesIndex = readOptionalMarkdown(resolve(WORKSPACE_DIR, "notes/index.md"));
   if (notesIndex) {
     lines.push("## Notes index", "", notesIndex, "");
   } else {
@@ -514,7 +523,12 @@ function buildCurrentStateMarkdown(currentState: AgentMemoryCurrentState): strin
     lines.push("## Complete days", "");
     for (const day of currentState.complete_days) {
       const summary = truncateText(day.summary, 160) || "(no summary)";
-      lines.push(`- ${day.date} — ${summary}`);
+      lines.push(`- ${day.date}`);
+      lines.push(`  - Summary: ${summary}`);
+      if (day.summarised_until) lines.push(`  - Summarised until: ${day.summarised_until}`);
+      if (day.messages_total !== null) lines.push(`  - Messages: ${day.messages_total}`);
+      if (day.session_trees !== null) lines.push(`  - Session trees: ${day.session_trees}`);
+      if (day.session_chats !== null) lines.push(`  - Session chats: ${day.session_chats}`);
     }
     lines.push("");
   }
@@ -578,7 +592,8 @@ function buildMemoryMarkdown(currentState: AgentMemoryCurrentState): string {
     for (const day of currentState.complete_days.slice(0, currentState.recent_days)) {
       const hook = compactText(day.summary) || "(no summary)";
       const truncatedHook = hook.length > 110 ? `${hook.slice(0, 109)}…` : hook;
-      lines.push(`- [${day.date}](${resolveMemoryIndexDayLink(day.date)}) — ${truncatedHook}`);
+      lines.push(`- [${day.date}](${resolveMemoryIndexDayLink(day.date)})`);
+      lines.push(`  - ${truncatedHook}`);
     }
     lines.push("");
   }
