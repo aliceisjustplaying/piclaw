@@ -124,7 +124,7 @@ Lock v1 to:
 - [ ] Add install step to Dockerfile and/or bootstrap-container flow as appropriate.
 - [ ] Add a helper skill or equivalent guidance for common local MCP server management workflows.
 - [ ] Bun/container compatibility is explicitly verified or limitations are documented.
-- [ ] Linux arm64 behavior is explicitly decided: supported via source/Bun install, or documented as unsupported for the first slice.
+- [ ] Linux arm64 behavior is covered by the same Bun-first install path rather than a separate binary-only exception path.
 
 ## Install strategy options
 
@@ -142,30 +142,35 @@ Lock v1 to:
 - depends on upstream repo layout/installability remaining stable
 - less self-contained than a pinned release binary
 
-### Path B — prebuilt release binary with architecture fallback
-1. Download upstream release binary when a matching asset exists.
-2. For unsupported architectures, fall back to source/Bun install.
-3. Keep config alignment in piclaw via helper docs/wrappers.
+### Path B — direct piclaw integration wrapper over Bun-installed mcp-cli
+1. Install `mcp-cli` via Bun as the only supported runtime path.
+2. Expose common MCP workflows through a thin piclaw-owned wrapper/skill or built-in helper.
+3. Keep the raw `mcp-cli` available for direct use, but make piclaw guidance default to the integrated path.
 
 **Pros:**
-- fast startup and minimal install overhead on supported platforms
-- keeps the runtime artifact simple on x64
+- preserves one Bun-first install story
+- reduces repetitive flags/config boilerplate for routine use
+- leaves room for deeper future integration without changing install assumptions
 
 **Cons:**
-- latest upstream release currently lacks Linux arm64 binary coverage
-- hybrid install logic is more complex than one consistent strategy
+- broader than simple bundling
+- needs clearer ownership between raw CLI access and piclaw-managed UX
 
 ## Recommended Path
 
-Path A — prefer a Bun-based install path for the first implementation pass,
-with the release-binary path treated as optional optimization rather than the
-main contract.
+Path A as the baseline contract: **always Bun-first**.
+
+If the first implementation pass already touches enough piclaw-owned UX, treat
+Path B as a direct follow-on and possibly fold the common workflows into a thin
+integrated wrapper instead of keeping the feature as documentation-only around a
+raw third-party CLI.
 
 Reason:
 - piclaw already ships Bun globally in the container
 - upstream is Bun-native
 - current upstream release assets are not sufficient for a clean multi-arch
   binary-only strategy
+- a single Bun-first story is simpler than binary-vs-source branching
 
 ## Piclaw integration decisions to lock
 
@@ -190,18 +195,19 @@ The helper skill should cover only the practical first workflows:
 ## Likely implementation surfaces
 
 - `Dockerfile`
-  - image-time install path if this should ship in the base container
+  - image-time Bun-first install path if this should ship in the base container
 - `/workspace/.pi/skills/bootstrap-container/SKILL.md`
   - bootstrap-time install/check guidance
 - `notes/preferences/agent.md`
   - already indicates Bun preference for scripts/tooling
 - future MCP helper skill directory under `.pi/skills/` or piclaw skill surfaces
+- possible direct integration surface if common MCP flows are wrapped instead of left as raw CLI-only guidance
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Upstream release assets remain incomplete across architectures | medium | prefer Bun/source install as the baseline strategy |
+| Upstream release assets remain incomplete across architectures | low | ignore binary-first packaging and keep Bun-first install as the baseline strategy |
 | Upstream config defaults conflict with piclaw workspace conventions | medium | always use explicit `--config /workspace/.piclaw/mcp/mcp_servers.json` in docs/helper flows |
 | Raw `mcp-cli` UX is too low-level for routine use | low | add a thin helper skill with common tasks/examples |
 | Bun/global install path drifts over time | medium | pin repo/tag/commit and validate via explicit commands in CI/bootstrap |
@@ -223,7 +229,7 @@ The helper skill should cover only the practical first workflows:
   - [ ] install succeeds in the current x86_64 container
   - [ ] config file under `.piclaw/mcp/` is recognized when passed via `--config`
   - [ ] list/info/call flows behave as expected against a known sample config
-  - [ ] unsupported-architecture behavior is explicit and non-confusing
+  - [ ] the Bun-first install path behaves consistently across the supported piclaw container architectures
 - [ ] Real-browser smoke pass required? If yes, record the surface:
   - [ ] no browser pass required for v1 CLI-only install
 
@@ -241,6 +247,12 @@ The helper skill should cover only the practical first workflows:
 ## Updates
 
 ### 2026-04-06
+- Follow-up clarification from board review: the install strategy is now locked to **Bun-first** rather than keeping a binary-first fallback path open as a co-equal option.
+- Updated the ticket to treat raw release binaries as validation evidence only, not the preferred shipping contract.
+- Kept one intentional product-level choice open: whether the first shipped slice stops at bundling + helper guidance or immediately adds a thin piclaw-owned integration layer over the Bun-installed CLI.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 2, risk: 1)
+
+### 2026-04-06
 - Refinement pass completed using upstream project metadata plus a local dry run in the current x86_64 container.
 - Verified upstream facts relevant to implementation:
   - `mcp-cli` is Bun-based and can be installed from source via Bun
@@ -252,7 +264,7 @@ The helper skill should cover only the practical first workflows:
   - confirmed `--version` and `--help`
   - confirmed the CLI reads a supplied config file and returns a structured connection failure when the configured test server exits immediately
 - Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
-- Gap: the remaining open choice is whether the shipped install path should be Bun/source-first everywhere or a binary-first path with fallback.
+- Gap: the remaining open design choice is whether the first shipped slice stops at bundling + helper guidance or immediately adds a thin piclaw-owned integration layer over the Bun-installed CLI.
 
 ### 2026-04-06
 - Board quality review: added the missing readiness score for the current planning state.
