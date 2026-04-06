@@ -2,6 +2,24 @@
 # scripts/docker/install-restic-release.sh – Install a pinned official restic release.
 set -euo pipefail
 
+CURL_RETRY_COUNT="${RESTIC_DOWNLOAD_RETRIES:-5}"
+CURL_RETRY_DELAY="${RESTIC_DOWNLOAD_RETRY_DELAY:-2}"
+CURL_RETRY_MAX_TIME="${RESTIC_DOWNLOAD_RETRY_MAX_TIME:-120}"
+CURL_CONNECT_TIMEOUT="${RESTIC_DOWNLOAD_CONNECT_TIMEOUT:-20}"
+
+curl_download() {
+  local url="$1"
+  local destination="$2"
+
+  curl --fail --silent --show-error --location \
+    --retry "$CURL_RETRY_COUNT" \
+    --retry-delay "$CURL_RETRY_DELAY" \
+    --retry-max-time "$CURL_RETRY_MAX_TIME" \
+    --retry-all-errors \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    "$url" -o "$destination"
+}
+
 resolve_restic_arch() {
   local raw_arch="${RESTIC_ARCH:-${TARGETARCH:-$(uname -m)}}"
   case "$raw_arch" in
@@ -67,8 +85,8 @@ install_restic_release() {
 
   trap "rm -rf '$temp_dir'" RETURN
 
-  curl -fsSL --fail "$url" -o "$bundle"
-  curl -fsSL --fail "${base_url}/SHA256SUMS" -o "$checksums"
+  curl_download "$url" "$bundle"
+  curl_download "${base_url}/SHA256SUMS" "$checksums"
 
   expected_checksum=$(awk -v name="$filename" '$2 == name { print $1; exit }' "$checksums")
   if [ -z "$expected_checksum" ]; then
