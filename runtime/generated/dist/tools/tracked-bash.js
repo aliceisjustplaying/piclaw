@@ -4,7 +4,9 @@
  * Creates a BashOperations implementation that:
  *   1. Resolves the host's preferred shell (POSIX shell on Unix, PowerShell/cmd on Windows).
  *   2. Resolves keychain placeholders in the command string and environment.
- *   3. Spawns the command in a detached process group for clean kill support.
+ *   3. Spawns the command in a platform-appropriate mode: detached process
+ *      groups on Unix for clean tree kills, attached children on Windows so
+ *      stdout/stderr stay capturable.
  *   4. Registers/unregisters the child PID with the process tracker so
  *      agent-pool.ts can force-kill lingering processes on abort/shutdown.
  *   5. Handles timeout and abort-signal cancellation.
@@ -18,6 +20,7 @@ import { existsSync } from "fs";
 import { buildInjectedShellEnv, resolveKeychainPlaceholders } from "../secure/keychain.js";
 import { createKeychainOutputRedactor } from "../secure/shell-secrets.js";
 import { killProcessTree, registerProcess, unregisterProcess } from "../utils/process-tracker.js";
+import { shouldDetachChildProcess } from "../utils/process-spawn.js";
 const POWERSHELL_ARGS = ["-NoProfile", "-Command"];
 const POSIX_ARGS = ["-c"];
 const CMD_ARGS = ["/c"];
@@ -151,7 +154,7 @@ function createTrackedShellOperations(resolveCandidates) {
                         attemptedShells.push(candidate.shell);
                         const spawned = spawn(candidate.shell, [...candidate.args, resolvedCommand], {
                             cwd,
-                            detached: true,
+                            detached: shouldDetachChildProcess(process.platform),
                             env: resolvedEnv,
                             stdio: ["ignore", "pipe", "pipe"],
                         });

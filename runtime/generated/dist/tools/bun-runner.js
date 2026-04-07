@@ -3,8 +3,10 @@
  *
  * Spawns the Bun runtime with a script path + argv array, keeps cwd/script
  * resolution inside the workspace, tracks the child process for abort/shutdown,
- * optionally captures stdout, always captures stderr, and stores large captured
- * outputs via tool-output.ts so they can be previewed/searched later.
+ * uses detached children on Unix and attached children on Windows so stdout /
+ * stderr remain capturable there, optionally captures stdout, always captures
+ * stderr, and stores large captured outputs via tool-output.ts so they can be
+ * previewed/searched later.
  */
 import { spawn } from "child_process";
 import { existsSync, statSync } from "fs";
@@ -13,6 +15,7 @@ import { StringDecoder } from "string_decoder";
 import { WORKSPACE_DIR } from "../core/config.js";
 import { buildPreview, saveToolOutput } from "../tool-output.js";
 import { killProcessTree, registerProcess, unregisterProcess } from "../utils/process-tracker.js";
+import { shouldDetachChildProcess } from "../utils/process-spawn.js";
 const DEFAULT_TIMEOUT_SEC = 120;
 const MAX_TIMEOUT_SEC = 3600;
 const STORE_THRESHOLD_BYTES = parseInt(process.env.PICLAW_TOOL_OUTPUT_STORE_BYTES || "4096", 10);
@@ -220,7 +223,7 @@ export async function runBunScript(params, signal) {
         }
         child = spawn(bunPath, [target.scriptPath, ...target.args], {
             cwd: target.cwd,
-            detached: true,
+            detached: shouldDetachChildProcess(process.platform),
             env: process.env,
             stdio: ["ignore", target.captureStdout ? "pipe" : "ignore", "pipe"],
         });

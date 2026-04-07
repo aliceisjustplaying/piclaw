@@ -7,6 +7,7 @@
  */
 import { Type } from "@sinclair/typebox";
 import { runBunScript } from "../tools/bun-runner.js";
+import { buildSubprocessExecutionHint } from "../utils/process-spawn.js";
 const BunRunSchema = Type.Object({
     script: Type.String({ description: "Workspace-relative script file to execute with Bun (for example `runtime/scripts/foo.ts`)." }),
     args: Type.Optional(Type.Array(Type.String(), { description: "Arguments passed to the script. No shell parsing is performed." })),
@@ -14,12 +15,21 @@ const BunRunSchema = Type.Object({
     timeout_sec: Type.Optional(Type.Integer({ description: "Timeout in seconds.", minimum: 1, maximum: 3600 })),
     capture_stdout: Type.Optional(Type.Boolean({ description: "Capture stdout instead of discarding it. Large captured output is stored as searchable tool-output logs." })),
 });
-const HINT = [
-    "## Direct Bun scripts",
-    "Use bun_run to execute a workspace Bun script directly without a shell.",
-    "Pass script arguments as an array; do not rely on shell features like pipes or redirects.",
-    "Stdout is discarded by default; set capture_stdout=true when you need bounded inline output or searchable stored output.",
-].join("\n");
+export function buildBunRunHint(platform = process.platform) {
+    return [
+        "## Direct Bun scripts",
+        "Use bun_run to execute a workspace Bun script directly without a shell.",
+        "Pass script arguments as an array; do not rely on shell features like pipes or redirects.",
+        "Stdout is discarded by default; set capture_stdout=true when you need bounded inline output or searchable stored output.",
+        buildSubprocessExecutionHint(platform),
+    ].join("\n");
+}
+export function buildBunRunDescription(platform = process.platform) {
+    return `Run a workspace Bun script directly with optional arguments and cwd. No shell parsing, piping, or redirects; stderr is always captured, stdout can be captured optionally with large outputs stored as searchable tool-output logs. ${buildSubprocessExecutionHint(platform)}`;
+}
+export function buildBunRunPromptSnippet(platform = process.platform) {
+    return `bun_run: execute a workspace Bun script directly with optional arguments and cwd, capturing stderr and optionally capturing stdout with searchable large-output storage. ${buildSubprocessExecutionHint(platform)}`;
+}
 function formatArgs(args) {
     if (args.length === 0)
         return "(none)";
@@ -69,13 +79,13 @@ function buildResultText(result) {
 }
 export const bunRunner = (pi) => {
     pi.on("before_agent_start", async (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\n${HINT}`,
+        systemPrompt: `${event.systemPrompt}\n\n${buildBunRunHint()}`,
     }));
     pi.registerTool({
         name: "bun_run",
         label: "bun_run",
-        description: "Run a workspace Bun script directly with optional arguments and cwd. No shell parsing, piping, or redirects; stderr is always captured, and stdout can be captured optionally with large outputs stored as searchable tool-output logs.",
-        promptSnippet: "bun_run: execute a workspace Bun script directly with optional arguments and cwd, capturing stderr and optionally capturing stdout with searchable large-output storage.",
+        description: buildBunRunDescription(),
+        promptSnippet: buildBunRunPromptSnippet(),
         parameters: BunRunSchema,
         async execute(_toolCallId, params, signal) {
             try {
