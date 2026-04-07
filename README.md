@@ -121,6 +121,8 @@ bun add -g github:rcarmo/piclaw
 
 Experimental. Linux/macOS/Windows. See [docs/install-from-repo.md](docs/install-from-repo.md).
 
+On Windows, PiClaw remains a secondary / not-officially-supported target. Shell-like child processes now run attached there (`detached=false`) so stdout/stderr remain capturable; Unix-like hosts still use detached process groups for cleaner tree termination on abort/shutdown.
+
 ### Build from source
 
 See [docs/development.md](docs/development.md).

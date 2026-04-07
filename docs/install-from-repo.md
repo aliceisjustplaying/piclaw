@@ -62,6 +62,13 @@ This path is intended for:
 
 Windows also works in practice, but remains a secondary / not-officially-supported target for now.
 
+For shell execution specifically, PiClaw now uses a platform split:
+
+- Unix-like hosts: detached child process groups for cleaner process-tree termination on abort/shutdown
+- Windows: attached child processes (`detached=false`) so stdout/stderr remain capturable
+
+That tradeoff favors reliable shell output on Windows over strict parity with Unix process-group behavior.
+
 It is **not** the same as a development/source install flow.
 
 ## What you should get

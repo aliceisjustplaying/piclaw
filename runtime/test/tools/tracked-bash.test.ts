@@ -10,6 +10,7 @@ import { getTestWorkspace, setEnv } from "../helpers.js";
 import { initDatabase } from "../../src/db.js";
 import { deleteKeychainEntry, setKeychainEntry } from "../../src/secure/keychain.js";
 import { createTrackedBashOperations, resolveShellCandidates } from "../../src/tools/tracked-bash.js";
+import { buildSubprocessExecutionHint, shouldDetachChildProcess } from "../../src/utils/process-spawn.js";
 
 test("tracked bash executes commands and captures output", async () => {
   const ws = getTestWorkspace();
@@ -56,6 +57,14 @@ test("resolveShellCandidates uses Windows fallback chain without requiring WSL b
   expect(candidates.some((entry) => entry.shell === "C:\\Windows\\System32\\cmd.exe")).toBe(true);
   expect(candidates.some((entry) => entry.shell === "cmd.exe")).toBe(true);
   expect(candidates.some((entry) => entry.shell.toLowerCase().includes("bash.exe"))).toBe(false);
+});
+
+test("platform spawn strategy detaches only on Unix-like hosts", () => {
+  expect(shouldDetachChildProcess("linux")).toBe(true);
+  expect(shouldDetachChildProcess("darwin")).toBe(true);
+  expect(shouldDetachChildProcess("win32")).toBe(false);
+  expect(buildSubprocessExecutionHint("linux")).toContain("detached process groups");
+  expect(buildSubprocessExecutionHint("win32")).toContain("detached=false");
 });
 
 test("tracked bash rejects missing working directory", async () => {

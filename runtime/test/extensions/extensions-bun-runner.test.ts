@@ -6,6 +6,7 @@ import { join } from "path";
 import { WORKSPACE_DIR } from "../../src/core/config.js";
 import { getToolOutput } from "../../src/tool-output.js";
 import bunRunnerExtension from "../../extensions/integrations/bun-runner/index.ts";
+import { buildBunRunDescription, buildBunRunHint, buildBunRunPromptSnippet } from "../../src/extensions/bun-runner.ts";
 import { createFakeExtensionApi } from "./fake-extension-api.js";
 
 const cleanupPaths: string[] = [];
@@ -26,11 +27,15 @@ afterEach(() => {
 });
 
 describe("bun-runner extension", () => {
-  test("registers bun_run and advertises its hint", async () => {
+  test("registers bun_run and advertises platform-aware hints", async () => {
     const fake = createFakeExtensionApi();
     bunRunnerExtension(fake.api);
 
     expect(fake.tools.has("bun_run")).toBe(true);
+    expect(buildBunRunHint("linux")).toContain("detached process groups");
+    expect(buildBunRunHint("win32")).toContain("detached=false");
+    expect(buildBunRunDescription("win32")).toContain("stdout/stderr remain capturable");
+    expect(buildBunRunPromptSnippet("linux")).toContain("detached process groups");
   });
 
   test("runs a workspace Bun script directly and discards stdout by default", async () => {

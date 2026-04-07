@@ -11,6 +11,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionFactory } from "@mariozech
 
 import type { CapturedBunStreamResult } from "../tools/bun-runner.js";
 import { runBunScript } from "../tools/bun-runner.js";
+import { buildSubprocessExecutionHint } from "../utils/process-spawn.js";
 
 const BunRunSchema = Type.Object({
   script: Type.String({ description: "Workspace-relative script file to execute with Bun (for example `runtime/scripts/foo.ts`)." }),
@@ -22,12 +23,23 @@ const BunRunSchema = Type.Object({
 
 type BunRunParams = Static<typeof BunRunSchema>;
 
-const HINT = [
-  "## Direct Bun scripts",
-  "Use bun_run to execute a workspace Bun script directly without a shell.",
-  "Pass script arguments as an array; do not rely on shell features like pipes or redirects.",
-  "Stdout is discarded by default; set capture_stdout=true when you need bounded inline output or searchable stored output.",
-].join("\n");
+export function buildBunRunHint(platform: NodeJS.Platform = process.platform): string {
+  return [
+    "## Direct Bun scripts",
+    "Use bun_run to execute a workspace Bun script directly without a shell.",
+    "Pass script arguments as an array; do not rely on shell features like pipes or redirects.",
+    "Stdout is discarded by default; set capture_stdout=true when you need bounded inline output or searchable stored output.",
+    buildSubprocessExecutionHint(platform),
+  ].join("\n");
+}
+
+export function buildBunRunDescription(platform: NodeJS.Platform = process.platform): string {
+  return `Run a workspace Bun script directly with optional arguments and cwd. No shell parsing, piping, or redirects; stderr is always captured, stdout can be captured optionally with large outputs stored as searchable tool-output logs. ${buildSubprocessExecutionHint(platform)}`;
+}
+
+export function buildBunRunPromptSnippet(platform: NodeJS.Platform = process.platform): string {
+  return `bun_run: execute a workspace Bun script directly with optional arguments and cwd, capturing stderr and optionally capturing stdout with searchable large-output storage. ${buildSubprocessExecutionHint(platform)}`;
+}
 
 function formatArgs(args: string[]): string {
   if (args.length === 0) return "(none)";
@@ -90,14 +102,14 @@ function buildResultText(result: {
 
 export const bunRunner: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.on("before_agent_start", async (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n${HINT}`,
+    systemPrompt: `${event.systemPrompt}\n\n${buildBunRunHint()}`,
   }));
 
   pi.registerTool({
     name: "bun_run",
     label: "bun_run",
-    description: "Run a workspace Bun script directly with optional arguments and cwd. No shell parsing, piping, or redirects; stderr is always captured, and stdout can be captured optionally with large outputs stored as searchable tool-output logs.",
-    promptSnippet: "bun_run: execute a workspace Bun script directly with optional arguments and cwd, capturing stderr and optionally capturing stdout with searchable large-output storage.",
+    description: buildBunRunDescription(),
+    promptSnippet: buildBunRunPromptSnippet(),
     parameters: BunRunSchema,
     async execute(
       _toolCallId: string,
