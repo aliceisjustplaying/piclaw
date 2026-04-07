@@ -143,11 +143,39 @@ async function cleanupDreamChat(agentPool: AgentPool, dreamChatJid: string): Pro
   rmSync(join(SESSIONS_DIR, `${sanitiseJid(dreamChatJid)}__btw-side`), { recursive: true, force: true });
 }
 
+function canReapDreamLock(): boolean {
+  if (!existsSync(DREAM_LOCK_PATH)) return false;
+  try {
+    const raw = readFileSync(DREAM_LOCK_PATH, "utf8").trim();
+    const pid = Number.parseInt(raw, 10);
+    if (!Number.isFinite(pid) || pid <= 0) return true;
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  } catch {
+    return true;
+  }
+}
+
 function acquireDreamLock(): number {
   mkdirSync(DREAM_MEMORY_DIR, { recursive: true });
-  const fd = openSync(DREAM_LOCK_PATH, "wx");
-  writeFileSync(DREAM_LOCK_PATH, String(process.pid), "utf8");
-  return fd;
+  try {
+    const fd = openSync(DREAM_LOCK_PATH, "wx");
+    writeFileSync(DREAM_LOCK_PATH, String(process.pid), "utf8");
+    return fd;
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? String((error as any).code) : "";
+    if (code === "EEXIST" && canReapDreamLock()) {
+      rmSync(DREAM_LOCK_PATH, { force: true });
+      const fd = openSync(DREAM_LOCK_PATH, "wx");
+      writeFileSync(DREAM_LOCK_PATH, String(process.pid), "utf8");
+      return fd;
+    }
+    throw error;
+  }
 }
 
 function releaseDreamLock(fd: number): void {

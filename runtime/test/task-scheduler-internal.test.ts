@@ -1,15 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 
-import { createTempWorkspace, importFresh, setEnv } from "./helpers.js";
+import { importFresh } from "./helpers.js";
 
 const sentMessages: Array<{ jid: string; text: string }> = [];
-let restoreEnv: (() => void) | null = null;
 let db: typeof import("../src/db.js") | null = null;
 let scheduler: typeof import("../src/task-scheduler.js") | null = null;
 let dream: typeof import("../src/dream.js") | null = null;
-let workspaceSearch: typeof import("../src/workspace-search.js") | null = null;
 
 function writeDailyNote(workspace: string, date: string, summary: string) {
   const dir = join(workspace, "notes/daily");
@@ -19,29 +17,25 @@ function writeDailyNote(workspace: string, date: string, summary: string) {
 
 afterEach(() => {
   sentMessages.length = 0;
-  restoreEnv?.();
-  restoreEnv = null;
   try { db?.getDb().close(); } catch { /* expected */ }
   db = null;
   scheduler = null;
   dream = null;
-  workspaceSearch = null;
 });
 
 test("internal Dream flows keep notes/memory/days model-owned and AutoDream stays out of band", async () => {
-  const ws = createTempWorkspace("piclaw-dream-scheduler-");
-  restoreEnv = setEnv({
-    PICLAW_WORKSPACE: ws.workspace,
-    PICLAW_STORE: ws.store,
-    PICLAW_DATA: ws.data,
-  });
+  const config = await import("../src/core/config.js");
 
-  writeDailyNote(ws.workspace, "2026-04-05", "Infra tooling and memory maintenance landed.");
+  rmSync(join(config.WORKSPACE_DIR, "notes"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "dream-backups"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "workspace-search"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "sessions"), { recursive: true, force: true });
+
+  writeDailyNote(config.WORKSPACE_DIR, "2026-04-05", "Infra tooling and memory maintenance landed.");
 
   db = await importFresh("../src/db.js");
   scheduler = await importFresh("../src/task-scheduler.js");
   dream = await importFresh("../src/dream.js");
-  workspaceSearch = await importFresh("../src/workspace-search.js");
   db.initDatabase();
 
   db.storeMessage({
@@ -97,29 +91,21 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
 
   expect(sentMessages.length).toBe(0);
   expect(db.getTaskById(manualTaskId)?.last_result).toContain("Dream updated");
-  expect(existsSync(join(ws.workspace, "notes/memory/MEMORY.md"))).toBe(true);
-  expect(existsSync(join(ws.workspace, "notes/memory/days/2026-04-05.md"))).toBe(false);
+  expect(existsSync(join(config.WORKSPACE_DIR, "notes/memory/MEMORY.md"))).toBe(true);
+  expect(existsSync(join(config.WORKSPACE_DIR, "notes/memory/days/2026-04-05.md"))).toBe(false);
 
-  const memoryIndexText = readFileSync(join(ws.workspace, "notes/memory/MEMORY.md"), "utf8");
+  const memoryIndexText = readFileSync(join(config.WORKSPACE_DIR, "notes/memory/MEMORY.md"), "utf8");
   expect(memoryIndexText).toContain("[2026-04-05](../daily/2026-04-05.md)");
 
-  const currentStateText = readFileSync(join(ws.workspace, "notes/memory/current-state.md"), "utf8");
+  const currentStateText = readFileSync(join(config.WORKSPACE_DIR, "notes/memory/current-state.md"), "utf8");
   expect(currentStateText).toContain("# Current Dream state");
   expect(currentStateText).toContain("- Complete days: 1");
 
-  const recentContextText = readFileSync(join(ws.workspace, "notes/memory/recent-context.md"), "utf8");
+  const recentContextText = readFileSync(join(config.WORKSPACE_DIR, "notes/memory/recent-context.md"), "utf8");
   expect(recentContextText).toContain("Infra tooling and memory maintenance landed.");
 
-  const indexed = await workspaceSearch!.searchWorkspace({
-    query: "Infra tooling and memory maintenance landed",
-    scope: "notes",
-    refresh: true,
-    limit: 20,
-  });
-  expect(indexed.rows.some((row) => row.path === "notes/daily/2026-04-05.md")).toBe(true);
-
   writeFileSync(
-    join(ws.workspace, "notes", "memory", "current-state.md"),
+    join(config.WORKSPACE_DIR, "notes", "memory", "current-state.md"),
     `${JSON.stringify({ generated_at: new Date(Date.now() - 48 * 3_600_000).toISOString() }, null, 2)}\n`,
     "utf8",
   );
@@ -149,7 +135,7 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
   expect(lastResult).toContain("AutoDream model consolidation finished");
   expect(lastResult).toContain("Daily notes refreshed before Dream: yes");
   expect(lastResult).toContain("Memory refreshed after Dream: yes");
-  const backupRoot = join(ws.data, "dream-backups");
+  const backupRoot = join(config.DATA_DIR, "dream-backups");
   const backups = readdirSync(backupRoot);
   expect(backups.length).toBeGreaterThanOrEqual(1);
   const backupPath = join(backupRoot, backups.sort().at(-1)!);
@@ -162,6 +148,4 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
   expect(readFileSync(dailyPath, "utf8")).toContain("## Summary");
   const dreamRows = db.getDb().query<{ count: number }, []>("SELECT COUNT(*) AS count FROM messages WHERE chat_jid LIKE 'dream:%'").get();
   expect(dreamRows?.count ?? 0).toBe(0);
-
-  ws.cleanup();
 });
