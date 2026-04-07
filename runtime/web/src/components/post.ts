@@ -3,6 +3,7 @@ import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm
 import { getMediaInfo, getMediaUrl, getThumbnailUrl, submitAdaptiveCardAction } from '../api.js';
 import { renderMarkdown, renderMermaidDiagrams, sanitizeUrl } from '../markdown.js';
 import { formatCount, formatFileSize, formatTime, formatTimestamp } from '../utils/format.js';
+import { buildPostMarkdownCopyPayload } from '../utils/post-copy-markdown.js';
 import { DEFAULT_AGENT_NAME, getAvatarInfo } from '../ui/agent-utils.js';
 import { getAttachmentPreviewKind } from '../ui/attachment-preview.js';
 import { extractCardBlocks, renderAdaptiveCard } from '../ui/adaptive-card-renderer.js';
@@ -337,7 +338,7 @@ const COPY_ERROR_SVG = `
         <path d="M9 9l6 6M15 9l-6 6"></path>
     </svg>`;
 
-async function copyCodeText(text) {
+async function copyTextToClipboard(text) {
     const value = typeof text === 'string' ? text : '';
     if (!value) return false;
 
@@ -417,7 +418,7 @@ function enhanceCodeBlocks(container) {
             event.stopPropagation();
             const code = pre.querySelector('code');
             const text = code?.textContent || '';
-            const ok = await copyCodeText(text);
+            const ok = await copyTextToClipboard(text);
             setButtonState(button, ok ? 'success' : 'error');
             const existingTimer = resetTimers.get(button);
             if (existingTimer) clearTimeout(existingTimer);
@@ -611,7 +612,9 @@ function highlightHtml(html, query) {
  */
 export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMessage, agentName, agentAvatarUrl, userName, userAvatarUrl, userAvatarBackground, onDelete, isThreadReply, isThreadPrev, isThreadNext, isRemoving, highlightQuery, onFileRef, onOpenWidget, onOpenAttachmentPreview }) {
     const [zoomedImage, setZoomedImage] = useState(null);
+    const [copyState, setCopyState] = useState('idle');
     const contentRef = useRef(null);
+    const copyResetTimerRef = useRef(null);
 
     const data = post.data;
     const isAgent = data.type === 'agent_response';
@@ -675,6 +678,8 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
         return highlightQueryText ? highlightHtml(baseHtml, highlightQueryText) : baseHtml;
     }, [displayContent, hideRenderedFallback, highlightQueryText]);
 
+    const markdownCopyPayload = useMemo(() => buildPostMarkdownCopyPayload(post), [post]);
+
     const handleImageClick = (e, mediaId) => {
         e.stopPropagation();
         setZoomedImage(getMediaUrl(mediaId));
@@ -687,6 +692,17 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
     const handleDeleteClick = (e) => {
         e.stopPropagation();
         onDelete?.(post);
+    };
+
+    const handleCopyMarkdownClick = async (e) => {
+        e.stopPropagation();
+        const ok = await copyTextToClipboard(markdownCopyPayload);
+        setCopyState(ok ? 'success' : 'error');
+        if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+        copyResetTimerRef.current = setTimeout(() => {
+            copyResetTimerRef.current = null;
+            setCopyState('idle');
+        }, CODE_COPY_RESET_MS);
     };
 
     const resolveInlineAttachments = (content, attachments) => {
@@ -808,6 +824,10 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
         return enhanceCodeBlocks(contentRef.current);
     }, [renderedHtml]);
 
+    useEffect(() => () => {
+        if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+    }, []);
+
     // Render adaptive cards into their containers.
     // The effect depends on cardBlocksKey (card_id + state) rather than the
     // full cardBlocks array, so unrelated parent re-renders won't destroy
@@ -859,17 +879,33 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 ${avatarInfo.image ? html`<img src=${avatarInfo.image} alt=${displayName} />` : avatarInfo.letter}
             </div>
             <div class="post-body">
-                <button
-                    class="post-delete-btn"
-                    type="button"
-                    title="Delete message"
-                    aria-label="Delete message"
-                    onClick=${handleDeleteClick}
-                >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="M18 6L6 18M6 6l12 12" />
-                    </svg>
-                </button>
+                <div class="post-actions">
+                    <button
+                        class=${`post-action-btn post-copy-btn${copyState === 'success' ? ' is-success' : copyState === 'error' ? ' is-error' : ''}`}
+                        type="button"
+                        title=${copyState === 'success' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy as Markdown'}
+                        aria-label=${copyState === 'success' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy as Markdown'}
+                        onClick=${handleCopyMarkdownClick}
+                        disabled=${!markdownCopyPayload}
+                    >
+                        ${copyState === 'success'
+                            ? html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"></path></svg>`
+                            : copyState === 'error'
+                                ? html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></svg>`
+                                : html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path></svg>`}
+                    </button>
+                    <button
+                        class="post-action-btn post-delete-btn"
+                        type="button"
+                        title="Delete message"
+                        aria-label="Delete message"
+                        onClick=${handleDeleteClick}
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
                     <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {

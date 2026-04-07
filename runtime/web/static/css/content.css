@@ -57,6 +57,7 @@
     display: flex;
     gap: var(--spacing-sm);
     align-items: flex-start;
+    position: relative;
     animation: fadeSlideIn 0.3s ease-out backwards;
     transition: background-color var(--ui-transition-fast), opacity 0.18s ease, transform 0.18s ease;
 }
@@ -67,13 +68,20 @@
     pointer-events: none;
 }
 
-.post.post-highlight {
-    animation: msg-highlight 2s ease-out;
+.post.post-highlight,
+.post.search-highlight {
+    border-radius: var(--radius-md);
+    background-clip: padding-box;
+    animation: row-highlight-fade 2s ease-out;
 }
 
-@keyframes msg-highlight {
-    0% { background-color: var(--accent-color-alpha, rgba(100, 149, 237, 0.25)); }
-    100% { background-color: transparent; }
+@keyframes row-highlight-fade {
+    0% {
+        box-shadow: inset 0 0 0 9999px var(--accent-color-alpha, rgba(100, 149, 237, 0.25));
+    }
+    100% {
+        box-shadow: inset 0 0 0 9999px rgba(100, 149, 237, 0);
+    }
 }
 
 .post:hover {
@@ -173,10 +181,18 @@
     position: relative;
 }
 
-.post-delete-btn {
+.post-actions {
     position: absolute;
     top: 0;
     right: 0;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.post-action-btn {
     border: 1px solid transparent;
     background: var(--bg-secondary);
     color: var(--text-secondary);
@@ -186,15 +202,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
-    pointer-events: none;
     cursor: pointer;
     font-size: 13px;
     line-height: 1;
-    transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    pointer-events: auto;
 }
 
-.post-delete-btn svg {
+.post-action-btn svg {
     width: 12px;
     height: 12px;
     stroke: currentColor;
@@ -202,15 +217,37 @@
     fill: none;
 }
 
-.post:hover .post-delete-btn {
+.post:hover .post-actions,
+.post:focus-within .post-actions {
     opacity: 1;
     pointer-events: auto;
 }
 
-.post-delete-btn:hover {
-    color: var(--danger-color);
+.post-action-btn:hover,
+.post-action-btn:focus-visible {
     border-color: var(--border-color);
     background-color: var(--bg-hover);
+    outline: none;
+}
+
+.post-delete-btn:hover,
+.post-delete-btn:focus-visible {
+    color: var(--danger-color);
+}
+
+.post-copy-btn.is-success {
+    color: var(--success-color);
+    border-color: color-mix(in srgb, var(--success-color) 45%, var(--border-color));
+}
+
+.post-copy-btn.is-error {
+    color: var(--danger-color);
+    border-color: color-mix(in srgb, var(--danger-color) 45%, var(--border-color));
+}
+
+.post-copy-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 
 .post-meta {
@@ -310,10 +347,6 @@
     100% { background-color: transparent; }
 }
 
-.post.search-highlight {
-    animation: searchHighlightFade 2s ease-out;
-}
-
 .search-highlight-term {
     background-color: var(--search-highlight-color);
     color: inherit;
@@ -394,6 +427,7 @@
 
 .post-content pre {
     background-color: var(--bg-secondary);
+    border: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
     padding: var(--spacing-md);
     padding-right: calc(var(--spacing-md) + 36px);
     border-radius: var(--radius-md);
@@ -404,10 +438,21 @@
 
 .post-content pre code {
     background: none;
+    color: var(--text-primary);
     padding: 0;
     display: block;
     font-size: 0.9em;
-    line-height: 1.2;
+    line-height: 1.35;
+    tab-size: 4;
+}
+
+.post-content pre code.hljs {
+    color: var(--text-primary);
+}
+
+.post-content pre code.hljs .tok-comment,
+.post-content pre code.hljs .tok-meta {
+    font-style: italic;
 }
 
 .post-code-copy-btn {
