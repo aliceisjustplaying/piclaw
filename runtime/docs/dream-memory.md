@@ -52,7 +52,8 @@ Manual slash command:
 
 Behavior:
 
-- creates a pre-Dream backup of `notes/daily/` and `notes/memory/`
+- creates a pre-Dream `.zip` backup of `notes/daily/` and `notes/memory/`
+- prunes older Dream backups after writing the new archive (default keep: 10)
 - refreshes/seeds in-window daily note files from the messages database before the model starts
 - queues an out-of-band Dream run
 - no visible user message is injected
@@ -70,7 +71,8 @@ Built-in scheduled task:
 
 Behavior:
 
-- creates a pre-Dream backup of `notes/daily/` and `notes/memory/`
+- creates a pre-Dream `.zip` backup of `notes/daily/` and `notes/memory/`
+- prunes older Dream backups after writing the new archive (default keep: 10)
 - refreshes/seeds in-window daily note files from the messages database before the model starts
 - runs in the background on a temporary `dream:` channel
 - executes silently unless you inspect logs/task results
@@ -106,7 +108,7 @@ Dream now treats memory as layered outputs rather than a mirrored `notes/daily/`
 
 ### Lifecycle
 
-1. runtime creates a pre-Dream backup of `notes/daily/` and `notes/memory/`
+1. runtime creates a pre-Dream `.zip` backup of `notes/daily/` and `notes/memory/`, then prunes older Dream backups (default keep: 10)
 2. runtime refreshes/seeds in-window `notes/daily/*.md` from the messages database
 3. the model runs Orient → Signal → Consolidate → Prune and Index
 4. runtime refreshes workspace FTS and cleans up the temporary `dream:` session

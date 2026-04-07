@@ -281,7 +281,7 @@ Memory maintenance has two trigger modes:
 
 Both modes now run as out-of-band model turns on a temporary `dream:` channel.
 The dream channel is cleaned up after the cycle ends.
-Before the model turn begins, runtime creates a pre-Dream backup of `notes/daily/` and `notes/memory/` and refreshes/seeds in-window daily notes from the messages database.
+Before the model turn begins, runtime creates a pre-Dream `.zip` backup of `notes/daily/` and `notes/memory/`, prunes older Dream backups (default keep: 10), and refreshes/seeds in-window daily notes from the messages database.
 
 Default windows:
 

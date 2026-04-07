@@ -1,5 +1,7 @@
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { join, relative, resolve } from "path";
+
+import { strToU8, zipSync, type Zippable } from "fflate";
 
 import type { AgentPool } from "./agent-pool.js";
 
@@ -47,6 +49,7 @@ const DREAM_LOCK_PATH = resolve(DREAM_MEMORY_DIR, ".dream.lock");
 const DREAM_CURRENT_STATE_PATH = resolve(DREAM_MEMORY_DIR, "current-state.md");
 const DREAM_RECENT_CONTEXT_PATH = resolve(DREAM_MEMORY_DIR, "recent-context.md");
 const DREAM_MEMORY_PATH = resolve(DREAM_MEMORY_DIR, "MEMORY.md");
+const DREAM_BACKUP_KEEP = Math.max(1, Number.parseInt(process.env.PICLAW_DREAM_BACKUP_KEEP || "10", 10) || 10);
 
 export interface DreamAgentTurnResult {
   mode: "manual" | "auto";
@@ -192,42 +195,53 @@ async function refreshWorkspaceSearchIndex(): Promise<boolean> {
   }
 }
 
+function addDreamBackupTree(entries: Zippable, sourceDir: string, archiveRoot: string): void {
+  if (!existsSync(sourceDir)) return;
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const absPath = join(sourceDir, entry.name);
+    const relPath = `${archiveRoot}/${entry.name}`;
+    if (absPath === DREAM_LOCK_PATH) continue;
+    if (entry.isDirectory()) {
+      addDreamBackupTree(entries, absPath, relPath);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    entries[relPath] = readFileSync(absPath);
+  }
+}
+
+function pruneOldDreamBackups(): void {
+  const entries = readdirSync(DREAM_BACKUPS_DIR).sort().reverse();
+  for (const entry of entries.slice(DREAM_BACKUP_KEEP)) {
+    rmSync(join(DREAM_BACKUPS_DIR, entry), { recursive: true, force: true });
+  }
+}
+
 function createDreamBackup(chatJid: string, mode: "manual" | "auto", days: number): string {
   mkdirSync(DREAM_BACKUPS_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupRoot = resolve(DREAM_BACKUPS_DIR, `${stamp}-${mode}-${sanitiseJid(chatJid)}`);
-  const notesRoot = join(backupRoot, "notes");
-  mkdirSync(notesRoot, { recursive: true });
-
-  if (existsSync(DREAM_DAILY_DIR)) {
-    cpSync(DREAM_DAILY_DIR, join(notesRoot, "daily"), {
-      recursive: true,
-      force: true,
-      preserveTimestamps: true,
-    });
-  }
-
-  if (existsSync(DREAM_MEMORY_DIR)) {
-    cpSync(DREAM_MEMORY_DIR, join(notesRoot, "memory"), {
-      recursive: true,
-      force: true,
-      preserveTimestamps: true,
-    });
-    rmSync(join(notesRoot, "memory", ".dream.lock"), { force: true });
-  }
-
-  writeFileSync(join(backupRoot, "manifest.json"), `${JSON.stringify({
+  const backupPath = resolve(DREAM_BACKUPS_DIR, `${stamp}-${mode}-${sanitiseJid(chatJid)}.zip`);
+  const manifest = {
     generated_at: new Date().toISOString(),
     mode,
     chat_jid: chatJid,
     days,
+    format: "zip",
     sources: {
-      daily: existsSync(DREAM_DAILY_DIR) ? DREAM_DAILY_DIR : null,
-      memory: existsSync(DREAM_MEMORY_DIR) ? DREAM_MEMORY_DIR : null,
+      daily: existsSync(DREAM_DAILY_DIR) ? relative(WORKSPACE_DIR, DREAM_DAILY_DIR) : null,
+      memory: existsSync(DREAM_MEMORY_DIR) ? relative(WORKSPACE_DIR, DREAM_MEMORY_DIR) : null,
     },
-  }, null, 2)}\n`, "utf8");
+  };
+  const entries: Zippable = {
+    "manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`),
+  };
 
-  return backupRoot;
+  addDreamBackupTree(entries, DREAM_DAILY_DIR, "notes/daily");
+  addDreamBackupTree(entries, DREAM_MEMORY_DIR, "notes/memory");
+
+  writeFileSync(backupPath, zipSync(entries, { level: 6 }));
+  pruneOldDreamBackups();
+  return backupPath;
 }
 
 export async function runDreamAgentTurn(options: { chatJid: string; days?: number; mode?: "manual" | "auto"; agentPool: AgentPool }): Promise<DreamAgentTurnResult> {

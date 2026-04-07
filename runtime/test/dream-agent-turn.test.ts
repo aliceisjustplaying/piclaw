@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { importFresh } from "./helpers.js";
@@ -13,6 +13,10 @@ test("runDreamAgentTurn reaps a stale dream lock and materializes memory files a
   rmSync(join(config.WORKSPACE_DIR, "notes"), { recursive: true, force: true });
   rmSync(join(config.DATA_DIR, "dream-backups"), { recursive: true, force: true });
   rmSync(join(config.DATA_DIR, "workspace-search"), { recursive: true, force: true });
+  mkdirSync(join(config.DATA_DIR, "dream-backups"), { recursive: true });
+  for (let i = 0; i < 12; i += 1) {
+    writeFileSync(join(config.DATA_DIR, "dream-backups", `2026-01-01T00-00-${String(i).padStart(2, "0")}-000Z-auto-web_default.zip`), "old", "utf8");
+  }
   mkdirSync(join(config.WORKSPACE_DIR, "notes", "memory"), { recursive: true });
   writeFileSync(join(config.WORKSPACE_DIR, "notes", "memory", ".dream.lock"), "999999\n", "utf8");
 
@@ -34,4 +38,14 @@ test("runDreamAgentTurn reaps a stale dream lock and materializes memory files a
   expect(existsSync(join(config.WORKSPACE_DIR, "notes", "memory", "current-state.md"))).toBe(true);
   expect(existsSync(join(config.WORKSPACE_DIR, "notes", "memory", "recent-context.md"))).toBe(true);
   expect(result.result).toContain("Memory refreshed after Dream: yes");
+
+  const backups = readdirSync(join(config.DATA_DIR, "dream-backups")).sort();
+  expect(backups).toHaveLength(10);
+  const latestBackup = join(config.DATA_DIR, "dream-backups", backups.at(-1)!);
+  expect(latestBackup.endsWith(".zip")).toBe(true);
+  const list = Bun.spawnSync(["unzip", "-Z1", latestBackup], { stdout: "pipe", stderr: "pipe" });
+  expect(list.exitCode, list.stderr.toString()).toBe(0);
+  const archived = list.stdout.toString("utf8");
+  expect(archived).toContain("manifest.json");
+  expect(archived).not.toContain("notes/memory/.dream.lock");
 });
