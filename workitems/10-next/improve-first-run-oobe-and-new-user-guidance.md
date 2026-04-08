@@ -4,7 +4,7 @@ title: Improve first-run OOBE and guidance for new users
 status: next
 priority: medium
 created: 2026-04-04
-updated: 2026-04-06
+updated: 2026-04-08
 estimate: L
 risk: medium
 tags:
@@ -27,8 +27,8 @@ it for the first time can understand:
 
 - what piclaw is
 - what they need to configure first
-- the difference between web login, provider login, and workspace setup
-- the next recommended actions after the first successful load
+- the difference between optional web access control, AI provider setup via `/login`, and workspace setup
+- the next recommended actions after the first successful usable load
 
 This should cover both product UX and guidance surfaces, not just
 documentation. The goal is to reduce confusion, dead ends, and “what do I do
@@ -39,9 +39,9 @@ now?” moments for new users.
 The current new-user journey is spread across multiple separate concepts and
 surfaces:
 
-- web authentication / access
+- optional web authentication / access control
 - certificate trust / passkey setup on some devices
-- model-provider authentication
+- AI provider setup and authentication via `/login`
 - workspace/project exploration
 - optional advanced capabilities and tools
 
@@ -53,14 +53,14 @@ system.
 
 The umbrella should explicitly cover these first-run paths:
 
-1. **Fresh unauthenticated web visit**
-   - user lands on the web UI without existing auth/session state
+1. **Fresh first web visit**
+   - user lands on the web UI and the product decides whether web auth even matters for this install
 2. **New device onboarding**
-   - user may need TLS trust and/or passkey setup before normal use
-3. **First authenticated visit with no provider configured**
-   - user can access the UI but cannot yet use the preferred model/provider path
+   - user may need TLS trust and/or passkey setup before normal use when web auth is enabled
+3. **First usable visit with no AI provider configured**
+   - user can access the UI but cannot yet use the preferred model/provider path because `/login` has not been completed
 4. **First successful provider login**
-   - user needs confirmation plus “what next?” guidance
+   - user needs confirmation plus “what next?” guidance after `/login` succeeds
 5. **First workspace/project interaction**
    - user needs to understand what the workspace is for and what actions are safe/useful
 
@@ -71,17 +71,18 @@ rather than one monolithic wizard.
 
 ### MVP stages
 
-#### Stage 1 — access and trust
+#### Stage 1 — access and trust (only when applicable)
 Help the user get into the product successfully:
-- explain access/login state clearly
+- explain whether web auth is enabled for this install
 - link or hand off to trust/passkey onboarding where required
-- avoid mixing provider/model setup into this step
+- avoid mixing AI provider setup into this step
+- skip this stage entirely when web auth is not configured
 
 #### Stage 2 — provider readiness
 Once the user can use the UI:
-- explain whether a model provider is configured
-- point to the right login flow
-- explain the difference between web auth and provider auth
+- explain whether any AI provider is configured
+- point to `/login` as the provider setup/auth flow
+- explain clearly that `/login` is for AI providers, not for signing into the app itself
 
 #### Stage 3 — first-use orientation
 After successful access + provider readiness:
@@ -100,9 +101,10 @@ After successful access + provider readiness:
 
 - A first-time user can tell what state they are in.
 - The product distinguishes clearly between:
-  - web/session login
-  - provider/model login
+  - optional web access control / trust setup
+  - AI provider setup and authentication via `/login`
   - workspace/project setup
+- The product does not imply that `/login` is the same thing as logging into the web UI.
 - The user always has a visible next action.
 - In-product guidance is the primary surface; docs support rather than replace it.
 - The resulting work can be split into smaller implementation tickets without losing the overall journey.
@@ -113,10 +115,11 @@ After successful access + provider readiness:
 - [ ] Current first-run confusion points are documented with examples.
 - [ ] A proposed MVP OOBE flow exists with explicit stages and user-facing copy direction.
 - [ ] The MVP clarifies the difference between:
-  - [ ] web/session login
-  - [ ] provider/model login
+  - [ ] optional web/session access control
+  - [ ] AI provider setup and authentication via `/login`
   - [ ] workspace/project setup
-- [ ] The MVP includes a clear “next steps” path after first successful login.
+- [ ] The MVP handles both installs where web auth is enabled and installs where it is not configured.
+- [ ] The MVP includes a clear “next steps” path after first successful provider login.
 - [ ] Guidance is available in-product where possible rather than relying only on README/docs.
 - [ ] Follow-up implementation tickets are split by area if needed, at minimum covering:
   - [ ] access/trust onboarding
@@ -141,10 +144,9 @@ After successful access + provider readiness:
 
 ### Path B — staged productized onboarding plus supporting docs (recommended)
 1. Audit first-run entry points and confusing branches.
-2. Define a compact staged OOBE surface:
-   - welcome / status messaging
-   - provider readiness guidance
-   - workspace first-step guidance
+2. Define a compact staged OOBE surface keyed off two axes:
+   - whether web auth/trust is required for this install
+   - whether AI providers are configured and usable
 3. Keep the narrower TLS/passkey onboarding as a linked sub-flow where relevant.
 4. Use docs as supporting detail rather than the primary first-run surface.
 
@@ -168,11 +170,14 @@ The expected split should look roughly like:
 
 1. **Access / trust onboarding**
    - likely continues or extends `web-onboarding-mkcert-passkey`
+   - only shown when web auth is actually enabled
 2. **Provider readiness guidance**
-   - first-run guidance when no provider is configured
-   - likely linked to `/login` / provider auth outcomes
-3. **Post-login welcome / empty-state guidance**
-   - first authenticated session with “what next?” guidance
+   - first-run guidance when no AI provider is configured
+   - explicitly linked to `/login` and its outcomes
+   - child ticket created: `20-doing/oobe-provider-readiness-and-first-use-panel.md`
+3. **Post-provider welcome / empty-state guidance**
+   - first usable session with “what next?” guidance once providers are ready
+   - included in the same first child slice for a compact v1 panel
 4. **Docs/supporting copy cleanup**
    - README / install docs / inline help alignment
 
@@ -180,10 +185,11 @@ The expected split should look roughly like:
 
 - [ ] Validate the current first-run paths end to end and record confusion/failure points.
 - [ ] Review the proposed OOBE flow against at least these scenarios:
-  - [ ] first unauthenticated web visit
-  - [ ] new device trust/passkey onboarding
-  - [ ] first authenticated visit with no provider configured
-  - [ ] first successful provider login
+  - [ ] first web visit with web auth enabled
+  - [ ] first web visit with no web auth configured
+  - [ ] new device trust/passkey onboarding when applicable
+  - [ ] first usable visit with no AI provider configured
+  - [ ] first successful `/login` provider setup flow
   - [ ] first workspace/project interaction
 - [ ] Confirm the user can identify the next recommended action at each stage.
 - [ ] Confirm new guidance does not obscure normal returning-user flows.
@@ -197,6 +203,20 @@ The expected split should look roughly like:
 - [ ] Ticket is either refined into `10-next/` or split into smaller ready tickets.
 
 ## Updates
+
+### 2026-04-08
+- Ticket refactored after clarifying a core terminology mistake: `/login` is for **AI provider setup/auth**, not for signing into the app itself.
+- Updated the umbrella to treat web auth as an optional access-control layer rather than an assumed universal first step.
+- The staged OOBE now branches on two independent axes:
+  - whether web auth/trust is required for this install
+  - whether any AI provider is configured and usable
+- Recommended first implementation slice is now explicitly:
+  - initial usable page load with no AI provider configured
+  - show clear in-product guidance pointing to `/login`
+  - follow with lightweight workspace/next-step guidance once providers are ready
+- Child work item created and promoted to doing:
+  - `workitems/20-doing/oobe-provider-readiness-and-first-use-panel.md`
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
 
 ### 2026-04-06
 - Lane change: `00-inbox` → `10-next`.
@@ -230,15 +250,17 @@ The expected split should look roughly like:
 
 - This is broader than `web-onboarding-mkcert-passkey`.
 - Likely needs to unify several currently separate concepts that are easy for new users to confuse:
-  - web authentication
-  - AI provider authentication
+  - optional web authentication / access control
+  - AI provider authentication via `/login`
   - workspace/project readiness
   - optional features and advanced tooling
+- The ticket must avoid implying that `/login` is a web-app sign-in step; in Piclaw it is primarily the AI-provider setup/auth surface.
 - A good outcome may be a welcome/checklist pattern plus contextual hints rather than one monolithic wizard.
 
 ## Links
 
 - `workitems/00-inbox/web-onboarding-mkcert-passkey.md`
+- `workitems/20-doing/oobe-provider-readiness-and-first-use-panel.md`
 - `workitems/40-review/login-command-passthrough.md`
 - `README.md`
 - `docs/install-from-repo.md`

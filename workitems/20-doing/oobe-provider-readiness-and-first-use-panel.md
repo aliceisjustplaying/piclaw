@@ -1,0 +1,208 @@
+---
+id: oobe-provider-readiness-and-first-use-panel
+title: Add provider-readiness and first-use OOBE panel in the web app
+status: doing
+priority: medium
+created: 2026-04-08
+updated: 2026-04-08
+parent: improve-first-run-oobe-and-new-user-guidance
+estimate: M
+risk: medium
+tags:
+  - work-item
+  - kanban
+  - web
+  - ux
+  - onboarding
+  - oobe
+  - providers
+owner: pi
+---
+
+# Add provider-readiness and first-use OOBE panel in the web app
+
+## Summary
+
+Add a native web onboarding panel inside the main app shell that guides new
+users from the first usable page load through:
+
+- no AI provider configured yet
+- first successful provider setup via `/login`
+- lightweight “what next?” workspace guidance
+
+This slice intentionally treats `/login` as the AI-provider setup/auth surface,
+not as app sign-in.
+
+## Problem Statement
+
+Today a new user can land in the web UI and still not know:
+
+- whether PiClaw is actually ready to answer requests
+- what `/login` is for
+- that `/login` configures AI providers rather than web access control
+- what to do after providers are ready
+
+A timeline tutorial would pollute chat history, and a full wizard is too heavy
+for the first implementation slice.
+
+## Desired Behavior
+
+- On first usable app load, the main shell can show a product-owned OOBE panel.
+- If no AI providers/models are available, the panel explains that PiClaw needs
+  provider setup and points the user to `/login`.
+- Once providers are available, the panel changes to a small first-use guidance
+  state with “what next?” actions.
+- The panel is dismissible and should stay out of chat history.
+- The panel should not imply that `/login` is app sign-in.
+- The panel should work whether web auth is enabled or not, because it keys off
+  provider readiness rather than assuming a login journey.
+
+## V1 scope
+
+For the first implementation slice, lock scope to:
+
+- **surface:** native web component/panel in the main shell
+- **states:**
+  - provider missing
+  - provider ready / first-use guidance
+  - hidden
+- **provider signal:** existing `/agent/models` / `getAgentModels()` data
+- **actions:**
+  - prefill compose with `/login`
+  - dismiss panel
+  - one or two lightweight next-step actions when ready
+- **persistence:** local web storage only for dismiss/completion state
+
+## Out of scope for v1
+
+- timeline tutorial messages
+- Adaptive Card-first onboarding
+- full access/trust/passkey onboarding redesign
+- provider-specific wizards
+- DB-backed onboarding progress state
+- cross-device onboarding sync
+- full empty-workspace coaching system
+
+## Acceptance Criteria
+
+- [ ] A native OOBE panel renders in the main web shell, not in the timeline.
+- [ ] When no AI providers/models are available, the panel explains that the
+      next step is `/login` provider setup.
+- [ ] The panel copy explicitly distinguishes AI-provider setup from app access
+      control/sign-in.
+- [ ] The primary provider CTA prefills the compose box with `/login`.
+- [ ] When providers/models become available, the panel switches to a compact
+      “you’re ready / what next?” state.
+- [ ] The panel can be dismissed.
+- [ ] Dismiss/completion state persists locally for the web user.
+- [ ] The panel does not appear as a fake/tutorial chat message.
+- [ ] The panel does not show in pane-popout mode.
+- [ ] Minimal regression coverage exists for provider-missing, ready, dismiss,
+      and `/login` prefill behavior.
+
+## Implementation Paths
+
+### Path A — native shell panel with local UI state (recommended)
+1. Add a small OOBE state helper derived from provider/model readiness.
+2. Add a dedicated `oobe-panel` web component/Preact component.
+3. Render it above the timeline in the main shell.
+4. Prefill `/login` into compose via an explicit action.
+5. Track dismiss/completion in local storage.
+
+**Pros:**
+- smallest useful product slice
+- state-aware and easy to hide once resolved
+- no timeline pollution
+- no new backend contract required for v1
+
+**Cons:**
+- local-only persistence first
+- may need later refinement for richer onboarding states
+
+### Path B — Adaptive Card in the timeline
+1. Emit a structured onboarding card as an agent/system message.
+2. Update card state as providers become available.
+
+**Pros:**
+- structured actions possible
+- reuses card machinery
+
+**Cons:**
+- message-like rather than layout-like
+- pollutes history/state more easily
+- weaker fit for persistent shell guidance
+
+## Recommended Path
+
+Path A — native shell panel with provider-driven state.
+
+## Likely implementation surfaces
+
+- `runtime/web/src/app.ts`
+- `runtime/web/src/ui/app-main-shell-render.ts`
+- `runtime/web/src/ui/app-main-render-composition.ts`
+- `runtime/web/src/components/compose-box.ts`
+- `runtime/web/src/api.ts`
+- new helper such as `runtime/web/src/ui/oobe-state.ts`
+- new component such as `runtime/web/src/components/oobe-panel.ts`
+
+## Test Plan
+
+- Applicable regression classes from `workitems/regression-test-planning-reference.md`:
+  - [ ] Bug replay / known-regression test
+  - [x] State-machine / invariant test
+  - [x] Routing matrix test
+  - [x] Interaction scenario test
+  - [ ] Restore / reconnect matrix test
+  - [ ] Pane / viewer contract test
+  - [ ] Real-browser smoke test
+- [ ] Existing tests to rerun are listed:
+  - [ ] app-shell render/composition tests
+  - [ ] compose-box interaction tests
+- [ ] New regression coverage to add is listed:
+  - [ ] provider missing → panel visible
+  - [ ] provider available → ready-state panel visible
+  - [ ] dismissed panel stays hidden
+  - [ ] `/login` CTA prefills compose
+  - [ ] pane popout mode suppresses panel
+- [ ] Real-browser smoke pass required? If yes, record the surface:
+  - [ ] initial web load with no models configured
+
+## Definition of Done
+
+- [ ] All acceptance criteria satisfied and verified
+- [ ] Tests added or updated — passing locally
+- [ ] Type check clean
+- [ ] Docs and notes updated with links to ticket
+- [ ] Operational impact assessed
+- [ ] Follow-up tickets created for deferred scope
+- [ ] Update history complete with evidence
+- [ ] Ticket front matter updated
+
+## Updates
+
+### 2026-04-08
+- Created as a child implementation slice under `improve-first-run-oobe-and-new-user-guidance`.
+- Promoted directly to `20-doing` by user direction.
+- Locked the first slice to a native web onboarding panel rather than timeline tutorial messages.
+- Locked `/login` terminology to **AI provider setup/auth**, not app sign-in.
+- Locked v1 persistence to local web state rather than DB-backed onboarding progress.
+
+## Notes
+
+- This ticket is intentionally narrower than the parent OOBE umbrella.
+- The main decision is to make onboarding a product-owned shell state, not a
+  conversational artifact.
+- If this proves useful, later follow-ups can cover:
+  - access/trust onboarding surfaces
+  - richer example prompts
+  - DB-backed onboarding progress
+  - adaptive-card subflows for structured setup actions
+
+## Links
+
+- `workitems/10-next/improve-first-run-oobe-and-new-user-guidance.md`
+- `runtime/web/src/app.ts`
+- `runtime/web/src/ui/app-main-shell-render.ts`
+- `runtime/web/src/components/compose-box.ts`
+- `runtime/web/src/api.ts`
