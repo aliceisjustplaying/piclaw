@@ -53,7 +53,9 @@ export interface RenderPanePopoutModeOptions {
   tabStripActiveId: string | null;
   handleTabActivate: (tabId: string) => void;
   previewTabs: Set<string>;
+  diffTabs: Set<string>;
   handleTabTogglePreview: (tabId: string) => void;
+  handleTabToggleDiff: (tabId: string) => void;
   editorContainerRef: { current: any };
   getPaneContent: () => string | null | undefined;
   panePopoutPath: string | null;
@@ -72,7 +74,9 @@ export function renderPanePopoutMode(options: RenderPanePopoutModeOptions): any 
     tabStripActiveId,
     handleTabActivate,
     previewTabs,
+    diffTabs,
     handleTabTogglePreview,
+    handleTabToggleDiff,
     editorContainerRef,
     getPaneContent,
     panePopoutPath,
@@ -118,6 +122,18 @@ export function renderPanePopoutMode(options: RenderPanePopoutModeOptions): any 
                       `)}
                     </div>
                   </div>
+                `}
+                ${tabStripActiveId && diffTabs.has(tabStripActiveId) && html`
+                  <button
+                    type="button"
+                    class="pane-popout-controls-action"
+                    onClick=${(event: any) => {
+                      handleTabToggleDiff(tabStripActiveId);
+                      event.currentTarget.closest('details')?.removeAttribute('open');
+                    }}
+                  >
+                    Hide diff
+                  </button>
                 `}
                 ${tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
                   <button

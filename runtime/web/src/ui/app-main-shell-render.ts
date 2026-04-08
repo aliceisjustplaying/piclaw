@@ -56,9 +56,11 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     handleTabCloseAll,
     handleTabTogglePin,
     handleTabTogglePreview,
+    handleTabToggleDiff,
     handleTabEditSource,
     handleReattachPane,
     previewTabs,
+    diffTabs,
     tabPaneOverrides,
     toggleZenMode,
     handlePopOutPane,
@@ -95,6 +97,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     addMessageRef,
     scrollToMessage,
     openFileFromPill,
+    openTimelineFileFromPill,
     handleDeletePost,
     handleOpenFloatingWidget,
     agents,
@@ -255,8 +258,10 @@ export function renderMainShell(options: MainShellRenderOptions): any {
               onCloseAll=${handleTabCloseAll}
               onTogglePin=${handleTabTogglePin}
               onTogglePreview=${handleTabTogglePreview}
+              onToggleDiff=${handleTabToggleDiff}
               onEditSource=${handleTabEditSource}
               previewTabs=${previewTabs}
+              diffTabs=${diffTabs}
               paneOverrides=${tabPaneOverrides}
               detachedTabs=${detachedTabs}
               onReattachTab=${handleReattachPane}
@@ -404,7 +409,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           onHashtagClick=${handleHashtagClick}
           onMessageRef=${addMessageRef}
           onScrollToMessage=${scrollToMessage}
-          onFileRef=${openFileFromPill}
+          onFileRef=${openTimelineFileFromPill || openFileFromPill}
           onPostClick=${undefined}
           onDeletePost=${handleDeletePost}
           onOpenWidget=${handleOpenFloatingWidget}

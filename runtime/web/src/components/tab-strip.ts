@@ -13,6 +13,7 @@
 
 import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { paneRegistry } from '../panes/index.js';
+import { canTabCompareToSaved } from '../ui/tab-compare-saved.js';
 import { canTabEditSource } from '../ui/tab-source-editor.js';
 
 /**
@@ -27,8 +28,10 @@ import { canTabEditSource } from '../ui/tab-source-editor.js';
  * @param {() => void} props.onCloseAll
  * @param {(id: string) => void} props.onTogglePin
  * @param {(id: string) => void} [props.onTogglePreview] - Toggle markdown preview for a tab.
+ * @param {(id: string) => void} [props.onToggleDiff] - Toggle Compare to Saved diff mode for a tab.
  * @param {(id: string) => void} [props.onEditSource] - Replace a specialized editor tab with the generic source editor.
  * @param {Set<string>} [props.previewTabs] - Set of tab ids with preview open.
+ * @param {Set<string>} [props.diffTabs] - Set of tab ids with Compare to Saved diff open.
  * @param {Map<string, string>} [props.paneOverrides] - Per-tab pane override ids.
  * @param {Map<string, unknown>} [props.detachedTabs] - Tabs currently detached into standalone windows.
  * @param {(id: string) => void} [props.onReattachTab] - Reattach a detached tab to the main window.
@@ -65,7 +68,7 @@ export function getStandaloneTabUrl(path, { hasPopOutTab = false } = {}) {
     return null;
 }
 
-export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, onCloseAll, onTogglePin, onTogglePreview, onEditSource, previewTabs, paneOverrides, detachedTabs, onReattachTab, onToggleDock, dockVisible, onToggleZen, zenMode, onPopOutTab }) {
+export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, onCloseAll, onTogglePin, onTogglePreview, onToggleDiff, onEditSource, previewTabs, diffTabs, paneOverrides, detachedTabs, onReattachTab, onToggleDock, dockVisible, onToggleZen, zenMode, onPopOutTab }) {
     const [contextMenu, setContextMenu] = useState(null);
     const stripRef = useRef(null);
 
@@ -176,6 +179,19 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
         if (!tabId || !(detachedTabs instanceof Map)) return false;
         return detachedTabs.has(tabId);
     }, [contextMenu?.id, detachedTabs]);
+    const contextMenuDiffOpen = useMemo(() => {
+        const tabId = contextMenu?.id;
+        if (!tabId || !(diffTabs instanceof Set)) return false;
+        return diffTabs.has(tabId);
+    }, [contextMenu?.id, diffTabs]);
+    const contextMenuCanCompareToSaved = useMemo(() => {
+        const tabId = contextMenu?.id;
+        if (!tabId) return false;
+        const tab = tabs.find((item) => item.id === tabId) || null;
+        if (!tab) return false;
+        const supportsCompare = canTabCompareToSaved(tabId, getPaneOverride(tabId), (context) => paneRegistry.resolve(context));
+        return supportsCompare && Boolean(tab.dirty || contextMenuDiffOpen);
+    }, [contextMenu?.id, contextMenuDiffOpen, getPaneOverride, tabs]);
 
     if (!tabs.length) return null;
 
@@ -282,6 +298,14 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
                         onPopOutTab(contextMenu.id, tab?.label);
                         setContextMenu(null);
                     }}>Open in Window</button>
+                `}
+                ${contextMenuCanCompareToSaved && onToggleDiff && html`
+                    <hr />
+                    <button onClick=${() => {
+                        onActivate?.(contextMenu.id);
+                        onToggleDiff(contextMenu.id);
+                        setContextMenu(null);
+                    }}>${contextMenuDiffOpen ? 'Hide Diff' : 'Compare to Saved'}</button>
                 `}
                 ${onTogglePreview && /\.(md|mdx|markdown)$/i.test(contextMenu.id) && html`
                     <hr />

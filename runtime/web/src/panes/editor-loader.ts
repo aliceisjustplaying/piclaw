@@ -23,6 +23,7 @@ interface ExtendedEditorPaneInstance extends PaneInstance {
     afterAttachToHost?(context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<void> | void;
     moveHost?(container: HTMLElement, context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<boolean> | boolean;
     exportHostTransferState?(): Record<string, unknown> | null;
+    setDiffMode?(mode: 'saved' | null): void;
 }
 
 interface EditorBundleModule {
@@ -76,6 +77,7 @@ class LazyEditorInstance implements PaneInstance {
     private queuedCloseCb: (() => void) | null = null;
     private queuedViewStateCb: ((state: TabViewState) => void) | null = null;
     private queuedViewState: TabViewState | null = null;
+    private queuedDiffMode: 'saved' | null | undefined = undefined;
 
     constructor(container: HTMLElement, context: PaneContext) {
         this.container = container;
@@ -129,6 +131,9 @@ class LazyEditorInstance implements PaneInstance {
             }
             if (this.queuedViewState && typeof this.real.restoreViewState === 'function') {
                 requestAnimationFrame(() => this.real?.restoreViewState?.(this.queuedViewState));
+            }
+            if (this.queuedDiffMode !== undefined && typeof this.real.setDiffMode === 'function') {
+                this.real.setDiffMode(this.queuedDiffMode);
             }
         } catch (err) {
             if (this.disposed) return;
@@ -225,6 +230,11 @@ class LazyEditorInstance implements PaneInstance {
 
     setPath(newPath: string): void {
         this.real?.setPath?.(newPath);
+    }
+
+    setDiffMode(mode: 'saved' | null): void {
+        this.queuedDiffMode = mode;
+        this.real?.setDiffMode?.(mode);
     }
 }
 

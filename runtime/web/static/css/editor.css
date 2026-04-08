@@ -291,6 +291,134 @@
     opacity: 0.5;
 }
 
+.editor-diff-shell {
+    --editor-diff-added-bg: color-mix(in srgb, var(--success-color) 14%, var(--bg-primary));
+    --editor-diff-added-border: color-mix(in srgb, var(--success-color) 42%, var(--border-color));
+    --editor-diff-added-text: color-mix(in srgb, var(--success-color) 82%, var(--text-primary) 18%);
+    --editor-diff-removed-bg: color-mix(in srgb, var(--danger-color) 12%, var(--bg-primary));
+    --editor-diff-removed-border: color-mix(in srgb, var(--danger-color) 42%, var(--border-color));
+    --editor-diff-removed-text: color-mix(in srgb, var(--danger-color) 78%, var(--text-primary) 22%);
+    --editor-diff-current-header-bg: color-mix(in srgb, var(--accent-color) 11%, var(--bg-secondary));
+    --editor-diff-saved-header-bg: color-mix(in srgb, var(--danger-color) 10%, var(--bg-secondary));
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--bg-primary);
+}
+
+.editor-diff-headers {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.editor-diff-header {
+    min-width: 0;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.editor-diff-header + .editor-diff-header {
+    border-left: 1px solid var(--border-color);
+}
+
+.editor-diff-header-saved {
+    background: var(--editor-diff-saved-header-bg);
+    color: var(--editor-diff-removed-text);
+}
+
+.editor-diff-header-current {
+    background: var(--editor-diff-current-header-bg);
+    color: var(--editor-diff-added-text);
+}
+
+.editor-diff-merge {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.editor-diff-merge .cm-mergeView {
+    height: 100%;
+    overflow: auto;
+    background: var(--bg-primary);
+}
+
+.editor-diff-merge .cm-mergeViewEditors {
+    min-height: 100%;
+}
+
+.editor-diff-merge .cm-mergeViewEditor {
+    min-width: 0;
+}
+
+.editor-diff-merge .cm-mergeViewEditor + .cm-mergeViewEditor {
+    border-left: 1px solid var(--border-color);
+}
+
+.editor-diff-merge .cm-changedLine,
+.editor-diff-merge .cm-changedText,
+.editor-diff-merge .cm-changedLineGutter,
+.editor-diff-merge .cm-inlineChangedLine,
+.editor-diff-merge .cm-inlineChangedLineGutter {
+    background: color-mix(in srgb, var(--accent-color) 9%, var(--bg-primary)) !important;
+}
+
+.editor-diff-merge .cm-insertedLine,
+.editor-diff-merge .cm-insertedLineGutter,
+.editor-diff-merge .cm-merge-b .cm-changedLine,
+.editor-diff-merge .cm-merge-b .cm-inlineChangedLine {
+    background: var(--editor-diff-added-bg) !important;
+}
+
+.editor-diff-merge .cm-insertedLine,
+.editor-diff-merge .cm-merge-b .cm-changedLine,
+.editor-diff-merge .cm-merge-b .cm-inlineChangedLine {
+    box-shadow: inset 3px 0 0 var(--editor-diff-added-border);
+}
+
+.editor-diff-merge .cm-insertedText,
+.editor-diff-merge .cm-merge-b .cm-changedText {
+    background: color-mix(in srgb, var(--success-color) 26%, var(--bg-primary)) !important;
+}
+
+.editor-diff-merge .cm-deletedLine,
+.editor-diff-merge .cm-deletedLineGutter,
+.editor-diff-merge .cm-merge-a .cm-changedLine,
+.editor-diff-merge .cm-merge-a .cm-inlineChangedLine {
+    background: var(--editor-diff-removed-bg) !important;
+}
+
+.editor-diff-merge .cm-deletedLine,
+.editor-diff-merge .cm-merge-a .cm-changedLine,
+.editor-diff-merge .cm-merge-a .cm-inlineChangedLine {
+    box-shadow: inset 3px 0 0 var(--editor-diff-removed-border);
+}
+
+.editor-diff-merge .cm-deletedText,
+.editor-diff-merge .cm-merge-a .cm-changedText {
+    background: color-mix(in srgb, var(--danger-color) 22%, var(--bg-primary)) !important;
+}
+
+.editor-diff-merge .cm-changeGutter,
+.editor-diff-merge .cm-deletedLineGutter,
+.editor-diff-merge .cm-insertedLineGutter,
+.editor-diff-merge .cm-inlineChangedLineGutter {
+    opacity: 1;
+}
+
+.editor-diff-merge .cm-collapseWidget,
+.editor-diff-merge .cm-collapsedLines {
+    color: var(--text-secondary);
+}
+
 .editor-codemirror .cm-activeLine {
     background: rgba(15, 20, 25, 0.06);
 }

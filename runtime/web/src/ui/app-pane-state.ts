@@ -7,7 +7,7 @@ export interface PaneOverrideMapLike {
   get(key: string): string | null | undefined;
 }
 
-export interface PreviewTabSetLike {
+export interface ActivePaneFlagSetLike {
   has(key: string): boolean;
 }
 
@@ -53,12 +53,14 @@ export function getPanePopoutDocumentTitle(
 /** Determine whether the pane-popout chrome needs menu actions. */
 export function hasPanePopoutMenuActions(
   tabStripTabs: PaneTabLike[] | null | undefined,
-  previewTabs: PreviewTabSetLike | null | undefined,
+  previewTabs: ActivePaneFlagSetLike | null | undefined,
+  diffTabs: ActivePaneFlagSetLike | null | undefined,
   tabStripActiveId: string | null | undefined,
 ): boolean {
   const tabCount = Array.isArray(tabStripTabs) ? tabStripTabs.length : 0;
   const hasPreview = Boolean(tabStripActiveId && previewTabs?.has?.(tabStripActiveId));
-  return tabCount > 1 || hasPreview;
+  const hasDiff = Boolean(tabStripActiveId && diffTabs?.has?.(tabStripActiveId));
+  return tabCount > 1 || hasPreview || hasDiff;
 }
 
 /** Check whether the current pane popout points at a VNC pane. */
