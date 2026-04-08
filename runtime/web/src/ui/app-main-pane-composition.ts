@@ -38,6 +38,7 @@ export function useMainAppPaneComposition(options: {
     tabStripTabs: editorState.tabStripTabs,
     tabStripActiveId: editorState.tabStripActiveId,
     previewTabs: editorState.previewTabs,
+    diffTabs: editorState.diffTabs,
     tabPaneOverrides: editorState.tabPaneOverrides,
     terminalTabPath: options.terminalTabPath,
     vncTabPrefix: options.vncTabPrefix,

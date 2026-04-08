@@ -32,10 +32,12 @@ test('resolveActivePaneOverrideId returns the active override only when availabl
 test('pane popout helpers compute title, menu actions, and VNC control visibility', () => {
   const activePaneTab = { id: 'pane-1', label: 'Editor' };
   const previewTabs = new Set(['pane-1']);
+  const diffTabs = new Set(['pane-2']);
 
   expect(getPanePopoutTitle('', activePaneTab, '/tmp/file.md')).toBe('Editor');
   expect(getPanePopoutDocumentTitle('', activePaneTab, '/tmp/file.md')).toBe('Editor · PiClaw');
-  expect(hasPanePopoutMenuActions([{ id: 'pane-1' }], previewTabs, 'pane-1')).toBe(true);
+  expect(hasPanePopoutMenuActions([{ id: 'pane-1' }], previewTabs, diffTabs, 'pane-1')).toBe(true);
+  expect(hasPanePopoutMenuActions([{ id: 'pane-2' }], new Set(), diffTabs, 'pane-2')).toBe(true);
   expect(isVncPanePopoutPath('/tabs/vnc/session', '/tabs/vnc')).toBe(true);
   expect(shouldHidePanePopoutControls('/tabs/terminal', '/tabs/terminal', false, false)).toBe(true);
   expect(shouldHidePanePopoutControls('/tabs/preview', '/tabs/terminal', true, true)).toBe(true);

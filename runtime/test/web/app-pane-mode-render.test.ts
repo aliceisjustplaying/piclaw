@@ -36,7 +36,9 @@ test('renderPanePopoutMode renders fallback copy when no pane is mounted', () =>
     tabStripActiveId: null,
     handleTabActivate: () => undefined,
     previewTabs: new Set(),
+    diffTabs: new Set(),
     handleTabTogglePreview: () => undefined,
+    handleTabToggleDiff: () => undefined,
     editorContainerRef: { current: null },
     getPaneContent: () => '',
     panePopoutPath: null,
@@ -56,7 +58,9 @@ test('renderPanePopoutMode hides controls entirely when the only action would be
     tabStripActiveId: 'piclaw://terminal',
     handleTabActivate: () => undefined,
     previewTabs: new Set(),
+    diffTabs: new Set(),
     handleTabTogglePreview: () => undefined,
+    handleTabToggleDiff: () => undefined,
     editorContainerRef: { current: null },
     getPaneContent: () => '',
     panePopoutPath: 'piclaw://terminal',
@@ -84,7 +88,9 @@ test('renderPanePopoutMode keeps pane actions inside the overflow menu when mult
     tabStripActiveId: '/workspace/foo.drawio',
     handleTabActivate: () => undefined,
     previewTabs: new Set(['/workspace/foo.drawio']),
+    diffTabs: new Set(['/workspace/foo.drawio']),
     handleTabTogglePreview: () => undefined,
+    handleTabToggleDiff: () => undefined,
     editorContainerRef: { current: null },
     getPaneContent: () => '',
     panePopoutPath: '/workspace/foo.drawio',
@@ -96,6 +102,7 @@ test('renderPanePopoutMode keeps pane actions inside the overflow menu when mult
   expect(serialized).toContain('pane-popout-controls-menu');
   expect(serialized).toContain('pane-popout-controls-icon-button');
   expect(serialized).toContain('Open panes');
+  expect(serialized).toContain('Hide diff');
   expect(serialized).toContain('Hide preview');
   expect(serialized).not.toContain('Reattach to main window');
   expect(serialized).not.toContain('>Diagram<');

@@ -54,6 +54,7 @@ import {
     indentationMarkers,
     githubLight,
     githubDark,
+    MergeView,
 } from './vendor/codemirror.js';
 import { getWorkspaceBranch, getWorkspaceFile, updateWorkspaceFile } from '../../../web/src/api.js';
 import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability, PaneHostAttachContext, PaneHostDetachContext } from '../../../web/src/panes/pane-types.js';
@@ -104,6 +105,7 @@ interface EditorHostTransferState {
     initialContent?: string;
     mtime?: string | null;
     dirty?: boolean;
+    diffMode?: 'saved' | null;
     viewState?: {
         cursorLine?: number;
         cursorCol?: number;
@@ -123,6 +125,7 @@ function normalizeEditorHostTransferState(value: unknown): EditorHostTransferSta
         initialContent: typeof raw.initialContent === 'string' ? raw.initialContent : undefined,
         mtime: typeof raw.mtime === 'string' ? raw.mtime : (raw.mtime === null ? null : undefined),
         dirty: typeof raw.dirty === 'boolean' ? raw.dirty : undefined,
+        diffMode: raw.diffMode === 'saved' ? 'saved' : null,
         viewState: raw.viewState && typeof raw.viewState === 'object'
             ? {
                 cursorLine: typeof (raw.viewState as any).cursorLine === 'number' ? (raw.viewState as any).cursorLine : undefined,
@@ -209,16 +212,23 @@ export class StandaloneEditorInstance implements PaneInstance {
     private headerEl: HTMLElement | null = null;
     private bodyEl: HTMLElement;
     private cmHost: HTMLElement;
+    private diffShellEl: HTMLElement;
+    private diffMergeHost: HTMLElement;
     private statusEl: HTMLElement;
 
     // CodeMirror
     private view: EditorView | null = null;
+    private baselineView: EditorView | null = null;
+    private mergeView: MergeView | null = null;
     private vimCompartment = new Compartment();
     private themeCompartment = new Compartment();
     private accentCompartment = new Compartment();
     private whitespaceCompartment = new Compartment();
     private livePreviewCompartment = new Compartment();
     private wrappingCompartment = new Compartment();
+    private baselineThemeCompartment = new Compartment();
+    private baselineAccentCompartment = new Compartment();
+    private baselineWhitespaceCompartment = new Compartment();
 
     // State
     private path: string;
@@ -230,6 +240,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     private vimEnabled: boolean;
     private showWhitespace: boolean;
     private livePreviewEnabled: boolean;
+    private diffMode: 'saved' | null = null;
     private vimEnabledRef: { current: boolean };
 
     // Callbacks (PaneInstance contract)
@@ -273,7 +284,26 @@ export class StandaloneEditorInstance implements PaneInstance {
 
         this.cmHost = this.ownerDocument.createElement('div');
         this.cmHost.className = 'editor-codemirror';
+
+        this.diffShellEl = this.ownerDocument.createElement('div');
+        this.diffShellEl.className = 'editor-diff-shell';
+        this.diffShellEl.hidden = true;
+
+        const diffHeaders = this.ownerDocument.createElement('div');
+        diffHeaders.className = 'editor-diff-headers';
+        diffHeaders.innerHTML = `
+            <div class="editor-diff-header editor-diff-header-saved">Saved</div>
+            <div class="editor-diff-header editor-diff-header-current">Current</div>
+        `;
+
+        this.diffMergeHost = this.ownerDocument.createElement('div');
+        this.diffMergeHost.className = 'editor-diff-merge';
+
+        this.diffShellEl.appendChild(diffHeaders);
+        this.diffShellEl.appendChild(this.diffMergeHost);
+
         this.bodyEl.appendChild(this.cmHost);
+        this.bodyEl.appendChild(this.diffShellEl);
 
         this.statusEl = this.buildStatusBar();
 
@@ -294,6 +324,9 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     private bootstrapInitialContext(context: PaneContext): void {
         const transferState = normalizeEditorHostTransferState(context.transferState);
+        if (transferState?.diffMode === 'saved') {
+            this.diffMode = 'saved';
+        }
 
         if (context.content !== undefined) {
             this.mountEditor(context.content, context.mtime);
@@ -354,7 +387,6 @@ export class StandaloneEditorInstance implements PaneInstance {
         lpBtn.className = `editor-status-button${this.livePreviewEnabled ? ' active' : ''}`;
         lpBtn.title = 'Toggle live preview (Alt+P)';
         lpBtn.textContent = 'Live Preview';
-        lpBtn.style.display = this.supportsMarkdownLivePreview() ? '' : 'none';
         lpBtn.addEventListener('click', () => this.toggleLivePreview());
         this._lpBtn = lpBtn;
 
@@ -379,6 +411,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         row.appendChild(meta);
         row.appendChild(actionsDiv);
 
+        this.updateLivePreviewControlState();
         this.updateWhitespaceControlState();
         return row;
     }
@@ -435,6 +468,10 @@ export class StandaloneEditorInstance implements PaneInstance {
 
             this.initialContent = value;
             this.currentMtime = result?.mtime || this.currentMtime;
+            if (this.isDiffMode()) {
+                const viewState = this.captureViewState();
+                this.renderEditorSurface(value, 'saved', viewState);
+            }
             this.setDirty(false);
             this.saving = false;
             this.updateSaveButton();
@@ -451,25 +488,66 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     /** Create the CodeMirror editor with content. */
     private mountEditor(content: string, mtime?: string | null): void {
-        if (this.view) {
-            this.view.destroy();
-            this.view = null;
-        }
-
         this.initialContent = content;
         this.currentMtime = mtime || null;
         this.setLoadingUI(false);
+        this.renderEditorSurface(content, this.diffMode === 'saved' ? 'saved' : null, null);
+        this.setDirty(false);
+        this.updateLivePreviewControlState();
+        this.updateWhitespaceControlState();
+        this.updateGutterWidth();
+    }
 
+    private renderEditorSurface(content: string, diffMode: 'saved' | null, viewState: { cursorLine?: number; cursorCol?: number; scrollTop?: number } | null): void {
+        this.destroyEditorViews();
+        if (diffMode === 'saved') {
+            this.renderFreshDiffEditor(content, this.initialContent, viewState);
+            return;
+        }
+        this.renderFreshEditor(content, viewState);
+    }
+
+    private destroyEditorViews(): void {
+        if (this.mergeView) {
+            this.mergeView.destroy();
+            this.mergeView = null;
+            this.baselineView = null;
+            this.view = null;
+        } else if (this.view) {
+            this.view.destroy();
+            this.view = null;
+        }
+        this.baselineView = null;
+        this.cmHost.innerHTML = '';
+        this.diffMergeHost.innerHTML = '';
+    }
+
+    private setEditorSurfaceMode(diffMode: 'saved' | null): void {
+        const enabled = diffMode === 'saved';
+        this.cmHost.hidden = enabled;
+        this.diffShellEl.hidden = !enabled;
+        this.bodyEl.classList.toggle('editor-body-diff', enabled);
+    }
+
+    private buildSharedEditorTheme(): ReturnType<typeof EditorView.theme> {
+        return EditorView.theme({
+            '&': { height: '100%', fontFamily: MONO_STACK },
+            '.cm-scroller': { fontFamily: MONO_STACK },
+            '.cm-content': { fontFamily: MONO_STACK, fontSize: '12px' },
+            '.cm-gutters': { fontFamily: MONO_STACK },
+        });
+    }
+
+    private buildEditableEditorExtensions(): any[] {
         const isDark = getThemeMode(this.ownerDocument) === 'dark';
         const lang = languageForPath(this.path);
-
         const extensions: any[] = [
             minimalSetup,
             lineNumbers(),
             highlightActiveLine(),
             highlightActiveLineGutter(),
             this.whitespaceCompartment.of(this.showWhitespace ? highlightWhitespace() : []),
-            this.livePreviewCompartment.of([]), // populated async for .md files
+            this.livePreviewCompartment.of([]),
             this.wrappingCompartment.of(EditorView.lineWrapping),
             scrollPastEnd(),
             indentOnInput(),
@@ -501,39 +579,78 @@ export class StandaloneEditorInstance implements PaneInstance {
                     this.viewStateChangeCb({ cursorLine: line.number, cursorCol: col, scrollTop });
                 }
             }),
-            EditorView.theme({
-                '&': { height: '100%', fontFamily: MONO_STACK },
-                '.cm-scroller': { fontFamily: MONO_STACK },
-                '.cm-content': { fontFamily: MONO_STACK, fontSize: '12px' },
-                '.cm-gutters': { fontFamily: MONO_STACK },
-            }),
+            this.buildSharedEditorTheme(),
         ];
-
         if (lang) extensions.push(lang);
+        return extensions;
+    }
 
-        const state = EditorState.create({ doc: content, extensions });
+    private buildBaselineEditorExtensions(): any[] {
+        const isDark = getThemeMode(this.ownerDocument) === 'dark';
+        const lang = languageForPath(this.path);
+        const extensions: any[] = [
+            minimalSetup,
+            lineNumbers(),
+            this.baselineWhitespaceCompartment.of(this.showWhitespace ? highlightWhitespace() : []),
+            this.baselineThemeCompartment.of(isDark ? githubDark : githubLight),
+            this.baselineAccentCompartment.of(this.buildAccentTheme()),
+            syntaxHighlighting(headingStyle),
+            syntaxHighlighting(classHighlighter),
+            EditorState.readOnly.of(true),
+            EditorView.editable.of(false),
+            this.buildSharedEditorTheme(),
+        ];
+        if (lang) extensions.push(lang);
+        return extensions;
+    }
+
+    private renderFreshEditor(content: string, viewState: { cursorLine?: number; cursorCol?: number; scrollTop?: number } | null): void {
+        this.setEditorSurfaceMode(null);
+        const state = EditorState.create({
+            doc: content,
+            extensions: this.buildEditableEditorExtensions(),
+        });
         this.view = new EditorView({ state, parent: this.cmHost });
-        this.setDirty(false);
-
-        if (this._lpBtn) {
-            this._lpBtn.style.display = this.supportsMarkdownLivePreview() ? '' : 'none';
-            this._lpBtn.classList.toggle('active', this.livePreviewEnabled);
-        }
-        this.updateWhitespaceControlState();
-
-        // Update gutter width CSS var
-        this.updateGutterWidth();
-
-        // If this is a Markdown file and live preview is enabled, load it
+        if (viewState) requestAnimationFrame(() => this.restoreViewState(viewState));
         if (this.supportsMarkdownLivePreview() && this.livePreviewEnabled) {
-            this.applyLivePreview(true);
+            void this.applyLivePreview(true);
         }
+    }
+
+    private renderFreshDiffEditor(currentContent: string, baselineContent: string, viewState: { cursorLine?: number; cursorCol?: number; scrollTop?: number } | null): void {
+        this.setEditorSurfaceMode('saved');
+        this.mergeView = new MergeView({
+            a: {
+                doc: baselineContent,
+                extensions: this.buildBaselineEditorExtensions(),
+            },
+            b: {
+                doc: currentContent,
+                extensions: this.buildEditableEditorExtensions(),
+            },
+            parent: this.diffMergeHost,
+            root: this.ownerDocument,
+            revertControls: false,
+            highlightChanges: true,
+            gutter: true,
+            diffConfig: {
+                scanLimit: 5000,
+                timeout: 80,
+            },
+        });
+        this.baselineView = this.mergeView.a;
+        this.view = this.mergeView.b;
+        if (viewState) requestAnimationFrame(() => this.restoreViewState(viewState));
     }
 
     /** Check if current file is Markdown. */
     private isMarkdownFile(): boolean {
         const lower = (this.path || '').toLowerCase();
         return lower.endsWith('.md') || lower.endsWith('.markdown');
+    }
+
+    private isDiffMode(): boolean {
+        return this.diffMode === 'saved';
     }
 
     /** Some markdown-backed formats should open as raw source, not live preview. */
@@ -543,15 +660,19 @@ export class StandaloneEditorInstance implements PaneInstance {
         return this.isMarkdownFile();
     }
 
+    private isLivePreviewAvailable(): boolean {
+        return !this.isDiffMode() && this.supportsMarkdownLivePreview();
+    }
+
     /** Lazy-load and apply/remove markdown live preview extensions. */
     private async applyLivePreview(enabled: boolean): Promise<void> {
-        if (!this.view || this.disposed) return;
+        if (!this.view || this.disposed || this.isDiffMode()) return;
         const wrapEffect = this.wrappingCompartment.reconfigure(EditorView.lineWrapping);
 
         if (enabled) {
             try {
                 const { markdownLivePreview } = await import('./markdown/index.js');
-                if (this.disposed || !this.view) return;
+                if (this.disposed || !this.view || this.isDiffMode()) return;
                 this.view.dispatch({
                     effects: [
                         this.livePreviewCompartment.reconfigure(markdownLivePreview),
@@ -576,23 +697,32 @@ export class StandaloneEditorInstance implements PaneInstance {
      * Only meaningful for Markdown files.
      */
     toggleLivePreview(): void {
-        if (!this.supportsMarkdownLivePreview()) return;
+        if (!this.isLivePreviewAvailable()) return;
         this.livePreviewEnabled = !this.livePreviewEnabled;
         setLocalBool('piclaw_md_live_preview', this.livePreviewEnabled);
-        this.applyLivePreview(this.livePreviewEnabled);
-        if (this._lpBtn) {
-            this._lpBtn.classList.toggle('active', this.livePreviewEnabled);
-        }
+        void this.applyLivePreview(this.livePreviewEnabled);
+        this.updateLivePreviewControlState();
         this.updateWhitespaceControlState();
     }
 
     /** Whether live preview is currently on. */
     isLivePreview(): boolean {
-        return this.livePreviewEnabled && this.supportsMarkdownLivePreview();
+        return this.livePreviewEnabled && this.isLivePreviewAvailable();
     }
 
     private isWhitespaceDisabledInCurrentMode(): boolean {
         return this.isLivePreview();
+    }
+
+    private updateLivePreviewControlState(): void {
+        if (!this._lpBtn) return;
+        const available = this.isLivePreviewAvailable();
+        this._lpBtn.hidden = !available;
+        this._lpBtn.disabled = !available;
+        this._lpBtn.classList.toggle('active', available && this.livePreviewEnabled);
+        this._lpBtn.title = available
+            ? 'Toggle live preview (Alt+P)'
+            : (this.isDiffMode() ? 'Live Preview is unavailable in Compare to Saved' : 'Live Preview is unavailable for this file');
     }
 
     private updateWhitespaceControlState(): void {
@@ -627,6 +757,13 @@ export class StandaloneEditorInstance implements PaneInstance {
         }
         if (typeof state.mtime === 'string' || state.mtime === null) {
             this.currentMtime = state.mtime || null;
+        }
+        if ((state.diffMode || null) !== this.diffMode) {
+            this.setDiffMode(state.diffMode || null);
+        }
+        if (this.isDiffMode() && typeof state.initialContent === 'string') {
+            const viewState = this.captureViewState();
+            this.renderEditorSurface(this.getContent() ?? state.content ?? this.initialContent, this.diffMode, viewState);
         }
         if (state.viewState) {
             requestAnimationFrame(() => this.restoreViewState(state.viewState || null));
@@ -674,6 +811,9 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.view?.dispatch({
             effects: this.whitespaceCompartment.reconfigure(this.showWhitespace ? highlightWhitespace() : []),
         });
+        this.baselineView?.dispatch({
+            effects: this.baselineWhitespaceCompartment.reconfigure(this.showWhitespace ? highlightWhitespace() : []),
+        });
     }
 
     // ── Theme ───────────────────────────────────────────────────
@@ -711,6 +851,12 @@ export class StandaloneEditorInstance implements PaneInstance {
             effects: [
                 this.themeCompartment.reconfigure(isDark ? githubDark : githubLight),
                 this.accentCompartment.reconfigure(this.buildAccentTheme()),
+            ],
+        });
+        this.baselineView?.dispatch({
+            effects: [
+                this.baselineThemeCompartment.reconfigure(isDark ? githubDark : githubLight),
+                this.baselineAccentCompartment.reconfigure(this.buildAccentTheme()),
             ],
         });
     }
@@ -842,21 +988,14 @@ export class StandaloneEditorInstance implements PaneInstance {
     }
 
     setContent(content: string, mtime: string): void {
-        if (this.view) {
-            // Update content in existing editor
-            const current = this.view.state.doc.toString();
-            if (current !== content) {
-                this.view.dispatch({
-                    changes: { from: 0, to: this.view.state.doc.length, insert: content },
-                });
-            }
-        } else {
-            // No editor yet — mount fresh
+        if (!this.view) {
             this.mountEditor(content, mtime);
             return;
         }
+        const viewState = this.captureViewState();
         this.initialContent = content;
         this.currentMtime = mtime;
+        this.renderEditorSurface(content, this.diffMode, viewState);
         this.setDirty(false);
     }
 
@@ -874,10 +1013,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         if (this.disposed) return;
         this.disposed = true;
         this.unbindHostListeners();
-        if (this.view) {
-            this.view.destroy();
-            this.view = null;
-        }
+        this.destroyEditorViews();
         this.container.innerHTML = '';
         this.dirtyChangeCb = null;
         this.saveRequestCb = null;
@@ -906,6 +1042,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     }
 
     afterAttachToHost(_context: PaneHostAttachContext): void {
+        this.updateLivePreviewControlState();
         this.updateWhitespaceControlState();
         this.updateGutterWidth();
         this.updateSaveButton();
@@ -939,6 +1076,7 @@ export class StandaloneEditorInstance implements PaneInstance {
             initialContent: this.initialContent,
             mtime: this.currentMtime,
             dirty: this.dirty,
+            diffMode: this.diffMode,
             viewState: this.captureViewState(),
         };
     }
@@ -977,17 +1115,27 @@ export class StandaloneEditorInstance implements PaneInstance {
     /** Update the file path (after rename). */
     setPath(newPath: string): void {
         this.path = newPath;
-        const livePreviewSupported = this.supportsMarkdownLivePreview();
-        if (this._lpBtn) {
-            this._lpBtn.style.display = livePreviewSupported ? '' : 'none';
-        }
-        if (!livePreviewSupported) {
+        if (!this.isLivePreviewAvailable()) {
             void this.applyLivePreview(false);
         } else if (this.livePreviewEnabled) {
             void this.applyLivePreview(true);
         }
+        this.updateLivePreviewControlState();
         this.updateWhitespaceControlState();
         void this.refreshBranchHint();
+    }
+
+    setDiffMode(mode: 'saved' | null): void {
+        const nextMode = mode === 'saved' ? 'saved' : null;
+        if (this.diffMode === nextMode) return;
+        const content = this.getContent() ?? this.initialContent;
+        const viewState = this.captureViewState();
+        this.diffMode = nextMode;
+        this.renderEditorSurface(content, this.diffMode, viewState);
+        this.updateLivePreviewControlState();
+        this.updateWhitespaceControlState();
+        this.updateGutterWidth();
+        this.checkDirty();
     }
 }
 

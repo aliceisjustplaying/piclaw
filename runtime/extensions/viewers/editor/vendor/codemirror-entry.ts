@@ -34,3 +34,4 @@ export { lintGutter } from "@codemirror/lint";
 export { vim } from "@replit/codemirror-vim";
 export { indentationMarkers } from "@replit/codemirror-indentation-markers";
 export { githubLight, githubDark } from "@uiw/codemirror-theme-github";
+export { MergeView } from "@codemirror/merge";

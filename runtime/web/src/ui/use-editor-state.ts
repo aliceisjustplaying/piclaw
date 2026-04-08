@@ -35,6 +35,29 @@ function renamePaneOverrides(previous, oldPath, newPath, type) {
     return changed ? next : previous;
 }
 
+function renamePathSet(previous, oldPath, newPath, type) {
+    if (!(previous instanceof Set) || previous.size === 0 || !oldPath || !newPath) return previous;
+    let changed = false;
+    const next = new Set();
+    for (const value of previous.values()) {
+        let nextValue = value;
+        if (type === 'dir') {
+            if (value === oldPath) {
+                nextValue = newPath;
+                changed = true;
+            } else if (value.startsWith(`${oldPath}/`)) {
+                nextValue = `${newPath}${value.slice(oldPath.length)}`;
+                changed = true;
+            }
+        } else if (value === oldPath) {
+            nextValue = newPath;
+            changed = true;
+        }
+        next.add(nextValue);
+    }
+    return changed ? next : previous;
+}
+
 /**
  * Custom hook that manages editor tab orchestration.
  *
@@ -60,6 +83,7 @@ export function useEditorState({ onTabClosed } = {}) {
 
     // ── Markdown preview state ────────────────────────────────
     const [previewTabs, setPreviewTabs] = useState(() => new Set());
+    const [diffTabs, setDiffTabs] = useState(() => new Set());
     const [tabPaneOverrides, setTabPaneOverrides] = useState(() => new Map());
 
     const handleTabTogglePreview = useCallback((id) => {
@@ -79,6 +103,15 @@ export function useEditorState({ onTabClosed } = {}) {
     // without a temporal dead zone violation.
     const cleanupPreviewTab = useCallback((id) => {
         setPreviewTabs((prev) => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const cleanupDiffTab = useCallback((id) => {
+        setDiffTabs((prev) => {
             if (!prev.has(id)) return prev;
             const next = new Set(prev);
             next.delete(id);
@@ -119,6 +152,7 @@ export function useEditorState({ onTabClosed } = {}) {
         }
         const label = typeof options?.label === 'string' && options.label.trim() ? options.label.trim() : undefined;
         const viewState = options?.viewState && typeof options.viewState === 'object' ? options.viewState : null;
+        const diffMode = options?.diffMode === 'saved' ? 'saved' : null;
         tabStore.open(path, label);
         if (viewState) {
             tabStore.saveViewState(path, viewState);
@@ -128,6 +162,14 @@ export function useEditorState({ onTabClosed } = {}) {
                 if (prev.get(path) === paneOverrideId) return prev;
                 const next = new Map(prev);
                 next.set(path, paneOverrideId);
+                return next;
+            });
+        }
+        if (diffMode === 'saved') {
+            setDiffTabs((prev) => {
+                if (prev.has(path)) return prev;
+                const next = new Set(prev);
+                next.add(path);
                 return next;
             });
         }
@@ -144,10 +186,11 @@ export function useEditorState({ onTabClosed } = {}) {
             }
             tabStore.close(activeId);
             cleanupPreviewTab(activeId);
+            cleanupDiffTab(activeId);
             cleanupPaneOverride(activeId);
             onTabClosedRef.current?.(activeId);
         }
-    }, [cleanupPaneOverride, cleanupPreviewTab]);
+    }, [cleanupDiffTab, cleanupPaneOverride, cleanupPreviewTab]);
 
     /** Close a specific tab (from tab strip). */
     const handleTabClose = useCallback((id) => {
@@ -158,9 +201,10 @@ export function useEditorState({ onTabClosed } = {}) {
         }
         tabStore.close(id);
         cleanupPreviewTab(id);
+        cleanupDiffTab(id);
         cleanupPaneOverride(id);
         onTabClosedRef.current?.(id);
-    }, [cleanupPaneOverride, cleanupPreviewTab]);
+    }, [cleanupDiffTab, cleanupPaneOverride, cleanupPreviewTab]);
 
     /** Activate a tab by id. */
     const handleTabActivate = useCallback((id) => {
@@ -179,10 +223,11 @@ export function useEditorState({ onTabClosed } = {}) {
         tabStore.closeOthers(id);
         closedIds.forEach(cid => {
             cleanupPreviewTab(cid);
+            cleanupDiffTab(cid);
             cleanupPaneOverride(cid);
             onTabClosedRef.current?.(cid);
         });
-    }, [cleanupPaneOverride, cleanupPreviewTab]);
+    }, [cleanupDiffTab, cleanupPaneOverride, cleanupPreviewTab]);
 
     /** Close all tabs. */
     const handleTabCloseAll = useCallback(() => {
@@ -196,14 +241,27 @@ export function useEditorState({ onTabClosed } = {}) {
         tabStore.closeAll();
         closedIds.forEach(cid => {
             cleanupPreviewTab(cid);
+            cleanupDiffTab(cid);
             cleanupPaneOverride(cid);
             onTabClosedRef.current?.(cid);
         });
-    }, [cleanupPaneOverride, cleanupPreviewTab]);
+    }, [cleanupDiffTab, cleanupPaneOverride, cleanupPreviewTab]);
 
     /** Toggle pin on a tab. */
     const handleTabTogglePin = useCallback((id) => {
         tabStore.togglePin(id);
+    }, []);
+
+    /** Toggle Compare to Saved diff mode on a tab. */
+    const handleTabToggleDiff = useCallback((id) => {
+        if (!id) return;
+        setDiffTabs((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+        tabStore.activate(id);
     }, []);
 
     /** Replace a specialized editor tab with the generic source editor. */
@@ -241,6 +299,8 @@ export function useEditorState({ onTabClosed } = {}) {
             } else {
                 tabStore.rename(oldPath, newPath);
             }
+            setPreviewTabs((prev) => renamePathSet(prev, oldPath, newPath, type));
+            setDiffTabs((prev) => renamePathSet(prev, oldPath, newPath, type));
             setTabPaneOverrides((prev) => renamePaneOverrides(prev, oldPath, newPath, type));
         };
         window.addEventListener('workspace-file-renamed', handleFileRenamed);
@@ -265,6 +325,7 @@ export function useEditorState({ onTabClosed } = {}) {
         tabStripTabs,
         tabStripActiveId,
         previewTabs,
+        diffTabs,
         tabPaneOverrides,
         // Handlers
         openEditor,
@@ -275,6 +336,7 @@ export function useEditorState({ onTabClosed } = {}) {
         handleTabCloseAll,
         handleTabTogglePin,
         handleTabTogglePreview,
+        handleTabToggleDiff,
         handleTabEditSource,
         revealInExplorer,
     };

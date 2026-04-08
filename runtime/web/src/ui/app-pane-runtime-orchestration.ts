@@ -45,6 +45,7 @@ interface UsePaneRuntimeOrchestrationOptions {
   tabStripTabs: any[];
   tabStripActiveId: string | null;
   previewTabs: Set<string>;
+  diffTabs: Set<string>;
   tabPaneOverrides: Map<string, string> | Record<string, string>;
   terminalTabPath: string;
   vncTabPrefix: string;
@@ -308,6 +309,7 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
     tabStripTabs,
     tabStripActiveId,
     previewTabs,
+    diffTabs,
     tabPaneOverrides,
     terminalTabPath,
     vncTabPrefix,
@@ -721,9 +723,19 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
     [activePaneTab, panePopoutLabel, panePopoutPath],
   );
 
+  const activeDiffMode = useMemo(
+    () => (tabStripActiveId && diffTabs.has(tabStripActiveId) ? 'saved' : null),
+    [diffTabs, tabStripActiveId],
+  );
+  const activeDiffModeRef = useRef<string | null>(activeDiffMode);
+
+  useEffect(() => {
+    activeDiffModeRef.current = activeDiffMode;
+  }, [activeDiffMode]);
+
   const panePopoutHasMenuActions = useMemo(
-    () => hasPanePopoutMenuActions(tabStripTabs, previewTabs, tabStripActiveId),
-    [previewTabs, tabStripActiveId, tabStripTabs],
+    () => hasPanePopoutMenuActions(tabStripTabs, previewTabs, diffTabs, tabStripActiveId),
+    [diffTabs, previewTabs, tabStripActiveId, tabStripTabs],
   );
 
   const isVncPanePopout = useMemo(
@@ -928,10 +940,14 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
     const transfer = pendingEditorPopoutTransferRef.current?.path === panePopoutPath
       ? pendingEditorPopoutTransferRef.current
       : null;
+    const hostTransfer = pendingPaneHostTransferRef.current?.path === panePopoutPath
+      ? pendingPaneHostTransferRef.current
+      : null;
     openEditor(panePopoutPath, {
       ...(panePopoutLabel ? { label: panePopoutLabel } : {}),
       ...(transfer?.paneOverrideId ? { paneOverrideId: transfer.paneOverrideId } : {}),
       ...(transfer?.viewState ? { viewState: transfer.viewState } : {}),
+      ...(hostTransfer?.payload?.diffMode ? { diffMode: hostTransfer.payload.diffMode } : {}),
     });
   }, [openEditor, panePopoutLabel, panePopoutMode, panePopoutPath]);
 
@@ -979,12 +995,21 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
     const pendingReattachHostTransfer = pendingReattachPaneHostTransfersRef.current.get(activeId) || null;
     const pendingHostTransfer = pendingPopoutHostTransfer || pendingReattachHostTransfer;
     const effectivePaneOverrideId = activePaneOverrideId || pendingTransfer?.paneOverrideId || null;
+    let resolvedTransferState = pendingHostTransfer?.payload ? { ...pendingHostTransfer.payload } : null;
+    if (activeDiffModeRef.current) {
+      resolvedTransferState = {
+        ...(resolvedTransferState || {}),
+        diffMode: activeDiffModeRef.current,
+      };
+    } else if (resolvedTransferState && 'diffMode' in resolvedTransferState) {
+      delete resolvedTransferState.diffMode;
+    }
     const context = {
       path: activeId,
       mode: 'edit',
       ...(pendingTransfer?.content !== undefined ? { content: pendingTransfer.content } : {}),
       ...(pendingTransfer?.mtime !== undefined ? { mtime: pendingTransfer.mtime } : {}),
-      ...(pendingHostTransfer?.payload ? { transferState: pendingHostTransfer.payload } : {}),
+      ...(resolvedTransferState ? { transferState: resolvedTransferState } : {}),
     };
     const ext = (effectivePaneOverrideId ? paneRegistry.get(effectivePaneOverrideId) : null)
       || paneRegistry.resolve(context)
@@ -1050,7 +1075,7 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
       void invokePaneAfterAttachToHost(nextInstance, {
         path: activeId,
         hostMode: panePopoutMode ? 'popout' : 'main',
-        transferState: pendingHostTransfer?.payload || null,
+        transferState: resolvedTransferState,
       }).catch((error) => {
         console.warn('[pane-attach] afterAttachToHost failed:', error);
       });
@@ -1079,7 +1104,7 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
           const claimedInstance = await claimPaneLiveTransfer(liveTransferSourceWindow, liveTransferClaim, container, {
             path: activeId,
             hostMode: liveTransferHostMode,
-            transferState: pendingHostTransfer.payload || null,
+            transferState: resolvedTransferState,
           });
           if (!disposed && claimedInstance) {
             bindInstance(claimedInstance);
@@ -1130,6 +1155,13 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
       }
     };
   }, [activeDetachedTab, activePaneOverrideId, closeEditor, panePopoutMode, tabStripActiveId]);
+
+  useEffect(() => {
+    const activeId = tabStripActiveId;
+    const instance = editorInstanceRef.current;
+    if (!activeId || typeof instance?.setDiffMode !== 'function') return;
+    instance.setDiffMode(activeDiffMode);
+  }, [activeDiffMode, tabStripActiveId]);
 
   const refreshActiveEditorFromWorkspace = useCallback(async (updates: unknown) => {
     const activePath = typeof tabStripActiveId === 'string' ? tabStripActiveId.trim() : '';

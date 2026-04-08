@@ -36,7 +36,9 @@ export function composeRenderedMainAppOptions(input: {
     tabStripActiveId: string | null;
     handleTabActivate: (...args: any[]) => any;
     previewTabs: Set<string>;
+    diffTabs: Set<string>;
     handleTabTogglePreview: (...args: any[]) => any;
+    handleTabToggleDiff: (...args: any[]) => any;
     tabPaneOverrides: Record<string, unknown>;
     handleTabClose: (...args: any[]) => any;
     handleTabCloseOthers: (...args: any[]) => any;
@@ -121,7 +123,9 @@ export function composeRenderedMainAppOptions(input: {
       tabStripActiveId: input.editorState.tabStripActiveId,
       handleTabActivate: input.editorState.handleTabActivate,
       previewTabs: input.editorState.previewTabs,
+      diffTabs: input.editorState.diffTabs,
       handleTabTogglePreview: input.editorState.handleTabTogglePreview,
+      handleTabToggleDiff: input.editorState.handleTabToggleDiff,
       panePopoutPath: input.routeState.panePopoutPath,
       tabPaneOverrides: input.editorState.tabPaneOverrides,
       handleTabClose: input.editorState.handleTabClose,
