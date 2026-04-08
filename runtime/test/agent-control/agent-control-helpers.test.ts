@@ -8,6 +8,7 @@
 
 import { expect, test } from "bun:test";
 
+import { createTempWorkspace } from "../helpers.js";
 import {
   extractTextFromContent,
   formatCompactNumber,
@@ -56,6 +57,33 @@ test("formatShellBlock renders command with metadata", () => {
   expect(block).toContain("$ echo hi");
   expect(block).toContain("hi");
   expect(block).toContain("(exit code 0)");
+});
+
+test("resolveShellCwd prefers configured WORKSPACE_DIR over legacy /workspace", () => {
+  const ws = createTempWorkspace("piclaw-shell-cwd-");
+
+  try {
+    const run = Bun.spawnSync({
+      cmd: [
+        "bun",
+        "-e",
+        'import { resolveShellCwd } from "./src/agent-control/agent-control-helpers.js"; console.log(resolveShellCwd());',
+      ],
+      cwd: "/workspace/piclaw/runtime",
+      env: {
+        ...process.env,
+        PICLAW_WORKSPACE: ws.workspace,
+        PICLAW_STORE: ws.store,
+        PICLAW_DATA: ws.data,
+        PICLAW_DB_IN_MEMORY: "1",
+      },
+    });
+
+    expect(run.exitCode, run.stderr.toString() || run.stdout.toString()).toBe(0);
+    expect(run.stdout.toString().trim()).toBe(ws.workspace);
+  } finally {
+    ws.cleanup();
+  }
 });
 
 test("truncateText and extractTextFromContent", () => {
