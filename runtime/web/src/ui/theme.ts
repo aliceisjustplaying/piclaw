@@ -297,6 +297,7 @@ const THEME_VAR_KEYS = [
     '--border-color',
     '--accent-color',
     '--accent-hover',
+    '--accent-color-alpha',
     '--accent-contrast-text',
     '--accent-soft',
     '--accent-soft-strong',
@@ -426,26 +427,31 @@ function resolvePalette(themeName, mode) {
     return preset.dark || preset.light || DEFAULT_LIGHT;
 }
 
+function tintPaletteColor(value, tint, ratio) {
+    const base = parseColor(value);
+    if (!base) return value;
+    return mixColors(base, tint, ratio);
+}
+
 function buildTintedPalette(basePalette, tintHex, mode) {
     const tint = parseColor(tintHex);
     if (!tint) return basePalette;
-    const basePrimary = parseHexColor(basePalette.bgPrimary);
-    const baseSecondary = parseHexColor(basePalette.bgSecondary);
-    const baseHover = parseHexColor(basePalette.bgHover);
-    const baseBorder = parseHexColor(basePalette.borderColor);
-    if (!basePrimary || !baseSecondary || !baseHover || !baseBorder) return basePalette;
 
     const contrastColor = mode === 'dark' ? '#ffffff' : '#000000';
     const contrast = parseHexColor(contrastColor);
 
     return {
         ...basePalette,
-        bgPrimary: mixColors(basePrimary, tint, 0.08),
-        bgSecondary: mixColors(baseSecondary, tint, 0.12),
-        bgHover: mixColors(baseHover, tint, 0.16),
-        borderColor: mixColors(baseBorder, tint, 0.08),
+        bgPrimary: tintPaletteColor(basePalette.bgPrimary, tint, 0.08),
+        bgSecondary: tintPaletteColor(basePalette.bgSecondary, tint, 0.12),
+        bgHover: tintPaletteColor(basePalette.bgHover, tint, 0.16),
+        textPrimary: tintPaletteColor(basePalette.textPrimary, tint, mode === 'dark' ? 0.08 : 0.06),
+        textSecondary: tintPaletteColor(basePalette.textSecondary, tint, mode === 'dark' ? 0.12 : 0.1),
+        borderColor: tintPaletteColor(basePalette.borderColor, tint, 0.1),
         accent: tint.hex,
         accentHover: contrast ? mixColors(tint, contrast, 0.18) : tint.hex,
+        danger: tintPaletteColor(basePalette.danger, tint, 0.16),
+        success: tintPaletteColor(basePalette.success, tint, 0.16),
     };
 }
 
@@ -466,6 +472,9 @@ function applyCssVariables(palette, mode) {
     const accentContrastText = accentHex
         ? contrastTextColor(accentHex)
         : (mode === 'dark' ? '#000000' : '#ffffff');
+    const accentColorAlpha = accentHex
+        ? rgbaColor(accentHex, mode === 'dark' ? 0.35 : 0.25)
+        : 'rgba(29, 155, 240, 0.25)';
 
     const vars = {
         '--bg-primary': palette.bgPrimary,
@@ -476,6 +485,7 @@ function applyCssVariables(palette, mode) {
         '--border-color': palette.borderColor,
         '--accent-color': accentColor,
         '--accent-hover': palette.accentHover || accentColor,
+        '--accent-color-alpha': accentColorAlpha,
         '--accent-soft': accentSoft,
         '--accent-soft-strong': accentSoftStrong,
         '--accent-contrast-text': accentContrastText,
