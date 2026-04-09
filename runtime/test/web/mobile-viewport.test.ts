@@ -41,13 +41,20 @@ test('shouldUseStandaloneMobileViewportFix enables for mobile runtimes and skips
   })).toBe(false);
 });
 
-test('readViewportHeight prefers visualViewport height when available', () => {
+test('readViewportHeight prefers the visible viewport bottom when available', () => {
   expect(readViewportHeight({
     window: {
       visualViewport: { height: 612.4 },
       innerHeight: 900,
     },
   })).toBe(612);
+
+  expect(readViewportHeight({
+    window: {
+      visualViewport: { height: 612.4, offsetTop: 28.2 },
+      innerHeight: 900,
+    },
+  })).toBe(641);
 
   expect(readViewportHeight({
     window: {

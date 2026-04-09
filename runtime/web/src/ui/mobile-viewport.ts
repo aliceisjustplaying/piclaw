@@ -9,8 +9,10 @@ export function shouldUseStandaloneMobileViewportFix(runtime = {}) {
 export function readViewportHeight(runtime = {}) {
   const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
   const viewportHeight = Number(win?.visualViewport?.height || 0);
-  if (Number.isFinite(viewportHeight) && viewportHeight > 0) {
-    return Math.round(viewportHeight);
+  const viewportOffsetTop = Number(win?.visualViewport?.offsetTop || 0);
+  const viewportBottom = viewportHeight + Math.max(0, viewportOffsetTop);
+  if (Number.isFinite(viewportBottom) && viewportBottom > 0) {
+    return Math.round(viewportBottom);
   }
   const innerHeight = Number(win?.innerHeight || 0);
   if (Number.isFinite(innerHeight) && innerHeight > 0) {
