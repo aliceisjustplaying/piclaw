@@ -571,7 +571,18 @@ export async function attachWorkspaceFile(path) {
 }
 
 /** Upload a file to the workspace via multipart form data. */
+/** Maximum client-side upload size (256 MB). Larger files need chunked upload. */
+const MAX_UPLOAD_SIZE = 256 * 1024 * 1024;
+
 export async function uploadWorkspaceFile(file, targetPath = '', options = {}) {
+    if (file?.size > MAX_UPLOAD_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(0);
+        const limitMB = (MAX_UPLOAD_SIZE / (1024 * 1024)).toFixed(0);
+        const err = new Error(`File too large (${sizeMB} MB). Maximum upload size is ${limitMB} MB.`);
+        err.code = 'file_too_large';
+        throw err;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     const params = new URLSearchParams();
@@ -579,6 +590,37 @@ export async function uploadWorkspaceFile(file, targetPath = '', options = {}) {
     if (options.overwrite) params.set('overwrite', '1');
     const query = params.toString();
     const url = query ? `/workspace/upload?${query}` : '/workspace/upload';
+
+    if (typeof options.onProgress === 'function') {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', API_BASE + url);
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    options.onProgress({ loaded: e.loaded, total: e.total, percent: Math.round((e.loaded / e.total) * 100) });
+                }
+            };
+            xhr.onload = () => {
+                try {
+                    const body = JSON.parse(xhr.responseText);
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(body);
+                    } else {
+                        const err = new Error(body.error || `HTTP ${xhr.status}`);
+                        err.status = xhr.status;
+                        err.code = body.code;
+                        reject(err);
+                    }
+                } catch {
+                    reject(new Error(`HTTP ${xhr.status}`));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Upload failed (network error)'));
+            xhr.ontimeout = () => reject(new Error('Upload timed out'));
+            xhr.send(formData);
+        });
+    }
+
     const response = await fetch(API_BASE + url, {
         method: 'POST',
         body: formData,

@@ -592,6 +592,7 @@ export function WorkspaceExplorer({
     const [dragGhost,    setDragGhost]     = useState(null);
     const [dropTarget,   setDropTarget]    = useState(null);
     const [uploading,    setUploading]     = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(null);
     const [folderChart,  setFolderChart]   = useState(null);
     const [workspaceIndexStatus, setWorkspaceIndexStatus] = useState(null);
     const [workspaceReindexing, setWorkspaceReindexing] = useState(false);
@@ -1883,19 +1884,23 @@ export function WorkspaceExplorer({
         const target = targetPath && targetPath !== '' ? targetPath : '.';
         const targetLabel = target !== '.' ? target : 'workspace root';
         setUploading(true);
+        setUploadProgress({ current: 0, total: list.length, name: '', percent: 0, done: false, error: null });
         try {
             let lastResult = null;
-            for (const file of list) {
+            for (let i = 0; i < list.length; i++) {
+                const file = list[i];
+                const name = file?.name || `file ${i + 1}`;
+                setUploadProgress((prev) => ({ ...prev, current: i + 1, name, percent: 0 }));
+                const onProgress = (p) => setUploadProgress((prev) => ({ ...prev, percent: p.percent }));
                 try {
-                    lastResult = await uploadWorkspaceFile(file, target);
+                    lastResult = await uploadWorkspaceFile(file, target, { onProgress });
                 } catch (err) {
                     const status = err?.status;
                     const code = err?.code;
                     if (status === 409 || code === 'file_exists') {
-                        const name = file?.name || 'file';
                         const confirmOverwrite = window.confirm(`"${name}" already exists in ${targetLabel}. Overwrite?`);
                         if (!confirmOverwrite) continue;
-                        lastResult = await uploadWorkspaceFile(file, target, { overwrite: true });
+                        lastResult = await uploadWorkspaceFile(file, target, { overwrite: true, onProgress });
                     } else {
                         throw err;
                     }
@@ -1908,8 +1913,12 @@ export function WorkspaceExplorer({
             }
             loadSubtreeRef.current?.(target);
             refreshWorkspaceIndexStatus();
+            setUploadProgress((prev) => ({ ...prev, done: true }));
+            setTimeout(() => setUploadProgress(null), 1500);
         } catch (err) {
             setError(err.message || 'Failed to upload file');
+            setUploadProgress((prev) => prev ? { ...prev, error: err.message || 'Upload failed' } : null);
+            setTimeout(() => setUploadProgress(null), 4000);
         } finally {
             setUploading(false);
         }
@@ -2249,7 +2258,26 @@ export function WorkspaceExplorer({
                 </div>
             `}
             <div class="workspace-tree" onClick=${handleBackgroundClick}>
-                ${uploading && html`<div class="workspace-drop-hint">Uploading…</div>`}
+                ${uploadProgress && html`
+                    <div class="workspace-upload-strip">
+                        <div class="workspace-upload-strip-text">
+                            ${uploadProgress.error
+                                ? html`<span class="workspace-upload-strip-error">${uploadProgress.error}</span>`
+                                : uploadProgress.done
+                                    ? html`<span>Done</span>`
+                                    : html`<span>${uploadProgress.total > 1
+                                        ? `Uploading ${uploadProgress.current}/${uploadProgress.total}: ${uploadProgress.name}`
+                                        : `Uploading ${uploadProgress.name}`
+                                    }${uploadProgress.percent > 0 ? ` (${uploadProgress.percent}%)` : '…'}</span>`
+                            }
+                        </div>
+                        ${!uploadProgress.done && !uploadProgress.error && html`
+                            <div class="workspace-upload-strip-bar">
+                                <div class="workspace-upload-strip-fill" style=${`width:${uploadProgress.percent || 0}%`}></div>
+                            </div>
+                        `}
+                    </div>
+                `}
                 ${initialLoad && html`<div class="workspace-loading">Loading…</div>`}
                 ${error && html`<div class="workspace-error">${error}</div>`}
                 ${tree && html`
