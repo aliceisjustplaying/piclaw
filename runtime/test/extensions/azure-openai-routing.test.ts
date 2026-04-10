@@ -164,3 +164,84 @@ describe("Function call arguments sanitization", () => {
     expect((items[0] as any).arguments).toBeUndefined();
   });
 });
+
+describe("Tool schema sanitization for Azure", () => {
+  // Import not possible (private function), so we replicate the logic here
+  // to verify the pattern the extension applies.
+  function sanitizeToolSchema(schema: unknown): unknown {
+    if (!schema || typeof schema !== "object") return schema;
+    if (Array.isArray(schema)) return schema.map(sanitizeToolSchema);
+    const result: Record<string, unknown> = { ...(schema as Record<string, unknown>) };
+    if (result.type === "array" && !result.items) {
+      result.items = {};
+    }
+    if (result.properties && typeof result.properties === "object" && !Array.isArray(result.properties)) {
+      const fixed: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(result.properties as Record<string, unknown>)) {
+        fixed[key] = sanitizeToolSchema(value);
+      }
+      result.properties = fixed;
+    }
+    if (result.items && typeof result.items === "object") {
+      result.items = sanitizeToolSchema(result.items);
+    }
+    for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+      if (Array.isArray(result[key])) {
+        result[key] = (result[key] as unknown[]).map(sanitizeToolSchema);
+      }
+    }
+    return result;
+  }
+
+  test("array without items gets items: {}", () => {
+    const schema = { type: "object", properties: { edits: { type: "array" } } };
+    const fixed = sanitizeToolSchema(schema) as any;
+    expect(fixed.properties.edits.items).toEqual({});
+  });
+
+  test("array with items is preserved", () => {
+    const schema = { type: "object", properties: { edits: { type: "array", items: { type: "string" } } } };
+    const fixed = sanitizeToolSchema(schema) as any;
+    expect(fixed.properties.edits.items).toEqual({ type: "string" });
+  });
+
+  test("nested array without items is fixed", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        outer: {
+          type: "object",
+          properties: {
+            inner: { type: "array" },
+          },
+        },
+      },
+    };
+    const fixed = sanitizeToolSchema(schema) as any;
+    expect(fixed.properties.outer.properties.inner.items).toEqual({});
+  });
+
+  test("non-array types are unchanged", () => {
+    const schema = { type: "object", properties: { name: { type: "string" } } };
+    const fixed = sanitizeToolSchema(schema) as any;
+    expect(fixed.properties.name).toEqual({ type: "string" });
+    expect(fixed.properties.name.items).toBeUndefined();
+  });
+
+  test("null/undefined input returns as-is", () => {
+    expect(sanitizeToolSchema(null)).toBeNull();
+    expect(sanitizeToolSchema(undefined)).toBeUndefined();
+  });
+
+  test("anyOf/oneOf branches are recursed", () => {
+    const schema = {
+      anyOf: [
+        { type: "array" },
+        { type: "string" },
+      ],
+    };
+    const fixed = sanitizeToolSchema(schema) as any;
+    expect(fixed.anyOf[0].items).toEqual({});
+    expect(fixed.anyOf[1].items).toBeUndefined();
+  });
+});

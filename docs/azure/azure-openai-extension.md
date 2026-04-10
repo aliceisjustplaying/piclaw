@@ -1,8 +1,8 @@
 # Azure OpenAI + Foundry managed-identity extension (experimental)
 
-> **Status: experimental** — this extension is bundled with piclaw but its API surface and configuration may change between releases.
+> **Status: experimental** - this extension is bundled with piclaw but its API surface and configuration may change between releases.
 
-> **Caveat:** This extension is primarily designed for running inside **private Azure VNets** with **private Azure OpenAI endpoints** and **managed identity** authentication. It may shadow or conflict with future first-party Azure OpenAI support in [pi-mono](https://github.com/badlogic/pi-mono) — if upstream adds native Azure provider support, this extension should be reviewed and potentially retired.
+> **Caveat:** This extension is primarily designed for running inside **private Azure VNets** with **private Azure OpenAI endpoints** and **managed identity** authentication. It may shadow or conflict with future first-party Azure OpenAI support in [pi-mono](https://github.com/badlogic/pi-mono) - if upstream adds native Azure provider support, this extension should be reviewed and potentially retired.
 
 This note documents the piclaw extension that registers Azure OpenAI and Azure AI Foundry providers using **managed identity (IMDS)** or a static API key. It also explains the **custom API names** required to avoid overriding global OpenAI handlers.
 
@@ -24,9 +24,11 @@ This note documents the piclaw extension that registers Azure OpenAI and Azure A
 - **Model-switch tool-call cleanup** strips tool-call item IDs when providers/models differ.
 - **Thinking level support** maps `/thinking` settings to `reasoning.effort` (clamped for xhigh when needed).
 - **Runtime flags** to disable tools or reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`, `AOAI_DISABLE_REASONING_MODELS`).
-- **Phase capture + replay** for GPT‑5.3 Codex output metadata (`AOAI_LOG_PHASES` for debug).
+- **Phase capture + replay** for GPT-5.3 Codex output metadata (`AOAI_LOG_PHASES` for debug).
 - **Stream failure logging** for `response.failed` / `error` events with request summaries.
-- **Tool-call trimming + summarisation** to stay under Azure’s 128 tool-call limit (default cap 96, with optional dedupe of `tool_output_search`). Summary messages use `msg_`-prefixed IDs to satisfy Responses API validation.
+- **Tool-call trimming + summarisation** to stay under Azure's 128 tool-call limit (default cap 96, with optional dedupe of `tool_output_search`). Summary messages use `msg_`-prefixed IDs to satisfy Responses API validation.
+- **Function-call arguments sanitisation** after message conversion - ensures every `function_call` input item has a valid `arguments` string. Prevents silent `response.failed` errors when cross-provider replay or compaction leaves `arguments` undefined.
+- **Tool schema sanitisation** before request send - fixes `type: "array"` properties missing `items` (and other strict JSON Schema violations that Azure rejects but OpenAI/Anthropic silently accept). Recurses into nested `properties`, `items`, and `anyOf`/`oneOf`/`allOf` branches.
 - **Helper resolution that walks up to parent `node_modules/` trees** so local source runs and packaged installs both find the shared pi-ai Responses helper cleanly.
 - **Workspace-backed image output formatting** so generated images render as inline workspace images plus file listings instead of raw download-link spam.
 - **Text output forcing** via `text: { format: { type: "text" }, verbosity: "medium" }`.
@@ -39,6 +41,8 @@ This note documents the piclaw extension that registers Azure OpenAI and Azure A
 - This extension is **managed identity by default**. When `AOAI_API_KEY` is set, it uses the static key instead (skipping IMDS). `AOAI_RESOURCE` / `FOUNDRY_RESOURCE` must match the target resource or MI tokens will be invalid (401/403).
 - `MODEL_SPECS.reasoning=false` will clamp thinking to off for that model.
 - Do not remove tool-call ID sanitization or `TOOL_CALL_PROVIDERS`; Azure Responses rejects non‑compliant IDs.
+- **Azure validates tool schemas strictly.** Tool parameter schemas with `type: "array"` but no `items` property will cause silent `response.failed` errors in streaming mode (error = null). The extension auto-fixes these before sending, but upstream tool definitions should still aim for valid JSON Schema.
+- **Cross-provider replay can produce `function_call` items with `arguments: undefined`.** The extension auto-fixes these to `"{}"` before sending. This typically happens when switching from Claude/Copilot to Azure mid-session.
 
 ## Provider registration
 
@@ -79,7 +83,7 @@ pi.registerProvider("azure-openai", {
 - Base URL: `FOUNDRY_BASE_URL` (example: `https://{FOUNDRY_RESOURCE}.cognitiveservices.azure.com/openai/v1`)
 - Model IDs: `FOUNDRY_MODEL_IDS`
 
-The Foundry stream wrapper forces the model API to `openai-completions` when invoking the built‑in OpenAI completions implementation, while keeping a **custom API name** for routing:
+The Foundry stream wrapper forces the model API to `openai-completions` when invoking the built-in OpenAI completions implementation, while keeping a **custom API name** for routing:
 
 ```ts
 function streamSimpleFoundryOpenAICompletions(model, context, options) {
@@ -123,7 +127,7 @@ const TOOL_CALL_PROVIDERS = new Set([
 ]);
 ```
 
-Additional sanitization enforces Azure constraints (64‑char max, `[a-zA-Z0-9_-]`).
+Additional sanitization enforces Azure constraints (64-char max, `[a-zA-Z0-9_-]`).
 
 ### Text output forcing
 
@@ -143,37 +147,37 @@ reasoning: { effort: ..., summary: ... }
 include: ["reasoning.encrypted_content"]
 ```
 
-- If not explicitly set and the model is GPT‑5, a developer instruction suppresses hidden reasoning.
+- If not explicitly set and the model is GPT-5, a developer instruction suppresses hidden reasoning.
 
 ## Environment variables
 
-- `AOAI_BASE_URL` – Azure OpenAI Responses API base URL (required to activate the extension)
-- `AOAI_API_KEY` – static API key; when set, skips managed-identity token fetch (useful when a separate service handles authentication)
-- `AOAI_MODEL_ID` – model deployment ID
-- `AOAI_MODEL_IDS` – comma‑separated list of model IDs
-- `AOAI_MODEL_NAME` / `AOAI_MODEL_NAMES` – display names
-- `AOAI_IMAGE_MODEL_ID` – image model ID (optional)
-- `AOAI_RESOURCE` – resource URI for IMDS token fetch (default `https://cognitiveservices.azure.com/`)
-- `AOAI_TOKEN_CACHE_DIR` – cache directory (default `/workspace/.piclaw/cache`)
-- `AOAI_TOKEN_CACHE_FILE` – cache file path (default `${AOAI_TOKEN_CACHE_DIR}/aoai-token.json`)
-- `AOAI_TOKEN_SKEW_SECONDS` – refresh skew in seconds (default `300`)
-- `AOAI_API_VERSION` – Azure OpenAI API version (default `2024-02-15-preview`)
-- `AOAI_DISABLE_TOOLS` – disable tool calls (`true`/`1`/`yes`)
-- `AOAI_DISABLE_REASONING` – disable reasoning (`true`/`1`/`yes`)
-- `AOAI_DISABLE_REASONING_MODELS` – comma‑separated model IDs to force reasoning off
-- `AOAI_LOG_PHASES` – log GPT‑5.3 phase replay details (`true`/`1`/`yes`)
-- `AOAI_MAX_TOOL_CALLS` – maximum tool calls per request before trimming (default `96`)
-- `AOAI_TOOL_CALL_SUMMARY_MAX` – max tool-call entries to include in the summary message (default `12`)
-- `AOAI_TOOL_CALL_OUTPUT_CHARS` – max chars per tool output snippet in summaries (default `200`)
-- `AOAI_DEDUPE_TOOL_OUTPUT_SEARCH` – dedupe repeated `tool_output_search` calls (`1` default, set `0` to disable)
+- `AOAI_BASE_URL` - Azure OpenAI Responses API base URL (required to activate the extension)
+- `AOAI_API_KEY` - static API key; when set, skips managed-identity token fetch (useful when a separate service handles authentication)
+- `AOAI_MODEL_ID` - model deployment ID
+- `AOAI_MODEL_IDS` - comma-separated list of model IDs
+- `AOAI_MODEL_NAME` / `AOAI_MODEL_NAMES` - display names
+- `AOAI_IMAGE_MODEL_ID` - image model ID (optional)
+- `AOAI_RESOURCE` - resource URI for IMDS token fetch (default `https://cognitiveservices.azure.com/`)
+- `AOAI_TOKEN_CACHE_DIR` - cache directory (default `/workspace/.piclaw/cache`)
+- `AOAI_TOKEN_CACHE_FILE` - cache file path (default `${AOAI_TOKEN_CACHE_DIR}/aoai-token.json`)
+- `AOAI_TOKEN_SKEW_SECONDS` - refresh skew in seconds (default `300`)
+- `AOAI_API_VERSION` - Azure OpenAI API version (default `2024-02-15-preview`)
+- `AOAI_DISABLE_TOOLS` - disable tool calls (`true`/`1`/`yes`)
+- `AOAI_DISABLE_REASONING` - disable reasoning (`true`/`1`/`yes`)
+- `AOAI_DISABLE_REASONING_MODELS` - comma-separated model IDs to force reasoning off
+- `AOAI_LOG_PHASES` - log GPT-5.3 phase replay details (`true`/`1`/`yes`)
+- `AOAI_MAX_TOOL_CALLS` - maximum tool calls per request before trimming (default `96`)
+- `AOAI_TOOL_CALL_SUMMARY_MAX` - max tool-call entries to include in the summary message (default `12`)
+- `AOAI_TOOL_CALL_OUTPUT_CHARS` - max chars per tool output snippet in summaries (default `200`)
+- `AOAI_DEDUPE_TOOL_OUTPUT_SEARCH` - dedupe repeated `tool_output_search` calls (`1` default, set `0` to disable)
 
-- `FOUNDRY_BASE_URL` – Foundry base URL
-- `FOUNDRY_MODEL_IDS` / `FOUNDRY_MODEL_NAMES` – Foundry model list + names
-- `FOUNDRY_IMAGE_MODEL_ID` – Foundry image model ID
-- `FOUNDRY_API_VERSION` – Foundry API version override (defaults to `AOAI_API_VERSION`)
-- `FOUNDRY_IMAGE_BASE_URL` – Optional explicit Foundry image base URL
-- `FOUNDRY_IMAGE_API_VERSION` – Foundry image API version (default `preview`)
-- `FOUNDRY_RESOURCE` – resource URI for IMDS token fetch
+- `FOUNDRY_BASE_URL` - Foundry base URL
+- `FOUNDRY_MODEL_IDS` / `FOUNDRY_MODEL_NAMES` - Foundry model list + names
+- `FOUNDRY_IMAGE_MODEL_ID` - Foundry image model ID
+- `FOUNDRY_API_VERSION` - Foundry API version override (defaults to `AOAI_API_VERSION`)
+- `FOUNDRY_IMAGE_BASE_URL` - Optional explicit Foundry image base URL
+- `FOUNDRY_IMAGE_API_VERSION` - Foundry image API version (default `preview`)
+- `FOUNDRY_RESOURCE` - resource URI for IMDS token fetch
 
 ## Files and paths
 
@@ -242,16 +246,20 @@ send_msg "/model azure-openai/gpt-5-3-codex"; wait_idle
 send_msg "ping after opus"; wait_idle
 ```
 
-## GPT‑5.3 Codex challenges
+## GPT-5.3 Codex challenges
 
-- GPT‑5.3 adds a `phase` field on assistant output items (commentary vs `final_answer`). The extension captures it from the Responses stream and replays it on the next request so continuity is preserved.
-- Even with phase replay enabled, long multi‑model sessions can still emit `response.failed` (sometimes with `error: null`) and `/compact` can return “Unknown error.”
+- GPT-5.3 adds a `phase` field on assistant output items (commentary vs `final_answer`). The extension captures it from the Responses stream and replays it on the next request so continuity is preserved.
+- Even with phase replay enabled, long multi-model sessions can still emit `response.failed` (sometimes with `error: null`) and `/compact` can return "Unknown error."
 - Disabling tools/reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`) does not consistently resolve the failure once it appears.
 - For diagnosis, enable `AOAI_LOG_PHASES=1` and review stream failure logs + request summaries to see message counts and tool-call volume.
 - Workarounds: restart the session, reduce tool-call history, or use `gpt-5-2-codex` until upstream handling stabilizes.
 
 ## Troubleshooting
 
+- **Silent `response.failed` with `error: null` in streaming mode:** This is Azure’s generic rejection when input validation fails. To get the real error message, replay the same payload with `stream: false`. Common causes:
+  - Tool schema has `type: "array"` without `items` — fixed automatically by the extension’s `sanitizeToolSchema`.
+  - `function_call` input item is missing the `arguments` field — fixed automatically by the extension’s post-conversion sanitization.
+  - Input exceeds deployment token limits or contains unsupported fields.
 - If model output is missing: verify the `text` format block is being injected.
 - If tool call errors appear: ensure `TOOL_CALL_PROVIDERS` includes `azure-openai`/`azure-foundry` and that ID sanitization remains.
 - If helper imports fail in one environment but not another: verify `runtime/src/extensions/azure-openai-api.ts` can walk up to the packaged or repo-local `@mariozechner/pi-ai` install.
