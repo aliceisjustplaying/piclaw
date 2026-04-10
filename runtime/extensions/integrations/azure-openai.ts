@@ -268,6 +268,40 @@ function sanitizeOpenAIId(value?: string): string | undefined {
   return next;
 }
 
+/**
+ * Recursively fix JSON Schema objects for Azure Responses API compliance.
+ * Azure strictly validates tool parameter schemas and rejects shapes that
+ * OpenAI and Anthropic silently accept, most commonly:
+ * - `type: "array"` without an `items` property
+ *
+ * This runs on the converted tool definitions before they are sent in the
+ * request so upstream tool registrations do not need to be Azure-aware.
+ */
+function sanitizeToolSchema(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) return schema.map(sanitizeToolSchema);
+  const result: Record<string, unknown> = { ...(schema as Record<string, unknown>) };
+  if (result.type === "array" && !result.items) {
+    result.items = {};
+  }
+  if (result.properties && typeof result.properties === "object" && !Array.isArray(result.properties)) {
+    const fixed: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(result.properties as Record<string, unknown>)) {
+      fixed[key] = sanitizeToolSchema(value);
+    }
+    result.properties = fixed;
+  }
+  if (result.items && typeof result.items === "object") {
+    result.items = sanitizeToolSchema(result.items);
+  }
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    if (Array.isArray(result[key])) {
+      result[key] = (result[key] as unknown[]).map(sanitizeToolSchema);
+    }
+  }
+  return result;
+}
+
 type ArmContext = {
   subscriptionId: string;
   resourceGroup: string;
@@ -1259,7 +1293,21 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         params.temperature = options?.temperature;
       }
       if (!DISABLE_TOOLS && context.tools) {
-        params.tools = convertResponsesTools(context.tools);
+        const rawTools = convertResponsesTools(context.tools);
+        // Sanitize tool schemas: Azure Responses API strictly validates JSON Schema
+        // and rejects arrays without `items`, which other providers silently accept.
+        params.tools = Array.isArray(rawTools)
+          ? rawTools.map((tool: any) => {
+              if (tool?.type === "function" && tool?.function?.parameters) {
+                return { ...tool, function: { ...tool.function, parameters: sanitizeToolSchema(tool.function.parameters) } };
+              }
+              // Responses API tools use top-level `parameters` instead of nested `function`
+              if (tool?.parameters) {
+                return { ...tool, parameters: sanitizeToolSchema(tool.parameters) };
+              }
+              return tool;
+            })
+          : rawTools;
       } else if (DISABLE_TOOLS) {
         params.tool_choice = "none";
       }
