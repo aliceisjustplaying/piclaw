@@ -64,13 +64,24 @@ function isOfficeFilename(filename: unknown): boolean {
   );
 }
 
-export type AttachmentPreviewKind = "image" | "pdf" | "office" | "drawio" | "text" | "unsupported";
+const ARCHIVE_PREVIEW_TYPES = new Set([
+  "application/zip",
+  "application/x-zip-compressed",
+]);
+
+function isArchiveFilename(filename: unknown): boolean {
+  const name = normalize(filename);
+  return !!name && name.endsWith(".zip");
+}
+
+export type AttachmentPreviewKind = "image" | "pdf" | "office" | "drawio" | "text" | "archive" | "unsupported";
 
 export function getAttachmentPreviewKind(contentType: unknown, filename?: unknown): AttachmentPreviewKind {
   const normalized = normalize(contentType);
   if (isDrawioFilename(filename) || DRAWIO_PREVIEW_TYPES.has(normalized)) return "drawio";
   if (isPdfFilename(filename) || normalized === "application/pdf") return "pdf";
   if (isOfficeFilename(filename) || OFFICE_PREVIEW_TYPES.has(normalized)) return "office";
+  if (isArchiveFilename(filename) || ARCHIVE_PREVIEW_TYPES.has(normalized)) return "archive";
   if (!normalized) return "unsupported";
   if (normalized.startsWith("image/")) return "image";
   if (TEXT_PREVIEW_TYPES.has(normalized) || normalized.startsWith("text/")) return "text";
@@ -94,6 +105,8 @@ export function getAttachmentPreviewLabel(kind: AttachmentPreviewKind): string {
       return "Draw.io preview (read-only)";
     case "text":
       return "Text preview";
+    case "archive":
+      return "ZIP archive preview";
     default:
       return "Preview unavailable";
   }

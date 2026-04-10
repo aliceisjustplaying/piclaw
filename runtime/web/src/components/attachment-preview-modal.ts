@@ -1,18 +1,26 @@
 // @ts-nocheck
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { BodyPortal } from './body-portal.js';
-import { getMediaText, getMediaUrl } from '../api.js';
+import { getMediaBlob, getMediaText, getMediaUrl } from '../api.js';
 import { renderMarkdown, renderMermaidDiagrams } from '../markdown.js';
 import { formatFileSize, formatTimestamp } from '../utils/format.js';
 import { highlightCodeToHtml, normalizeCodeLanguageLabel } from '../utils/code-highlighting.js';
 import { getAttachmentPreviewKind, getAttachmentPreviewLabel, isMarkdownAttachmentPreview } from '../ui/attachment-preview.js';
+import { formatCompressionRatio, getCompressionMethodLabel, parseZipPreview } from '../ui/zip-preview.js';
 
-function buildMetadata(info, languageLabel = null) {
+function buildMetadata(info, languageLabel = null, archivePreview = null) {
     const size = info?.metadata?.size;
     const contentType = info?.content_type || 'application/octet-stream';
+    const archiveSummary = archivePreview?.summary || null;
     return [
         { label: 'Type', value: contentType },
         { label: 'Syntax', value: languageLabel },
+        { label: 'Entries', value: archiveSummary ? String(archiveSummary.totalEntries) : null },
+        { label: 'Files', value: archiveSummary ? String(archiveSummary.fileCount) : null },
+        { label: 'Folders', value: archiveSummary ? String(archiveSummary.directoryCount) : null },
+        { label: 'Compressed', value: archiveSummary ? formatFileSize(archiveSummary.compressedBytes) : null },
+        { label: 'Uncompressed', value: archiveSummary ? formatFileSize(archiveSummary.uncompressedBytes) : null },
+        { label: 'Savings', value: formatCompressionRatio(archiveSummary) },
         { label: 'Size', value: typeof size === 'number' ? formatFileSize(size) : null },
         { label: 'Added', value: info?.created_at ? formatTimestamp(info.created_at) : null },
     ].filter((entry) => entry.value);
@@ -122,13 +130,14 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
     const previewKind = useMemo(() => getAttachmentPreviewKind(info?.content_type, filename), [info?.content_type, filename]);
     const previewLabel = getAttachmentPreviewLabel(previewKind);
     const isMarkdown = useMemo(() => isMarkdownAttachmentPreview(info?.content_type), [info?.content_type]);
-    const [loading, setLoading] = useState(previewKind === 'text');
+    const [loading, setLoading] = useState(previewKind === 'text' || previewKind === 'archive');
     const [textContent, setTextContent] = useState('');
+    const [archivePreview, setArchivePreview] = useState(null);
     const [error, setError] = useState(null);
     const markdownContainerRef = useRef(null);
     const previewLanguage = useMemo(() => previewLanguageFromAttachment(info, filename), [info, filename]);
     const previewLanguageLabel = useMemo(() => previewLanguage ? normalizeCodeLanguageLabel(previewLanguage) : null, [previewLanguage]);
-    const metadata = useMemo(() => buildMetadata(info, !isMarkdown ? previewLanguageLabel : null), [info, isMarkdown, previewLanguageLabel]);
+    const metadata = useMemo(() => buildMetadata(info, !isMarkdown ? previewLanguageLabel : null, archivePreview), [info, isMarkdown, previewLanguageLabel, archivePreview]);
     const frameUrl = useMemo(() => buildFrameUrl(mediaId, filename, previewKind), [mediaId, filename, previewKind]);
     const renderedMarkdown = useMemo(() => {
         if (!isMarkdown || !textContent) return '';
@@ -157,19 +166,34 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
         let cancelled = false;
 
         async function loadPreview() {
-            if (previewKind !== 'text') {
+            if (previewKind !== 'text' && previewKind !== 'archive') {
                 setLoading(false);
                 setError(null);
+                setTextContent('');
+                setArchivePreview(null);
                 return;
             }
 
             setLoading(true);
             setError(null);
+            setTextContent('');
+            setArchivePreview(null);
             try {
-                const text = await getMediaText(mediaId);
-                if (!cancelled) setTextContent(text);
-            } catch {
-                if (!cancelled) setError('Failed to load text preview.');
+                if (previewKind === 'text') {
+                    const text = await getMediaText(mediaId);
+                    if (!cancelled) setTextContent(text);
+                    return;
+                }
+
+                const blob = await getMediaBlob(mediaId);
+                const bytes = new Uint8Array(await blob.arrayBuffer());
+                const parsed = parseZipPreview(bytes);
+                if (!cancelled) setArchivePreview(parsed);
+            } catch (loadError) {
+                if (!cancelled) {
+                    const detail = loadError instanceof Error ? loadError.message : String(loadError || 'Unknown error');
+                    setError(previewKind === 'archive' ? `Failed to load ZIP preview. ${detail}` : 'Failed to load text preview.');
+                }
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -225,6 +249,52 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
                         `}
                         ${!loading && !error && previewKind === 'drawio' && html`
                             <div class="attachment-preview-readonly-note">Draw.io preview is read-only. Editing tools are disabled in this preview.</div>
+                        `}
+                        ${!loading && !error && previewKind === 'archive' && archivePreview && html`
+                            <div class="attachment-preview-archive">
+                                <div class="attachment-preview-archive-summary">
+                                    <div class="attachment-preview-archive-card">
+                                        <span class="attachment-preview-archive-card-label">Files</span>
+                                        <strong class="attachment-preview-archive-card-value">${archivePreview.summary.fileCount}</strong>
+                                    </div>
+                                    <div class="attachment-preview-archive-card">
+                                        <span class="attachment-preview-archive-card-label">Folders</span>
+                                        <strong class="attachment-preview-archive-card-value">${archivePreview.summary.directoryCount}</strong>
+                                    </div>
+                                    <div class="attachment-preview-archive-card">
+                                        <span class="attachment-preview-archive-card-label">Compressed</span>
+                                        <strong class="attachment-preview-archive-card-value">${formatFileSize(archivePreview.summary.compressedBytes)}</strong>
+                                    </div>
+                                    <div class="attachment-preview-archive-card">
+                                        <span class="attachment-preview-archive-card-label">Uncompressed</span>
+                                        <strong class="attachment-preview-archive-card-value">${formatFileSize(archivePreview.summary.uncompressedBytes)}</strong>
+                                    </div>
+                                </div>
+                                <div class="attachment-preview-archive-table-wrap">
+                                    <table class="attachment-preview-archive-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Type</th>
+                                                <th>Method</th>
+                                                <th>Compressed</th>
+                                                <th>Size</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${archivePreview.entries.map((entry) => html`
+                                                <tr key=${entry.path}>
+                                                    <td class="attachment-preview-archive-name">${entry.path}</td>
+                                                    <td>${entry.isDirectory ? 'Folder' : 'File'}</td>
+                                                    <td>${entry.isDirectory ? '—' : getCompressionMethodLabel(entry.compressionMethod)}</td>
+                                                    <td>${entry.isDirectory ? '—' : formatFileSize(entry.compressedSize)}</td>
+                                                    <td>${entry.isDirectory ? '—' : formatFileSize(entry.uncompressedSize)}</td>
+                                                </tr>
+                                            `)}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         `}
                         ${!loading && !error && previewKind === 'text' && isMarkdown && html`
                             <div

@@ -146,6 +146,77 @@
     padding: var(--spacing-md);
 }
 
+.attachment-preview-archive {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+}
+
+.attachment-preview-archive-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--spacing-sm);
+}
+
+.attachment-preview-archive-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+}
+
+.attachment-preview-archive-card-label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.attachment-preview-archive-card-value {
+    color: var(--text-primary);
+    font-size: var(--font-size-lg);
+}
+
+.attachment-preview-archive-table-wrap {
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.attachment-preview-archive-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+}
+
+.attachment-preview-archive-table th,
+.attachment-preview-archive-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    vertical-align: top;
+}
+
+.attachment-preview-archive-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    z-index: 1;
+}
+
+.attachment-preview-archive-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.attachment-preview-archive-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    word-break: break-word;
+}
+
 .attachment-preview-meta {
     display: flex;
     flex-wrap: wrap;
