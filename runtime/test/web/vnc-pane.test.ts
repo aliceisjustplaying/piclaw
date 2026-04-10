@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { buildVncTabPath, consumeVncPopoutPassword, createVncPopoutTransferPayload, relocateVncPaneRoot, shouldRetryVncPopoutWithoutHandoff, stashVncPopoutPassword } from '../../web/src/panes/vnc-pane.js';
+import { buildVncTabPath, consumeVncPopoutPassword, createVncPopoutTransferPayload, getVncTargetsEmptyStateCopy, relocateVncPaneRoot, shouldRetryVncPopoutWithoutHandoff, stashVncPopoutPassword } from '../../web/src/panes/vnc-pane.js';
 
 test('buildVncTabPath encodes target ids when present', () => {
   expect(buildVncTabPath()).toBe('piclaw://vnc');
@@ -92,4 +92,33 @@ test('shouldRetryVncPopoutWithoutHandoff only retries pristine failed handoffs',
     hasRenderedFrame: false,
     reconnectAttempts: 1,
   })).toBe(false);
+});
+
+test('getVncTargetsEmptyStateCopy matches whether direct connect is actually available', () => {
+  expect(getVncTargetsEmptyStateCopy({
+    enabled: false,
+    directConnectEnabled: false,
+    targets: [],
+  })).toEqual({
+    title: 'VNC is not configured yet.',
+    body: 'No saved targets are available and direct connect is disabled on this host.',
+  });
+
+  expect(getVncTargetsEmptyStateCopy({
+    enabled: true,
+    directConnectEnabled: false,
+    targets: [],
+  })).toEqual({
+    title: 'No saved VNC targets yet.',
+    body: 'This host has no configured VNC targets, and direct connect is disabled.',
+  });
+
+  expect(getVncTargetsEmptyStateCopy({
+    enabled: true,
+    directConnectEnabled: true,
+    targets: [],
+  })).toEqual({
+    title: 'No saved VNC targets yet.',
+    body: 'Connect directly above.',
+  });
 });

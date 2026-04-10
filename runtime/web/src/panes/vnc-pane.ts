@@ -215,6 +215,38 @@ function parseDirectVncTargetReference(value) {
     };
 }
 
+export function getVncTargetsEmptyStateCopy(options = {}) {
+    const enabled = Boolean(options?.enabled);
+    const directConnectEnabled = Boolean(options?.directConnectEnabled);
+    const targetCount = Array.isArray(options?.targets) ? options.targets.length : Number(options?.targetCount || 0);
+
+    if (targetCount > 0) {
+        return {
+            title: '',
+            body: '',
+        };
+    }
+
+    if (directConnectEnabled) {
+        return {
+            title: 'No saved VNC targets yet.',
+            body: 'Connect directly above.',
+        };
+    }
+
+    if (!enabled) {
+        return {
+            title: 'VNC is not configured yet.',
+            body: 'No saved targets are available and direct connect is disabled on this host.',
+        };
+    }
+
+    return {
+        title: 'No saved VNC targets yet.',
+        body: 'This host has no configured VNC targets, and direct connect is disabled.',
+    };
+}
+
 function consumePanePopoutTransferToken(paramName) {
     if (typeof window === 'undefined') return null;
     try {
@@ -434,6 +466,11 @@ class VncPaneInstance implements PaneInstance {
         this.resetLiveSession();
         const targets = Array.isArray(payload?.targets) ? payload.targets : [];
         const directConnectEnabled = Boolean(payload?.direct_connect_enabled);
+        const emptyState = getVncTargetsEmptyStateCopy({
+            enabled: payload?.enabled,
+            directConnectEnabled,
+            targets,
+        });
         this.bodyEl.innerHTML = `
             <div style="width:100%;height:100%;min-height:0;display:grid;align-content:start;justify-items:center;gap:16px;overflow:auto;padding:24px;box-sizing:border-box;">
                 ${directConnectEnabled ? `
@@ -476,8 +513,9 @@ class VncPaneInstance implements PaneInstance {
                     </div>
                 ` : `
                     <div style="min-height:0;display:grid;place-items:center;justify-items:center;">
-                        <div style="width:min(100%,540px);text-align:center;padding:24px 20px;border:1px dashed var(--border-color);border-radius:10px;background:transparent;font-size:13px;color:var(--text-secondary);line-height:1.5;">
-                            No saved VNC targets yet. Connect directly above.
+                        <div style="width:min(100%,540px);text-align:center;padding:24px 20px;border:1px dashed var(--border-color);border-radius:10px;background:transparent;font-size:13px;color:var(--text-secondary);line-height:1.5;display:grid;gap:6px;">
+                            <div style="font-weight:600;color:var(--text-primary);">${esc(emptyState.title)}</div>
+                            <div>${esc(emptyState.body)}</div>
                         </div>
                     </div>
                 `}
