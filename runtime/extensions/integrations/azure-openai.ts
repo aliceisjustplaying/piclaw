@@ -129,6 +129,38 @@ const MODEL_TOOL_CALL_LIMITS: Record<string, number> = {
   "gpt-5-4": 48,
   "gpt-5-4-pro": 32,
 };
+
+// Slice 1 — Responses-only models: these MUST use the Responses API and never
+// fall through to chat completions. The extension already routes all Azure OpenAI
+// models through Responses, so this is a guardrail assertion, not a routing change.
+const RESPONSES_ONLY_MODELS = new Set([
+  "gpt-5-4-pro",
+]);
+
+// Slice 2 — Per-model reasoning cap for tool-heavy flows.
+// Harness evidence (2026-03-10): gpt-5-mini at reasoning=high fails ~50% of
+// multi-round tool calls (missing_tool_call). Stable at minimal and medium.
+// Cap tool-flow reasoning to 'medium' for affected models.
+const MODEL_TOOL_FLOW_REASONING_CAP: Record<string, string> = {
+  "gpt-5-mini": "medium",
+};
+
+const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+/**
+ * Cap reasoning effort for models with known tool-flow instability at higher levels.
+ * Returns the original effort if no cap applies, or the capped value if it exceeds
+ * the model's safe maximum for tool-heavy contexts.
+ */
+export function capToolFlowReasoning(modelId: string, effort: string, hasTools: boolean): string {
+  if (!hasTools) return effort;
+  const cap = MODEL_TOOL_FLOW_REASONING_CAP[modelId];
+  if (!cap) return effort;
+  const capIdx = EFFORT_ORDER.indexOf(cap as typeof EFFORT_ORDER[number]);
+  const curIdx = EFFORT_ORDER.indexOf(effort as typeof EFFORT_ORDER[number]);
+  if (capIdx >= 0 && curIdx > capIdx) return cap;
+  return effort;
+}
 const DISABLE_REASONING_MODELS = new Set(
   (process.env.AOAI_DISABLE_REASONING_MODELS || "")
     .split(",")
@@ -1223,9 +1255,12 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           // failures (response.failed with error: null). Some models
           // (e.g. gpt-5.3-chat) also restrict effort to "medium" only.
           // We send effort but omit summary and include for Azure.
-          params.reasoning = {
-            effort: options?.reasoningEffort || "medium",
-          };
+          let effort = options?.reasoningEffort || "medium";
+
+          // Slice 2: cap reasoning for tool-heavy flows on unstable models.
+          effort = capToolFlowReasoning(model.id, effort, toolsEnabled && context.tools?.length > 0);
+
+          params.reasoning = { effort };
         } else if (String(model.name).toLowerCase().startsWith("gpt-5")) {
           messages.push({
             role: "developer",
@@ -1379,7 +1414,13 @@ export function registerAzureProviders(register: (name: string, config: any) => 
     const caps = MODEL_CAPABILITIES[id];
     const rateLimits = MODEL_RATE_LIMITS[id];
     if (caps?.responses === false) {
-      console.error(`[azure-openai] Skipping ${id}: responses not supported by this deployment.`);
+      // Slice 1: Responses-only models must never silently fall through to
+      // chat completions. Emit an explicit error for these instead of just skipping.
+      if (RESPONSES_ONLY_MODELS.has(id)) {
+        console.error(`[azure-openai] ERROR: ${id} is Responses-only but deployment reports responses=false. Skipping.`);
+      } else {
+        console.error(`[azure-openai] Skipping ${id}: responses not supported by this deployment.`);
+      }
       return [];
     }
     return [
@@ -1415,6 +1456,16 @@ export function registerAzureProviders(register: (name: string, config: any) => 
       input: ["text"],
       contextWindow: spec.contextWindow ?? 200000,
       maxTokens: spec.maxTokens ?? 64000,
+      // Slice 3: Foundry compat flags proven in the harness (2026-03-10).
+      // Without these, mistral-large-3 rejects requests with 422 (extra_forbidden
+      // for `store`, wrong max-token field) and tool flows fail with incorrect
+      // message ordering ("Unexpected role 'user' after role 'tool'").
+      compat: {
+        supportsStore: false,
+        maxTokensField: "max_tokens",
+        supportsReasoningEffort: false,
+        requiresAssistantAfterToolResult: true,
+      },
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     };
   });

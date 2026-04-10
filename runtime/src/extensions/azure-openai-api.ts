@@ -19,6 +19,7 @@ const OPENAI_RESPONSES_SHARED_RELATIVE_PATH = join(
 );
 
 export function resolvePiAiResponsesSharedModulePath(startDir: string = __dirname): string {
+  // Walk up from startDir looking for node_modules containing the target module.
   let dir = startDir;
   for (let i = 0; i < 10; i += 1) {
     const candidate = join(dir, "node_modules", OPENAI_RESPONSES_SHARED_RELATIVE_PATH);
@@ -27,6 +28,10 @@ export function resolvePiAiResponsesSharedModulePath(startDir: string = __dirnam
     if (parent === dir) break;
     dir = parent;
   }
+  // Fallback: when running from a bundle output dir (e.g. /workspace/tmp), the
+  // walk-up may miss the project's node_modules. Check the global install path.
+  const globalCandidate = join("/usr/local/lib/bun/install/global", "node_modules", OPENAI_RESPONSES_SHARED_RELATIVE_PATH);
+  if (existsSync(globalCandidate)) return globalCandidate;
   throw new Error(`Unable to resolve ${OPENAI_RESPONSES_SHARED_RELATIVE_PATH} from ${startDir}`);
 }
 

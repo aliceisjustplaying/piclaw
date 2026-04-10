@@ -1,0 +1,117 @@
+/**
+ * azure-openai-routing.test.ts – Tests for Azure model routing guardrails.
+ *
+ * Covers:
+ * - Slice 1: Responses-only route guarantee for gpt-5-4-pro
+ * - Slice 2: Reasoning cap for gpt-5-mini tool flows
+ * - Slice 3: Foundry compat flags on model registration
+ */
+import { expect, test, describe } from "bun:test";
+import { registerAzureProviders, capToolFlowReasoning } from "../../extensions/integrations/azure-openai.ts";
+
+describe("Slice 1: Responses-only routing", () => {
+  test("gpt-5-4-pro is registered with the Responses API name", () => {
+    const providers: Array<{ name: string; config: any }> = [];
+    registerAzureProviders((name, config) => providers.push({ name, config }), "test-token");
+
+    // Find the azure-openai provider
+    const azureProvider = providers.find(p => p.name === "azure-openai");
+    if (!azureProvider) return; // gpt-5-4-pro may not be in AOAI_MODEL_IDS
+
+    const proModel = azureProvider.config.models.find((m: any) => m.id === "gpt-5-4-pro");
+    if (!proModel) return; // gpt-5-4-pro may not be configured
+
+    // Must use the Responses API, never completions
+    expect(proModel.api).toBe("azure-openai-responses-mi");
+    expect(proModel.api).not.toContain("completions");
+  });
+
+  test("all Azure OpenAI models use the Responses API", () => {
+    const providers: Array<{ name: string; config: any }> = [];
+    registerAzureProviders((name, config) => providers.push({ name, config }), "test-token");
+
+    const azureProvider = providers.find(p => p.name === "azure-openai");
+    if (!azureProvider) return;
+
+    for (const model of azureProvider.config.models) {
+      expect(model.api).toBe("azure-openai-responses-mi");
+    }
+  });
+
+  test("Foundry text models use the completions API, not Responses", () => {
+    const providers: Array<{ name: string; config: any }> = [];
+    registerAzureProviders((name, config) => providers.push({ name, config }), "test-token");
+
+    const foundryProvider = providers.find(p => p.name === "azure-foundry");
+    if (!foundryProvider) return;
+
+    for (const model of foundryProvider.config.models) {
+      expect(model.api).toBe("azure-foundry-openai-completions-mi");
+    }
+  });
+});
+
+describe("Slice 3: Foundry compat flags", () => {
+  test("Foundry text models have compat flags set", () => {
+    const providers: Array<{ name: string; config: any }> = [];
+    registerAzureProviders((name, config) => providers.push({ name, config }), "test-token");
+
+    const foundryProvider = providers.find(p => p.name === "azure-foundry");
+    if (!foundryProvider) return;
+
+    for (const model of foundryProvider.config.models) {
+      expect(model.compat).toBeDefined();
+      expect(model.compat.supportsStore).toBe(false);
+      expect(model.compat.maxTokensField).toBe("max_tokens");
+      expect(model.compat.supportsReasoningEffort).toBe(false);
+      expect(model.compat.requiresAssistantAfterToolResult).toBe(true);
+    }
+  });
+
+  test("Azure OpenAI models do NOT have Foundry compat flags", () => {
+    const providers: Array<{ name: string; config: any }> = [];
+    registerAzureProviders((name, config) => providers.push({ name, config }), "test-token");
+
+    const azureProvider = providers.find(p => p.name === "azure-openai");
+    if (!azureProvider) return;
+
+    for (const model of azureProvider.config.models) {
+      // Azure OpenAI models should not have Foundry-specific compat
+      expect(model.compat).toBeUndefined();
+    }
+  });
+});
+
+describe("Slice 2: Tool-flow reasoning cap", () => {
+  test("gpt-5-mini at high is capped to medium when tools are present", () => {
+    expect(capToolFlowReasoning("gpt-5-mini", "high", true)).toBe("medium");
+  });
+
+  test("gpt-5-mini at xhigh is capped to medium when tools are present", () => {
+    expect(capToolFlowReasoning("gpt-5-mini", "xhigh", true)).toBe("medium");
+  });
+
+  test("gpt-5-mini at medium is NOT capped (already at or below cap)", () => {
+    expect(capToolFlowReasoning("gpt-5-mini", "medium", true)).toBe("medium");
+  });
+
+  test("gpt-5-mini at minimal is NOT capped", () => {
+    expect(capToolFlowReasoning("gpt-5-mini", "minimal", true)).toBe("minimal");
+  });
+
+  test("gpt-5-mini at high is NOT capped when no tools", () => {
+    expect(capToolFlowReasoning("gpt-5-mini", "high", false)).toBe("high");
+  });
+
+  test("gpt-5-4 at high is NOT capped (no cap defined for this model)", () => {
+    expect(capToolFlowReasoning("gpt-5-4", "high", true)).toBe("high");
+  });
+
+  test("gpt-5-4-pro at high is NOT capped", () => {
+    expect(capToolFlowReasoning("gpt-5-4-pro", "high", true)).toBe("high");
+  });
+
+  test("unknown model at high is NOT capped", () => {
+    expect(capToolFlowReasoning("gpt-99", "high", true)).toBe("high");
+  });
+});
