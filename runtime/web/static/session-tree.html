@@ -21,16 +21,6 @@
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
-html.light {
-  --bg: #ffffff;
-  --bg-hover: #f5f5f5;
-  --bg-active: rgba(29,155,240,0.08);
-  --text: #1a1a1a;
-  --text-dim: #666;
-  --border: #e0e0e0;
-  --branch: #bbb;
-  --label-bg: rgba(29,155,240,0.1);
-}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: var(--font); font-size: 13px;
@@ -121,25 +111,31 @@ body {
   </div>
 </div>
 <script>
-// Detect theme from parent document or OS preference
+// Sync theme from parent document's computed CSS variables
 (function() {
-  var isDark = true;
   try {
-    var parentRoot = window.parent && window.parent.document && window.parent.document.documentElement;
-    if (parentRoot) {
-      var theme = (parentRoot.getAttribute('data-theme') || '').toLowerCase();
-      if (theme === 'light') isDark = false;
-      else if (theme === 'dark') isDark = true;
-      else if (parentRoot.classList.contains('light')) isDark = false;
-      else if (parentRoot.classList.contains('dark')) isDark = true;
-      else isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    } else {
-      isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var parentDoc = window.parent && window.parent.document;
+    if (!parentDoc) return;
+    var cs = window.parent.getComputedStyle(parentDoc.documentElement);
+    var vars = ['--bg-primary','--bg-secondary','--bg-hover','--text-primary','--text-secondary',
+                '--accent-color','--border-color','--font-family','--font-family-mono','--danger-color'];
+    var map = {};
+    for (var i = 0; i < vars.length; i++) {
+      var v = cs.getPropertyValue(vars[i]).trim();
+      if (v) map[vars[i]] = v;
     }
-  } catch(e) {
-    isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-  if (!isDark) document.documentElement.classList.add('light');
+    if (map['--bg-primary']) {
+      var s = document.documentElement.style;
+      s.setProperty('--bg', map['--bg-primary']);
+      s.setProperty('--bg-hover', map['--bg-hover'] || map['--bg-secondary'] || '');
+      s.setProperty('--text', map['--text-primary']);
+      s.setProperty('--text-dim', map['--text-secondary'] || '');
+      s.setProperty('--accent', map['--accent-color'] || '');
+      s.setProperty('--border', map['--border-color'] || '');
+      if (map['--font-family']) s.setProperty('--font', map['--font-family']);
+      if (map['--font-family-mono']) s.setProperty('--mono', map['--font-family-mono']);
+    }
+  } catch(e) { /* cross-origin or unavailable */ }
 })();
 
 var treeData = null;
