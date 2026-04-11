@@ -1347,7 +1347,15 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
 
       await getAccessToken();
 
+      // Retry strategy:
+      //   - MAX_RETRIES controls total retry attempts for transient errors.
+      //   - When a streaming response.failed arrives with error:null (the
+      //     signature of Azure token-rate-limit exhaustion), use a longer
+      //     backoff (RATE_LIMIT_BACKOFF_MS) because the per-minute token
+      //     budget needs time to renew. Short retries only make it worse.
+      //   - Client errors (4xx, invalid_request_error) are never retried.
       const MAX_RETRIES = 2;
+      const RATE_LIMIT_BACKOFF_MS = 15_000;
       let streamStarted = false;
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -1359,6 +1367,15 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         output.stopReason = "stop";
         (output as any).errorMessage = undefined;
         (output as any).reasoning = undefined;
+
+        // Track whether this failure looks like a token-budget exhaustion.
+        // Azure surfaces per-minute TPM overruns as response.failed with
+        // error:null in streaming mode (no 429, no Retry-After header).
+        // The only external signal is x-ratelimit-remaining-tokens going
+        // negative, but the OpenAI SDK does not expose response headers on
+        // the streaming path. So we detect it by pattern: response.failed
+        // with error:null AND empty output.
+        let looksLikeRateLimit = false;
 
         let openaiStream;
         try {
@@ -1389,7 +1406,16 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
               } else if (resp?.status) {
                 streamErrorDetail = `Azure response failed (status: ${resp.status})`;
               } else {
-                streamErrorDetail = "Azure response failed (no error details returned)";
+                // response.failed with error:null and empty output is the
+                // fingerprint of Azure streaming TPM exhaustion. Flag it so
+                // the retry loop uses a longer backoff.
+                const hasOutput = Array.isArray(resp?.output) && resp.output.length > 0;
+                if (!hasOutput) {
+                  looksLikeRateLimit = true;
+                  streamErrorDetail = "Azure response failed (likely TPM rate limit — error:null, empty output)";
+                } else {
+                  streamErrorDetail = "Azure response failed (no error details returned)";
+                }
               }
             } else if (event?.type === "error") {
               const { code, message } = event as { code?: string; message?: string };
@@ -1431,8 +1457,13 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           throw new Error(`Azure request failed: ${detail}`);
         }
 
-        const delayMs = (attempt + 1) * 2000;
-        console.error(`[azure-openai] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed (${detail}), retrying in ${delayMs}ms...`);
+        // Use a longer delay for suspected rate-limit failures so the
+        // per-minute token budget has time to renew. Short retries against
+        // TPM exhaustion just burn more quota and fail again.
+        const delayMs = looksLikeRateLimit
+          ? RATE_LIMIT_BACKOFF_MS
+          : (attempt + 1) * 2000;
+        console.error(`[azure-openai] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed (${detail})${looksLikeRateLimit ? " [rate-limit backoff]" : ""}, retrying in ${delayMs}ms...`);
         loggedRef.logged = false;
         await new Promise((r) => setTimeout(r, delayMs));
       }

@@ -316,3 +316,20 @@ Payload captures for failing runs:
 - Full quality gate green: 1824 pass, 0 fail.
 - Quality: ★★★★☆ 9/10 (problem: 2, scope: 2, test: 2, deps: 2, risk: 1)
 - Remaining gap: broader compat-matrix/config refactor deferred to a future ticket.
+
+### 2026-04-11
+- **Root cause found for recurring `response.failed` with `error:null`:** TPM rate-limit exhaustion, not validation errors.
+  - Deployment had 100K TPM; each agent turn request consumed ~68k input tokens.
+  - Agent tool-call loops fire 5–7 requests per turn → 476k tokens in ~2 minutes → ~4.7× over budget.
+  - Azure Responses API streaming does not return 429 or Retry-After for TPM overruns; it returns `response.failed` with `error:null` and `output:[]`.
+  - Non-streaming replay succeeded because prompt caching reduced cost and the rate window had moved.
+- **Deployment quota increased** via `az cognitiveservices account deployment create`:
+  - `gpt-5-4`: 100 → 500 capacity (100K → 500K TPM)
+  - `gpt-5-3-codex`: 100 → 500 capacity (100K → 500K TPM)
+- **Rate-limit-aware retry backoff** added to the extension:
+  - Detects `response.failed` + `error:null` + empty output as likely TPM exhaustion.
+  - Uses 15-second backoff instead of 2–4 seconds.
+- Earlier fixes (tool-schema sanitization, function_call.arguments) were valid bugs but not the cause of this specific live failure.
+- Updated `docs/azure/azure-openai-extension.md` with rate-limit troubleshooting guidance.
+- Updated `notes/azure-openai-harness.md` with diagnostic procedure and file path corrections.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 2, risk: 1)

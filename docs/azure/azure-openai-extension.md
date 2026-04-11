@@ -25,6 +25,7 @@ This note documents the piclaw extension that registers Azure OpenAI and Azure A
 - **Thinking level support** maps `/thinking` settings to `reasoning.effort` (clamped for xhigh when needed).
 - **Runtime flags** to disable tools or reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`, `AOAI_DISABLE_REASONING_MODELS`).
 - **Phase capture + replay** for GPT-5.3 Codex output metadata (`AOAI_LOG_PHASES` for debug).
+- **Rate-limit-aware retry backoff** detects Azure's silent TPM exhaustion pattern (`response.failed` with `error:null` and empty output in streaming mode) and uses a 15-second backoff instead of the default 2–4s retry delay. Azure does not return `429` or `Retry-After` headers in this case.
 - **Stream failure logging** for `response.failed` / `error` events with request summaries.
 - **Tool-call trimming + summarisation** to stay under Azure's 128 tool-call limit (default cap 96, with optional dedupe of `tool_output_search`). Summary messages use `msg_`-prefixed IDs to satisfy Responses API validation.
 - **Function-call arguments sanitisation** after message conversion - ensures every `function_call` input item has a valid `arguments` string. Prevents silent `response.failed` errors when cross-provider replay or compaction leaves `arguments` undefined.
@@ -256,6 +257,12 @@ send_msg "ping after opus"; wait_idle
 
 ## Troubleshooting
 
+- **Rate limiting disguised as silent streaming failures:** Azure's Responses API does not return HTTP 429 or Retry-After headers when the per-minute token budget (TPM) is exceeded during streaming. Instead, it emits `response.failed` with `error: null` and empty `output: []`. This looks identical to a validation error. To distinguish them:
+  - Check the deployment's TPM quota vs. request input token count.
+  - In agent tool-call loops, each turn replays the full conversation history; 7 requests at 68k tokens each = 476k tokens/min against a 100k TPM limit.
+  - Non-streaming replays of the same payload may succeed because prompt caching reduces the effective token count and the rate-limit window has moved.
+  - The extension now detects this pattern and uses a 15-second backoff on retry instead of 2–4 seconds.
+  - Long-term fix: increase the deployment TPM capacity via `az cognitiveservices account deployment create --sku-capacity <N>`.
 - **Silent `response.failed` with `error: null` in streaming mode:** This is Azure’s generic rejection when input validation fails. To get the real error message, replay the same payload with `stream: false`. Common causes:
   - Tool schema has `type: "array"` without `items` — fixed automatically by the extension’s `sanitizeToolSchema`.
   - `function_call` input item is missing the `arguments` field — fixed automatically by the extension’s post-conversion sanitization.
