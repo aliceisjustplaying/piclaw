@@ -504,7 +504,7 @@ export async function handleAgentMessage(
     const isQueueCommand = command.type === "queue" || command.type === "queue_all";
     const isSteerCommand = command.type === "steer";
 
-    if (formatted) {
+    if (formatted || result.contentBlocks?.length) {
       if (isQueueCommand && result.queued_followup) {
         markCommandHandled();
         return queueDeferredFollowup(((command as { message?: string }).message || content).trim());
@@ -529,7 +529,7 @@ export async function handleAgentMessage(
         if (result.contentBlocks?.length) {
           sendOptions.contentBlocks = result.contentBlocks;
         }
-        await channel.sendMessage(chatJid, formatted, sendOptions);
+        await channel.sendMessage(chatJid, formatted || "", sendOptions);
       }
     }
 
