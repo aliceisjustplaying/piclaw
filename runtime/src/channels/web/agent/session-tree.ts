@@ -5,7 +5,7 @@
 export interface SessionTreeContext {
   defaultChatJid: string;
   json(payload: unknown, status?: number): Response;
-  getSessionTreeForChat(chatJid: string): { leafId: string | null; nodes: unknown[] } | null;
+  getSessionTreeForChat(chatJid: string): { leafId: string | null; nodes: unknown[]; flat?: boolean; total?: number; capped?: boolean } | null;
 }
 
 function resolveChatJid(req: Request, defaultChatJid: string): string {

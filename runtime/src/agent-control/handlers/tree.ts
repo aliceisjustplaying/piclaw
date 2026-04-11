@@ -123,9 +123,48 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
     }
 
     lines.push("Use /tree <entryId> to navigate. Add --summarize or --summary \"...\" for branch summaries.");
-    lines.push("");
-    lines.push("Interactive tree viewer: /static/session-tree.html");
-    return { status: "success", message: lines.join("\n") };
+
+    const flatNodes: Array<Record<string, unknown>> = [];
+    const treeStack: SessionTreeNode[] = [];
+    for (let i = roots.length - 1; i >= 0; i--) treeStack.push(roots[i]);
+    while (treeStack.length > 0) {
+      const node = treeStack.pop()!;
+      flatNodes.push({
+        id: node.entry.id,
+        parentId: node.entry.parentId ?? null,
+        type: node.entry.type,
+        timestamp: node.entry.timestamp,
+        label: node.label ?? null,
+        active: node.entry.id === leafId,
+        preview: describeEntry(node.entry),
+        childCount: (node.children || []).length,
+      });
+      const children = node.children || [];
+      for (let i = children.length - 1; i >= 0; i--) treeStack.push(children[i]);
+    }
+
+    const cappedNodes = flatNodes.length > 500 ? flatNodes.slice(-500) : flatNodes;
+    const widgetBlock = {
+      type: "generated_widget",
+      widget_id: `session-tree-${Date.now()}`,
+      title: "Session Tree",
+      subtitle: "Interactive session tree viewer",
+      description: "Browse the active session tree, inspect branches, and jump to any entry.",
+      open_label: "Open tree viewer",
+      auto_open: true,
+      capabilities: ["interactive"],
+      artifact: {
+        kind: "session_tree",
+        tree: {
+          leafId,
+          nodes: cappedNodes,
+          flat: true,
+          total: flatNodes.length,
+          capped: flatNodes.length > 500,
+        },
+      },
+    };
+    return { status: "success", message: lines.join("\n"), contentBlocks: [widgetBlock] };
   }
 
   const options = {

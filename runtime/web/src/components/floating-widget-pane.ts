@@ -9,6 +9,7 @@ import {
     getGeneratedWidgetInitPayload,
     getGeneratedWidgetSessionKey,
 } from '../ui/generated-widget.js';
+import { SessionTreeWidget } from './session-tree-widget.js';
 
 export function FloatingWidgetPane({ widget, onClose, onWidgetEvent }) {
     const frameRef = useRef(null);
@@ -196,19 +197,21 @@ export function FloatingWidgetPane({ widget, onClose, onWidgetEvent }) {
                     </button>
                 </div>
                 <div class="floating-widget-body">
-                    ${emptyState
-                        ? html`<div class="floating-widget-empty">${emptyMessage}</div>`
-                        : html`
-                            <iframe
-                                ref=${frameRef}
-                                class="floating-widget-frame"
-                                title=${title}
-                                name=${getGeneratedWidgetHostWindowName(widget)}
-                                sandbox=${sandbox}
-                                referrerpolicy="no-referrer"
-                                srcdoc=${srcDoc}
-                            ></iframe>
-                        `}
+                    ${kind === 'session_tree'
+                        ? html`<${SessionTreeWidget} widget=${widget} onWidgetEvent=${onWidgetEvent} />`
+                        : (emptyState
+                            ? html`<div class="floating-widget-empty">${emptyMessage}</div>`
+                            : html`
+                                <iframe
+                                    ref=${frameRef}
+                                    class="floating-widget-frame"
+                                    title=${title}
+                                    name=${getGeneratedWidgetHostWindowName(widget)}
+                                    sandbox=${sandbox}
+                                    referrerpolicy="no-referrer"
+                                    srcdoc=${srcDoc}
+                                ></iframe>
+                            `)}
                 </div>
             </section>
         </div>

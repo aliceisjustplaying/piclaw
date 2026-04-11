@@ -42,7 +42,7 @@ export interface WebChannelEndpointFacadeOptions {
   handlePostRequest(req: Request, isReply: boolean, chatJid: string): Promise<Response>;
   listActiveChats(): unknown[];
   listKnownChats?(rootChatJid?: string | null, options?: { includeArchived?: boolean }): unknown[];
-  getSessionTreeForChat?(chatJid: string): { leafId: string | null; nodes: unknown[] } | null;
+  getSessionTreeForChat?(chatJid: string): { leafId: string | null; nodes: unknown[]; flat?: boolean; total?: number; capped?: boolean } | null;
 }
 
 /**
