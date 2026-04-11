@@ -74,7 +74,12 @@ function isArchiveFilename(filename: unknown): boolean {
   return !!name && name.endsWith(".zip");
 }
 
-export type AttachmentPreviewKind = "image" | "pdf" | "office" | "drawio" | "text" | "archive" | "unsupported";
+function isHtmlFilename(filename: unknown): boolean {
+  const name = normalize(filename);
+  return !!name && (name.endsWith(".html") || name.endsWith(".htm"));
+}
+
+export type AttachmentPreviewKind = "image" | "video" | "pdf" | "office" | "drawio" | "html" | "text" | "archive" | "unsupported";
 
 export function getAttachmentPreviewKind(contentType: unknown, filename?: unknown): AttachmentPreviewKind {
   const normalized = normalize(contentType);
@@ -82,7 +87,9 @@ export function getAttachmentPreviewKind(contentType: unknown, filename?: unknow
   if (isPdfFilename(filename) || normalized === "application/pdf") return "pdf";
   if (isOfficeFilename(filename) || OFFICE_PREVIEW_TYPES.has(normalized)) return "office";
   if (isArchiveFilename(filename) || ARCHIVE_PREVIEW_TYPES.has(normalized)) return "archive";
+  if (isHtmlFilename(filename) || normalized === "text/html") return "html";
   if (!normalized) return "unsupported";
+  if (normalized.startsWith("video/")) return "video";
   if (normalized.startsWith("image/")) return "image";
   if (TEXT_PREVIEW_TYPES.has(normalized) || normalized.startsWith("text/")) return "text";
   return "unsupported";
@@ -97,12 +104,16 @@ export function getAttachmentPreviewLabel(kind: AttachmentPreviewKind): string {
   switch (kind) {
     case "image":
       return "Image preview";
+    case "video":
+      return "Video player";
     case "pdf":
       return "PDF preview";
     case "office":
       return "Office viewer";
     case "drawio":
       return "Draw.io preview (read-only)";
+    case "html":
+      return "HTML preview";
     case "text":
       return "Text preview";
     case "archive":

@@ -179,7 +179,7 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
             setTextContent('');
             setArchivePreview(null);
             try {
-                if (previewKind === 'text') {
+                if (previewKind === 'text' || previewKind === 'html') {
                     const text = await getMediaText(mediaId);
                     if (!cancelled) setTextContent(text);
                     return;
@@ -243,6 +243,12 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
                         ${!loading && error && html`<div class="attachment-preview-state">${error}</div>`}
                         ${!loading && !error && previewKind === 'image' && html`
                             <img class="attachment-preview-image" src=${getMediaUrl(mediaId)} alt=${filename} />
+                        `}
+                        ${!loading && !error && previewKind === 'video' && html`
+                            <video class="attachment-preview-video" src=${getMediaUrl(mediaId)} controls autoplay style="max-width:100%;max-height:100%;" />
+                        `}
+                        ${!loading && !error && previewKind === 'html' && html`
+                            <iframe class="attachment-preview-frame" srcdoc=${textContent || ''} sandbox="allow-scripts allow-same-origin" title=${filename}></iframe>
                         `}
                         ${!loading && !error && (previewKind === 'pdf' || previewKind === 'office' || previewKind === 'drawio') && frameUrl && html`
                             <iframe class="attachment-preview-frame" src=${frameUrl} title=${filename}></iframe>
