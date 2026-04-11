@@ -176,23 +176,32 @@ export class AgentRuntimeFacade {
     return entry.runtime.session.getContextUsage() ?? null;
   }
 
-  getSessionTreeForChat(chatJid: string): { leafId: string | null; nodes: unknown[] } | null {
+  getSessionTreeForChat(chatJid: string): { leafId: string | null; nodes: unknown[]; flat: true; total: number } | null {
     const entry = this.options.pool.get(chatJid);
     if (!entry) return null;
     const sm = entry.runtime.session.sessionManager;
     const leafId = sm.getLeafId();
     const roots = sm.getTree();
-    const serialise = (node: any): unknown => ({
-      id: node.entry.id,
-      parentId: node.entry.parentId ?? null,
-      type: node.entry.type,
-      timestamp: node.entry.timestamp,
-      label: node.label ?? null,
-      active: node.entry.id === leafId,
-      preview: describeTreeEntry(node.entry),
-      children: (node.children || []).map(serialise),
-    });
-    return { leafId, nodes: roots.map(serialise) };
+    // Iterative DFS to avoid stack overflow on deep linear chains
+    const flatNodes: unknown[] = [];
+    const stack: any[] = [];
+    for (let i = roots.length - 1; i >= 0; i--) stack.push(roots[i]);
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      flatNodes.push({
+        id: node.entry.id,
+        parentId: node.entry.parentId ?? null,
+        type: node.entry.type,
+        timestamp: node.entry.timestamp,
+        label: node.label ?? null,
+        active: node.entry.id === leafId,
+        preview: describeTreeEntry(node.entry),
+        childCount: (node.children || []).length,
+      });
+      const children = node.children || [];
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    }
+    return { leafId, nodes: flatNodes, flat: true, total: flatNodes.length };
   }
 
   async saveSessionPosition(chatJid: string): Promise<string | null> {

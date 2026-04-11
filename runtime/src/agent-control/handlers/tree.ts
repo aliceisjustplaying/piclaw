@@ -10,9 +10,6 @@
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentControlCommand, AgentControlResult } from "../agent-control-types.js";
 import { extractTextFromContent, formatCompactNumber, truncateText } from "../agent-control-helpers.js";
-import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
 
 type TreeCommand = Extract<AgentControlCommand, { type: "tree" }>;
 type LabelCommand = Extract<AgentControlCommand, { type: "label" }>;
@@ -72,53 +69,6 @@ function describeEntry(entry: SessionTreeEntry): string {
   return "[entry]";
 }
 
-let cachedWidgetHtml: string | null | undefined;
-
-function loadTreeWidgetHtml(): string | null {
-  if (cachedWidgetHtml !== undefined) return cachedWidgetHtml;
-  try {
-    const thisDir = dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      resolve(thisDir, "..", "..", "..", "web", "static", "session-tree.html"),
-      resolve(thisDir, "..", "..", "..", "..", "web", "static", "session-tree.html"),
-    ];
-    for (const p of candidates) {
-      try {
-        cachedWidgetHtml = readFileSync(p, "utf8");
-        return cachedWidgetHtml;
-      } catch { /* try next */ }
-    }
-    cachedWidgetHtml = null;
-    return null;
-  } catch {
-    cachedWidgetHtml = null;
-    return null;
-  }
-}
-
-function buildTreeWidgetBlock(treeData: { leafId: string | null; nodes: unknown[] }): Record<string, unknown> | null {
-  const html = loadTreeWidgetHtml();
-  if (!html) return null;
-  // Inject tree data directly instead of fetching — srcdoc iframes can't fetch same-origin
-  const injected = html.replace(
-    "var treeData = null;",
-    `var treeData = ${JSON.stringify(treeData)};`,
-  );
-  return {
-    type: "generated_widget",
-    widget_id: `session-tree-${Date.now()}`,
-    title: "Session Tree",
-    subtitle: "Interactive session tree viewer",
-    description: "Navigate branches, view labels, and jump to any entry.",
-    open_label: "Open tree viewer",
-    capabilities: ["interactive"],
-    artifact: {
-      kind: "html",
-      html: injected,
-    },
-  };
-}
-
 /** Handle /tree: render the session message tree in text format. */
 export async function handleTree(session: AgentSession, command: TreeCommand): Promise<AgentControlResult> {
   const sessionManager = session.sessionManager;
@@ -173,33 +123,9 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
     }
 
     lines.push("Use /tree <entryId> to navigate. Add --summarize or --summary \"...\" for branch summaries.");
-
-    // Iterative flat serialization for widget data
-    const flatNodes: unknown[] = [];
-    const flatStack: SessionTreeNode[] = [];
-    for (let i = roots.length - 1; i >= 0; i--) flatStack.push(roots[i]);
-    while (flatStack.length > 0) {
-      const node = flatStack.pop()!;
-      flatNodes.push({
-        id: node.entry.id,
-        parentId: node.entry.parentId ?? null,
-        type: node.entry.type,
-        timestamp: node.entry.timestamp,
-        label: node.label ?? null,
-        active: node.entry.id === leafId,
-        preview: describeEntry(node.entry),
-        childCount: (node.children || []).length,
-      });
-      const children = node.children || [];
-      for (let i = children.length - 1; i >= 0; i--) flatStack.push(children[i]);
-    }
-
-    // Cap at 500 most recent entries for the widget
-    const cappedNodes = flatNodes.length > 500 ? flatNodes.slice(-500) : flatNodes;
-    const treePayload = { leafId, nodes: cappedNodes, flat: true, total: flatNodes.length, capped: flatNodes.length > 500 };
-    const widgetBlock = buildTreeWidgetBlock(treePayload);
-    const contentBlocks = widgetBlock ? [widgetBlock] : undefined;
-    return { status: "success", message: lines.join("\n"), contentBlocks };
+    lines.push("");
+    lines.push("Interactive tree viewer: /static/session-tree.html");
+    return { status: "success", message: lines.join("\n") };
   }
 
   const options = {
