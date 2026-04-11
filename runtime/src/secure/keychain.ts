@@ -253,6 +253,41 @@ export function isInjectableKeychainEnvName(name: string): boolean {
   return SHELL_ENV_NAME.test(name);
 }
 
+/**
+ * Sanitize a keychain entry name into a valid POSIX shell environment variable name.
+ * Replaces `/`, `-`, and `.` with `_` and uppercases the result.
+ * Returns null if the sanitized name is empty or starts with a digit.
+ */
+export function toShellEnvName(keychainName: string): string | null {
+  const sanitized = keychainName
+    .replace(/[\/\-\.]+/g, "_")
+    .replace(/[^A-Za-z0-9_]/g, "")
+    .toUpperCase();
+  if (!sanitized || /^\d/.test(sanitized)) return null;
+  return sanitized;
+}
+
+/**
+ * Build a list of injectable env entries: { envName, keychainName } pairs.
+ * Entries whose names are already valid shell identifiers use the name as-is.
+ * Entries with `/`, `-`, or `.` are sanitized via toShellEnvName.
+ * Collisions (two keychain names mapping to the same env name) keep the first entry.
+ */
+export function listInjectableKeychainEntries(): Array<{ envName: string; keychainName: string }> {
+  const entries = listKeychainEntries();
+  const seen = new Set<string>();
+  const result: Array<{ envName: string; keychainName: string }> = [];
+  for (const entry of entries) {
+    const envName = SHELL_ENV_NAME.test(entry.name)
+      ? entry.name
+      : toShellEnvName(entry.name);
+    if (!envName || seen.has(envName)) continue;
+    seen.add(envName);
+    result.push({ envName, keychainName: entry.name });
+  }
+  return result;
+}
+
 function isImplicitKeychainUnavailableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return error.message.includes("Keychain is disabled")
@@ -262,17 +297,15 @@ function isImplicitKeychainUnavailableError(error: unknown): boolean {
 }
 
 export function listInjectableKeychainEnvNames(): string[] {
-  return listKeychainEntries()
-    .map((entry) => entry.name)
-    .filter((name) => isInjectableKeychainEnvName(name));
+  return listInjectableKeychainEntries().map((entry) => entry.envName);
 }
 
 export async function loadAutoInjectedKeychainEnv(): Promise<Record<string, string>> {
-  const injectableNames = listInjectableKeychainEnvNames();
+  const injectable = listInjectableKeychainEntries();
   const resolved: Record<string, string> = {};
-  for (const name of injectableNames) {
-    const entry = await getKeychainEntry(name);
-    resolved[name] = entry.secret;
+  for (const { envName, keychainName } of injectable) {
+    const entry = await getKeychainEntry(keychainName);
+    resolved[envName] = entry.secret;
   }
   return resolved;
 }

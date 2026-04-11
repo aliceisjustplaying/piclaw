@@ -7,6 +7,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-age
 import {
   deleteKeychainEntry,
   getKeychainEntry,
+  listInjectableKeychainEntries,
   listInjectableKeychainEnvNames,
   listKeychainEntries,
   setKeychainEntry,
@@ -78,21 +79,24 @@ function buildIntegrationProfileHints(): string {
 }
 
 function buildInjectedBashEnvHint(): string {
-  const names = listInjectableKeychainEnvNames();
-  if (names.length === 0) {
+  const entries = listInjectableKeychainEntries();
+  if (entries.length === 0) {
     return [
       "## Bash secret env",
-      "Keychain entries whose names are valid shell env vars are auto-injected into local bash and SSH bash environments when present.",
-      "Never fetch a keychain secret and paste it into a bash command. Use $ENTRY_NAME instead.",
+      "Keychain entries whose names are valid shell identifiers are automatically injected as environment variables into bash and SSH commands \u2014 do NOT fetch secrets and inline them into shell commands; just reference $ENTRY_NAME directly.",
     ].join("\n");
   }
 
-  const preview = names.slice(0, 20).map((name) => `- $${name}`).join("\n");
+  const preview = entries.slice(0, 20).map(({ envName, keychainName }) =>
+    envName === keychainName ? `- $${envName}` : `- $${envName}  (from keychain: ${keychainName})`
+  ).join("\n");
   const more = names.length > 20 ? `\n- … ${names.length - 20} more` : "";
   return [
     "## Bash secret env",
-    "The following keychain entries are auto-injected as environment variables into local bash and SSH bash environments:",
+    "Keychain entries whose names are valid shell identifiers are automatically injected as environment variables into bash and SSH commands \u2014 do NOT fetch secrets and inline them into shell commands; just reference $ENTRY_NAME directly.",
+    "",
     `${preview}${more}`,
+    "",
     "Reference these as $VAR_NAME in bash commands. Do NOT call keychain get and inline the secret into the command.",
   ].join("\n");
 }

@@ -9,6 +9,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   resolveKeychainPlaceholders,
+  toShellEnvName,
+  isInjectableKeychainEnvName,
 } from "../../src/secure/keychain.js";
 
 describe("keychain placeholder resolution (no DB)", () => {
@@ -40,5 +42,40 @@ describe("keychain placeholder resolution (no DB)", () => {
     const input = "export API_KEY=sk-12345 && echo done";
     const result = await resolveKeychainPlaceholders(input);
     expect(result).toBe(input);
+  });
+});
+
+describe("toShellEnvName", () => {
+  test("passes through already-valid shell identifiers", () => {
+    expect(toShellEnvName("AOAI_API_KEY")).toBe("AOAI_API_KEY");
+    expect(toShellEnvName("MY_TOKEN")).toBe("MY_TOKEN");
+  });
+
+  test("sanitizes slashes, dashes, and dots to underscores and uppercases", () => {
+    expect(toShellEnvName("ssh/azurevm")).toBe("SSH_AZUREVM");
+    expect(toShellEnvName("proxmox/piclaw-management-token")).toBe("PROXMOX_PICLAW_MANAGEMENT_TOKEN");
+    expect(toShellEnvName("portainer/relay")).toBe("PORTAINER_RELAY");
+    expect(toShellEnvName("github/piclaw-bot")).toBe("GITHUB_PICLAW_BOT");
+    expect(toShellEnvName("restic/azure-account-key")).toBe("RESTIC_AZURE_ACCOUNT_KEY");
+    expect(toShellEnvName("ssh/relay.local")).toBe("SSH_RELAY_LOCAL");
+    expect(toShellEnvName("ssh/azurevm.pub")).toBe("SSH_AZUREVM_PUB");
+  });
+
+  test("returns null for empty or digit-leading names", () => {
+    expect(toShellEnvName("")).toBeNull();
+    expect(toShellEnvName("123bad")).toBeNull();
+  });
+});
+
+describe("isInjectableKeychainEnvName", () => {
+  test("accepts valid POSIX shell identifiers", () => {
+    expect(isInjectableKeychainEnvName("AOAI_API_KEY")).toBe(true);
+    expect(isInjectableKeychainEnvName("_PRIVATE")).toBe(true);
+  });
+
+  test("rejects names with slashes, dashes, or dots", () => {
+    expect(isInjectableKeychainEnvName("ssh/azurevm")).toBe(false);
+    expect(isInjectableKeychainEnvName("my-token")).toBe(false);
+    expect(isInjectableKeychainEnvName("key.name")).toBe(false);
   });
 });
