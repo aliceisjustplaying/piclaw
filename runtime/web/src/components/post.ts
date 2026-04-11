@@ -30,24 +30,8 @@ function FileAttachment({ mediaId, onPreview }) {
     const filename = info.filename || 'file';
     const size = info.metadata?.size;
     const sizeStr = size ? formatFileSize(size) : '';
-    const contentType = typeof info.content_type === 'string' ? info.content_type : '';
     const previewKind = getAttachmentPreviewKind(info.content_type, info.filename);
     const previewLabel = previewKind === 'unsupported' ? 'Details' : 'Preview';
-
-    // Render video files inline with a <video> player
-    if (contentType.startsWith('video/')) {
-        return html`
-            <div class="inline-video" onClick=${(e) => e.stopPropagation()}>
-                <video
-                    src=${getMediaUrl(mediaId)}
-                    controls
-                    preload="metadata"
-                    style="max-width:100%;border-radius:8px;"
-                    title=${filename}
-                />
-            </div>
-        `;
-    }
 
     return html`
         <div class="file-attachment" onClick=${(e) => e.stopPropagation()}>
@@ -747,7 +731,6 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
 
     // Separate images from files using content_blocks info
     const imageItems: Array<{ id: number; annotations?: unknown; mimeType?: string }> = [];
-    const videoItems: Array<{ id: number; mimeType?: string }> = [];
     const fileIds = [];
     const attachmentEntries = [];
     const resourceLinks = [];
