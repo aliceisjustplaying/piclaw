@@ -230,12 +230,19 @@ function GeneratedWidgetLaunch({ block, post, onOpenWidget }) {
     const title = payload?.title || block.title || block.name || 'Generated widget';
     const description = payload?.description || block.description || block.subtitle || '';
     const openLabel = block.open_label || 'Open widget';
+    const autoOpened = useRef(false);
     const launchWidget = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        if (e) { e.preventDefault(); e.stopPropagation(); }
         if (!payload) return;
         onOpenWidget?.(payload);
     };
+
+    useEffect(() => {
+        if (block?.auto_open && payload && supportsRender && !autoOpened.current) {
+            autoOpened.current = true;
+            onOpenWidget?.(payload);
+        }
+    }, [block?.auto_open, payload, supportsRender]);
 
     return html`
         <div class="generated-widget-launch" onClick=${(e) => e.stopPropagation()}>
