@@ -38,6 +38,36 @@ test('closeFloatingWidgetState only dismisses live widget session keys', () => {
   });
 });
 
+test('timeline widgets can be dismissed and reopened without mutating the original payload', () => {
+  const original = {
+    source: 'timeline',
+    widgetId: 'widget-1',
+    title: 'Timeline widget',
+    artifact: { kind: 'html', html: '<div>hello</div>' },
+  };
+
+  const opened = openFloatingWidgetState(original, '2026-04-11T10:00:00.000Z');
+  const closed = closeFloatingWidgetState(opened as any);
+  const reopened = openFloatingWidgetState(original, '2026-04-11T10:05:00.000Z');
+
+  expect(closed).toEqual({
+    nextWidget: null,
+    dismissedSessionKey: null,
+  });
+  expect(original).toEqual({
+    source: 'timeline',
+    widgetId: 'widget-1',
+    title: 'Timeline widget',
+    artifact: { kind: 'html', html: '<div>hello</div>' },
+  });
+  expect(reopened).toMatchObject({
+    source: 'timeline',
+    widgetId: 'widget-1',
+    title: 'Timeline widget',
+    openedAt: '2026-04-11T10:05:00.000Z',
+  });
+});
+
 test('applyLiveFloatingWidgetUpdate merges same-session artifacts and preserves openedAt', () => {
   const current = {
     source: 'live',

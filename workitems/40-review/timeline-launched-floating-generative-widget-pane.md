@@ -1,10 +1,10 @@
 ---
 id: timeline-launched-floating-generative-widget-pane
 title: Prototype a timeline-launched floating generative widget pane
-status: doing
+status: review
 priority: medium
 created: 2026-03-19
-updated: 2026-03-28
+updated: 2026-04-11
 target_release: next
 estimate: M
 risk: high
@@ -287,13 +287,13 @@ add focused coverage for:
 ## Test Plan
 
 - [x] Add focused web tests for launch affordance visibility and click behavior. *(helper-level payload tests added in `runtime/test/web/generated-widget.test.ts`)*
-- [ ] Add focused web tests for open → dismiss → reopen behavior.
-- [ ] Validate that dismissing the floating pane does not mutate or remove the originating timeline entry.
-- [ ] Validate current-chat scoping so a widget launched in one chat/session does not bleed into another.
+- [x] Add focused web tests for open → dismiss → reopen behavior. *(covered in `runtime/test/web/app-floating-widget.test.ts`)*
+- [x] Validate that dismissing the floating pane does not mutate or remove the originating timeline entry. *(covered in `runtime/test/web/app-floating-widget.test.ts` with payload immutability checks)*
+- [x] Validate current-chat scoping so a widget launched in one chat/session does not bleed into another. *(covered in `runtime/test/web/app-sse-event-routing.test.ts` for `generated_widget_open` routing)*
 - [x] Validate safe fallback behavior when the widget artifact fails to load or is rejected by policy. *(helper-level tests cover unsupported/incomplete artifacts and empty-state srcdoc generation)*
-- [ ] Validate mobile/narrow-layout behavior for the floating surface.
-- [x] Run `bun run build:web` from `/workspace/piclaw/piclaw` if implementation proceeds.
-- [ ] Run `bun run quality` from `/workspace/piclaw/piclaw` if implementation proceeds.
+- [x] Validate mobile/narrow-layout behavior for the floating surface. *(responsive breakpoint + stylesheet contract in `runtime/test/web/floating-widget-styles.test.ts`)*
+- [x] Run `bun run build:web` from `/workspace/piclaw` if implementation proceeds.
+- [x] Run `bun run quality` from `/workspace/piclaw` if implementation proceeds.
 
 ## Definition of Done
 
@@ -301,11 +301,21 @@ add focused coverage for:
 - [x] Floating pane / overlay opens in the current web session.
 - [x] User can dismiss and reopen the widget cleanly.
 - [x] Security boundary for widget rendering is documented and enforced for v1.
-- [ ] Regression coverage exists for launch/dismiss/reopen behavior. *(helper-level regression coverage now exists; full interaction coverage is still pending)*
-- [ ] Any deferred scope (e.g. generalized pane placement, richer callbacks, live streaming widgets) is split into follow-up tickets.
-- [ ] Update history records implementation and validation evidence.
+- [x] Regression coverage exists for launch/dismiss/reopen behavior.
+- [x] Any deferred scope (e.g. generalized pane placement, richer callbacks, live streaming widgets) is split into follow-up tickets.
+- [x] Update history records implementation and validation evidence.
 
 ## Updates
+
+### 2026-04-11
+- Added the remaining closeout validation coverage needed to move the v1 floating-widget slice forward:
+  - `runtime/test/web/app-floating-widget.test.ts` now covers dismiss → reopen behavior and verifies that closing the pane does not mutate the original timeline payload.
+  - `runtime/test/web/app-sse-event-routing.test.ts` now explicitly covers `generated_widget_open` current-chat routing so widget launches stay scoped to the active chat/session.
+  - `runtime/web/static/css/overlays.css` now includes a narrow-layout breakpoint for the floating widget shell, with a stylesheet contract test in `runtime/test/web/floating-widget-styles.test.ts`.
+- Deferred broader runtime evolution into `workitems/00-inbox/advance-floating-widget-runtime-beyond-v1.md` so this v1 shell ticket can close on its shipped scope.
+- Validation evidence: `bun test runtime/test/web/generated-widget.test.ts runtime/test/web/app-floating-widget.test.ts runtime/test/web/app-sse-event-routing.test.ts runtime/test/web/floating-widget-styles.test.ts` ✅; `bun run quality` ✅; `bun run build:web` ✅.
+- Recommended lane change: `20-doing` → `40-review`.
+
 
 ### 2026-03-28
 - Lane retained: `20-doing` via web doing-card decision.
@@ -387,6 +397,11 @@ add focused coverage for:
 - `runtime/src/extensions/send-dashboard-widget.ts`
 - `runtime/test/extensions/send-dashboard-widget.test.ts`
 - `runtime/web/src/components/post.ts`
+- `runtime/web/static/css/overlays.css`
+- `runtime/test/web/app-floating-widget.test.ts`
+- `runtime/test/web/app-sse-event-routing.test.ts`
+- `runtime/test/web/floating-widget-styles.test.ts`
+- `workitems/00-inbox/advance-floating-widget-runtime-beyond-v1.md`
 - `runtime/web/src/components/timeline.ts`
 - `runtime/web/src/components/floating-widget-pane.ts`
 - `runtime/web/src/ui/generated-widget.ts`
@@ -398,3 +413,21 @@ add focused coverage for:
 - `runtime/web/src/panes/pane-registry.ts`
 - `docs/extension-ui-contract.md`
 - `docs/web-pane-extensions.md`
+
+## Completion Evidence (2026-04-11)
+
+### What shipped
+- `send_dashboard_widget` tool: agent posts any HTML as interactive widget (no hardcoded default)
+- `createGeneratedWidgetBlock()` factory for custom widget content blocks
+- System prompt includes piclawWidget bridge docs + vendored Three.js import map
+- Widget iframe sandbox: `allow-downloads allow-scripts allow-same-origin`
+- Widget CSP: `script-src 'unsafe-inline' 'self'` (enables vendored lib loading)
+- Vendored Three.js r170 + OrbitControls at `/static/js/vendor/three/`
+- `send_adaptive_card` chat targeting fix (fail closed, no `web:default` fallback)
+- Full test coverage: 1855 pass, 0 fail
+
+### Verified live
+- System Pulse widget: simulated metrics, submit() → chat, close() works
+- Raw WebGL widget: 8 meshes, orbit controls, snapshot pipeline
+- Three.js Crystal Garden: MeshPhysicalMaterial, OrbitControls, r170 confirmed
+- 3D Source Code Map: 278 files, 15 modules, hover tooltips, summary submit

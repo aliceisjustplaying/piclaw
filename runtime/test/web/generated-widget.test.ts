@@ -143,7 +143,7 @@ describe("generated widget helpers", () => {
 
     expect(widget).not.toBeNull();
     expect(isInteractiveGeneratedWidget(widget)).toBe(true);
-    expect(getGeneratedWidgetIframeSandbox(widget)).toBe("allow-downloads allow-scripts");
+    expect(getGeneratedWidgetIframeSandbox(widget)).toBe("allow-downloads allow-scripts allow-same-origin");
     expect(getGeneratedWidgetInitPayload(widget)).toEqual({
       title: "Interactive widget",
       widgetId: "tool-live-1",
@@ -155,7 +155,7 @@ describe("generated widget helpers", () => {
     });
 
     const srcdoc = buildWidgetSrcDoc(widget);
-    expect(srcdoc).toContain("script-src 'unsafe-inline'");
+    expect(srcdoc).toContain("script-src 'unsafe-inline' 'self'");
     expect(srcdoc).toContain("window.piclawWidget");
     expect(srcdoc).toContain("widget.ready");
     expect(srcdoc).toContain("window.name");
@@ -195,7 +195,7 @@ describe("generated widget helpers", () => {
 
     expect(widget).not.toBeNull();
     expect(isInteractiveGeneratedWidget(widget)).toBe(true);
-    expect(getGeneratedWidgetIframeSandbox(widget)).toBe("allow-downloads allow-scripts");
+    expect(getGeneratedWidgetIframeSandbox(widget)).toBe("allow-downloads allow-scripts allow-same-origin");
     expect(getGeneratedWidgetInitPayload(widget)).toEqual({
       title: "Interactive timeline widget",
       widgetId: null,
@@ -206,7 +206,7 @@ describe("generated widget helpers", () => {
       status: "final",
     });
     const srcdoc = buildWidgetSrcDoc(widget);
-    expect(srcdoc).toContain("script-src 'unsafe-inline'");
+    expect(srcdoc).toContain("script-src 'unsafe-inline' 'self'");
     expect(srcdoc).toContain("window.piclawWidget");
   });
 

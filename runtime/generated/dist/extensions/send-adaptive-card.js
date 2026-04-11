@@ -75,7 +75,13 @@ export const sendAdaptiveCard = (pi) => {
                 block.completed_at = params.completed_at;
             if (isRecord(params.last_submission))
                 block.last_submission = params.last_submission;
-            const chatJid = getChatJid(params.chat_jid || "web:default");
+            // Resolve chat target: prefer explicit param, then ambient context, then fail.
+            // Never silently post to a synthetic default chat.
+            const ambientChat = getChatJid("");
+            const chatJid = params.chat_jid?.trim() || ambientChat || "";
+            if (!chatJid) {
+                return buildResultError("Cannot determine the active web chat. Provide chat_jid explicitly.");
+            }
             const result = postMessagesToolMessage({
                 action: "post",
                 type: "agent",

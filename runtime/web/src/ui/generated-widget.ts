@@ -168,7 +168,7 @@ export function isInteractiveGeneratedWidget(widget: any): boolean {
 
 export function getGeneratedWidgetIframeSandbox(widget: any): string {
   return isInteractiveGeneratedWidget(widget)
-    ? 'allow-downloads allow-scripts'
+    ? 'allow-downloads allow-scripts allow-same-origin'
     : 'allow-downloads';
 }
 
@@ -399,7 +399,7 @@ export function buildWidgetSrcDoc(widget: any): string {
     "media-src data: blob: https: http:",
     "connect-src 'none'",
     "frame-src 'none'",
-    interactive ? "script-src 'unsafe-inline'" : "script-src 'none'",
+    interactive ? "script-src 'unsafe-inline' 'self'" : "script-src 'none'",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",

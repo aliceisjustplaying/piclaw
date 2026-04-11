@@ -385,6 +385,7 @@ const groupDefinitions: GroupDefinition[] = [
           "editor-popout-transfer.test.ts",
           "extension-ui-events.test.ts",
           "file-pill-open.test.ts",
+          "floating-widget-styles.test.ts",
           "generated-widget.test.ts",
           "kanban-board-ops.test.ts",
           "kanban-editor-source.test.ts",

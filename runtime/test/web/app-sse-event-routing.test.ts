@@ -13,7 +13,21 @@ test('resolveSseEventRoutingContext trims event chat ids and matches current cha
     isCurrentChatEvent: true,
   });
 
+  expect(resolveSseEventRoutingContext('generated_widget_open', { chat_jid: ' chat:active ', turn_id: 'turn:widget' }, 'chat:active')).toEqual({
+    turnId: 'turn:widget',
+    eventChatJid: 'chat:active',
+    isGlobalUiEvent: false,
+    isCurrentChatEvent: true,
+  });
+
   expect(resolveSseEventRoutingContext('agent_status', { chat_jid: 'chat:other' }, 'chat:active')).toEqual({
+    turnId: undefined,
+    eventChatJid: 'chat:other',
+    isGlobalUiEvent: false,
+    isCurrentChatEvent: false,
+  });
+
+  expect(resolveSseEventRoutingContext('generated_widget_open', { chat_jid: 'chat:other' }, 'chat:active')).toEqual({
     turnId: undefined,
     eventChatJid: 'chat:other',
     isGlobalUiEvent: false,
