@@ -1454,7 +1454,10 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         const isClientError = /^(400|401|403|404|422)\b/.test(detail) ||
           detail.includes("invalid_request_error");
         if (isClientError || attempt >= MAX_RETRIES) {
-          throw new Error(`Azure request failed: ${detail}`);
+          const userDetail = looksLikeRateLimit
+            ? 'Azure rate limit exceeded — the model\'s per-minute token budget was exhausted. Try again in a minute, or reduce conversation history.'
+            : detail;
+          throw new Error(`Azure request failed: ${userDetail}`);
         }
 
         // Use a longer delay for suspected rate-limit failures so the
@@ -1464,6 +1467,22 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           ? RATE_LIMIT_BACKOFF_MS
           : (attempt + 1) * 2000;
         console.error(`[azure-openai] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed (${detail})${looksLikeRateLimit ? " [rate-limit backoff]" : ""}, retrying in ${delayMs}ms...`);
+
+        // Push a visible status message into the stream so the user sees
+        // what is happening instead of a silent hang. The text block is
+        // cleared when the retry resets output.content on the next attempt.
+        if (streamStarted) {
+          const delaySec = Math.round(delayMs / 1000);
+          const retryMsg = looksLikeRateLimit
+            ? `\n\n> ⚡ Azure rate limit hit — waiting ${delaySec}s before retry ${attempt + 1}/${MAX_RETRIES}\u2026`
+            : `\n\n> ⚠️ Request failed — retrying in ${delaySec}s (${attempt + 1}/${MAX_RETRIES})\u2026`;
+          const retryContentIndex = output.content.length;
+          output.content.push({ type: "text", text: retryMsg } as any);
+          stream.push({ type: "text_start", contentIndex: retryContentIndex, partial: output });
+          stream.push({ type: "text_delta", contentIndex: retryContentIndex, delta: retryMsg, partial: output });
+          stream.push({ type: "text_end", contentIndex: retryContentIndex, content: retryMsg, partial: output });
+        }
+
         loggedRef.logged = false;
         await new Promise((r) => setTimeout(r, delayMs));
       }
