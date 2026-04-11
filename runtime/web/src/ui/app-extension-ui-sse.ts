@@ -44,10 +44,16 @@ export function resolveExtensionUiToast(
     };
   }
 
-  if (eventType === 'extension_ui_error' && typeof payload?.error === 'string') {
+  if (eventType === 'extension_ui_error') {
+    const errorValue = payload?.error;
+    const errorText = typeof errorValue === 'string'
+      ? errorValue
+      : (errorValue && typeof errorValue === 'object' && typeof (errorValue as Record<string, unknown>).error === 'string')
+        ? (errorValue as Record<string, unknown>).error as string
+        : (errorValue ? String(errorValue) : 'Unknown extension error');
     return {
       title: 'Extension UI error',
-      detail: payload.error,
+      detail: errorText,
       kind: 'error',
       durationMs: 5000,
     };

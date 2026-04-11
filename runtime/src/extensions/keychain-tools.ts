@@ -90,7 +90,7 @@ function buildInjectedBashEnvHint(): string {
   const preview = entries.slice(0, 20).map(({ envName, keychainName }) =>
     envName === keychainName ? `- $${envName}` : `- $${envName}  (from keychain: ${keychainName})`
   ).join("\n");
-  const more = names.length > 20 ? `\n- … ${names.length - 20} more` : "";
+  const more = entries.length > 20 ? `\n- … ${entries.length - 20} more` : "";
   return [
     "## Bash secret env",
     "Keychain entries whose names are valid shell identifiers are automatically injected as environment variables into bash and SSH commands \u2014 do NOT fetch secrets and inline them into shell commands; just reference $ENTRY_NAME directly.",
