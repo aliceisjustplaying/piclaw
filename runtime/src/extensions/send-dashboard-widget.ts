@@ -41,15 +41,18 @@ window.addEventListener('piclaw:widget-message', (e) => {
 The \`submit({ text })\` call is the main way to get output from the widget back into the conversation.
 
 Vendored libraries (served from \`/static/js/vendor/\`):
-- **Three.js r170** + OrbitControls — use via import map:
+- **Babylon.js 7.x** — UMD global build (exposes \`BABYLON\` global), use via script tag:
   \`\`\`html
-  <script type="importmap">
-  { "imports": { "three": "/static/js/vendor/three/three.module.min.js",
-                 "three/addons/": "/static/js/vendor/three/addons/" } }
-  </script>
-  <script type="module">
-  import * as THREE from 'three';
-  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  <script src="/static/js/vendor/babylon/babylon.js"></script>
+  <script>
+  var canvas = document.getElementById('renderCanvas');
+  var engine = new BABYLON.Engine(canvas, true);
+  var scene = new BABYLON.Scene(engine);
+  var camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/4, Math.PI/3, 10, BABYLON.Vector3.Zero(), scene);
+  camera.attachControl(canvas, true);
+  new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0,1,0), scene);
+  // PBR materials, GlowLayer, MeshBuilder, SceneLoader (STL/glTF) all included
+  engine.runRenderLoop(function(){ scene.render(); });
   </script>
   \`\`\``;
 

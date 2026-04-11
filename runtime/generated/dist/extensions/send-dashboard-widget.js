@@ -35,7 +35,25 @@ window.addEventListener('piclaw:widget-message', (e) => {
 });
 \`\`\`
 
-The \`submit({ text })\` call is the main way to get output from the widget back into the conversation.`;
+The \`submit({ text })\` call is the main way to get output from the widget back into the conversation.
+
+Vendored libraries (served from \`/static/js/vendor/\`):
+- **Three.js r170** + OrbitControls — use via import map:
+  \`\`\`html
+  <script type="importmap">
+  { "imports": { "three": "/static/js/vendor/three/three.module.min.js",
+                 "three/addons/": "/static/js/vendor/three/addons/" } }
+  </script>
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  </script>
+  \`\`\`
+- **Babylon.js 7.x** \u2014 UMD global build, use via script tag:
+  \`\`\`html
+  <script src="/static/js/vendor/babylon/babylon.js"></script>
+  <script>const { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder } = BABYLON;</script>
+  \`\`\``;
 function isRecord(v) {
     return !!v && typeof v === "object" && !Array.isArray(v);
 }
