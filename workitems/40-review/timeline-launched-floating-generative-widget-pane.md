@@ -431,3 +431,9 @@ add focused coverage for:
 - Raw WebGL widget: 8 meshes, orbit controls, snapshot pipeline
 - Three.js Crystal Garden: MeshPhysicalMaterial, OrbitControls, r170 confirmed
 - 3D Source Code Map: 278 files, 15 modules, hover tooltips, summary submit
+
+### Vendored libraries (2026-04-11)
+- Babylon.js 7.x (7.7 MB) — 3D, PBR, STL viewer
+- ECharts 5.6 (1010 KB) — treemap, bar, line, pie, heatmap, etc.
+- D3 7.9 (274 KB) — low-level SVG/Canvas data viz
+- Three.js removed (superseded by Babylon.js)
