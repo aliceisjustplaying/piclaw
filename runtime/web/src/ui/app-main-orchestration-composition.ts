@@ -71,7 +71,7 @@ export function buildMainAppOrchestrationResult(options: {
   };
 }
 
-export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrationCompositionOptions) {
+export function composeMainAppLifecycleCompositionOptions(options: UseMainAppOrchestrationCompositionOptions, showIntentToast: (...args: any[]) => void) {
   const {
     routeState,
     searchState,
@@ -85,32 +85,7 @@ export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrat
     helpers,
   } = options;
 
-  const showIntentToast = interaction.composeReferenceActions.showIntentToast;
-
-  const timelineViewActions = useTimelineViewActions({
-    currentHashtag: searchState.currentHashtag,
-    searchQuery: searchState.searchQuery,
-    searchOpen: searchState.searchOpen,
-    searchScope: searchState.searchScope,
-    currentChatJid: routeState.currentChatJid,
-    currentRootChatJid: routeState.currentRootChatJid,
-    posts: timeline.posts,
-    loadPosts: timeline.loadPosts,
-    searchPosts: services.searchPosts,
-    setCurrentHashtag: searchState.setCurrentHashtag,
-    setSearchQuery: searchState.setSearchQuery,
-    setSearchOpen: searchState.setSearchOpen,
-    setSearchScope: searchState.setSearchScope,
-    setPosts: timeline.setPosts,
-    setHasMore: timeline.setHasMore,
-    preserveTimelineScrollTop: timeline.preserveTimelineScrollTop,
-    setRemovingPostIds: setters.setRemovingPostIds,
-    deletePost: services.deletePost,
-    hasMoreRef: timeline.hasMoreRef,
-    loadMoreRef: timeline.loadMoreRef,
-  });
-
-  const agentStatusLifecycleBundle = useMainAppLifecycleComposition({
+  return {
     currentChatJid: routeState.currentChatJid,
     activeChatJidRef: refs.activeChatJidRef,
     queueRefreshGenRef: refs.queueRefreshGenRef,
@@ -216,7 +191,51 @@ export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrat
     thoughtExpandedRef: refs.thoughtExpandedRef,
     draftExpandedRef: refs.draftExpandedRef,
     steerQueuedTurnIdRef: refs.steerQueuedTurnIdRef,
+  };
+}
+
+export function useMainAppOrchestrationComposition(options: UseMainAppOrchestrationCompositionOptions) {
+  const {
+    routeState,
+    searchState,
+    shellState,
+    timeline,
+    interaction,
+    paneRuntime,
+    refs,
+    setters,
+    services,
+    helpers,
+  } = options;
+
+  const showIntentToast = interaction.composeReferenceActions.showIntentToast;
+
+  const timelineViewActions = useTimelineViewActions({
+    currentHashtag: searchState.currentHashtag,
+    searchQuery: searchState.searchQuery,
+    searchOpen: searchState.searchOpen,
+    searchScope: searchState.searchScope,
+    currentChatJid: routeState.currentChatJid,
+    currentRootChatJid: routeState.currentRootChatJid,
+    posts: timeline.posts,
+    loadPosts: timeline.loadPosts,
+    searchPosts: services.searchPosts,
+    setCurrentHashtag: searchState.setCurrentHashtag,
+    setSearchQuery: searchState.setSearchQuery,
+    setSearchOpen: searchState.setSearchOpen,
+    setSearchScope: searchState.setSearchScope,
+    setPosts: timeline.setPosts,
+    setHasMore: timeline.setHasMore,
+    preserveTimelineScrollTop: timeline.preserveTimelineScrollTop,
+    setRemovingPostIds: setters.setRemovingPostIds,
+    deletePost: services.deletePost,
+    hasMoreRef: timeline.hasMoreRef,
+    loadMoreRef: timeline.loadMoreRef,
   });
+
+  const agentStatusLifecycleBundle = useMainAppLifecycleComposition(
+    composeMainAppLifecycleCompositionOptions(options, showIntentToast),
+  );
 
   const isComposeBoxAgentActive = isComposeBoxAgentActiveState(services.isAgentTurnActive, services.agentStatus);
 
