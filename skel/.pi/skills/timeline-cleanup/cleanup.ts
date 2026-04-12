@@ -16,7 +16,7 @@ import {
   resolveSessionScope,
   fallbackSessionScope,
   summariseSessionScope,
-} from "/workspace/scripts/lib/chat-session-scope";
+} from "./chat-session-scope";
 
 const DB_PATH = `${process.env.PICLAW_STORE || "/workspace/.piclaw/store"}/messages.db`;
 

@@ -19,7 +19,7 @@ Do not run this automatically at session start.
 ## Quick start
 
 ```bash
-bun run /workspace/scripts/situate.ts
+bun run /workspace/.pi/skills/situate-daily-notes/situate.ts
 ```
 
 This:
@@ -28,23 +28,23 @@ This:
    - for `web:*`, this means all web session trees (root chats plus branches)
    - message previews are labelled so parallel branches stay distinguishable
 3. Generates daily note skeletons for any days that don't have one yet
-4. Refreshes agent-facing sidecars and rolling context files derived from the daily notes
-5. Reads the rolling agent-memory outputs first and includes them in the situation report
+4. Refreshes rolling memory/context files derived from the daily notes
+5. Reads the rolling memory outputs first and includes them in the situation report
 6. Lists any notes that need summaries or partial updates
 
 **After running, check for unsummarized notes and write them** (see below).
 
 ## Daily note format
 
-Each daily note now has an agent-facing sidecar at `notes/daily/YYYY-MM-DD.agent.json` plus rolling summaries under `notes/agent-memory/`.
+Rolling memory outputs live under `notes/memory/`.
 
-`situate.ts` now consumes those rolling outputs first when building the report, so the agent-facing layer is actually read back during catch-up flows.
+`situate.ts` consumes those rolling outputs first when building the report, so the memory layer is actually read back during catch-up flows.
 
+- `notes/memory/current-state.md` — compact Dream state snapshot for recent days
+- `notes/memory/recent-context.md` — concise markdown digest for quick reload
+- `notes/memory/MEMORY.md` — startup memory index
 
-- `notes/agent-memory/current-state.json` — compact machine-readable state for recent days
-- `notes/agent-memory/recent-context.md` — concise markdown digest for quick reload
-
-The narrative markdown note remains the human-readable source; the sidecar is the compact machine layer.
+The narrative markdown note remains the human-readable source; the rolling memory files are the compact agent-facing layer.
 
 
 Notes live in `notes/daily/YYYY-MM-DD.md` and start with YAML front matter:
@@ -117,7 +117,7 @@ Then:
 - **Never overwrite** a note that already has a real summary.
 - **Today's note** gets refreshed (metadata update) but its summary is preserved.
 - Keep summaries **short and dense** — this is for quick context recovery, not documentation.
-- After summaries are updated, rerun `situate.ts` or `daily-notes.ts` so the `.agent.json` sidecars and rolling `notes/agent-memory/` outputs stay in sync.
+- After summaries are updated, rerun `situate.ts` or `daily-notes.ts` so the rolling `notes/memory/` outputs stay in sync.
 
 ## Options
 
@@ -129,18 +129,12 @@ Then:
 ## Standalone daily notes generation
 
 ```bash
-bun run /workspace/scripts/daily-notes.ts [--days <n>] [--force]
+bun run /workspace/.pi/skills/situate-daily-notes/daily-notes.ts [--days <n>] [--force]
 ```
 
-## Full chat transcript export
+## Full transcript gathering
 
-For a complete unabridged transcript with H1 headers per day:
-
-```bash
-bun run /workspace/scripts/extract-chat-history.ts --summary --out /workspace/exports/web-chat-full.md
-```
-
-For `web:*`, this export now includes all web session trees and annotates each message with its tree/chat label.
+For daily-note writing, prefer the `messages` tool (`search` + `get`) rather than depending on a separate transcript-export script. For `web:*`, keep parallel session trees distinct when you summarise them.
 
 ### Tone
 
