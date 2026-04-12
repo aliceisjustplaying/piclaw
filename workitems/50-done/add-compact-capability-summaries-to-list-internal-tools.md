@@ -1,7 +1,7 @@
 ---
 id: add-compact-capability-summaries-to-list-internal-tools
 title: Add compact capability summaries to list_internal_tools
-status: next
+status: done
 created: 2026-04-12
 updated: 2026-04-12
 priority: medium
@@ -73,6 +73,17 @@ surface instead of just a raw inventory list.
 - [ ] Ticket front matter updated
 
 ## Updates
+
+### 2026-04-12
+- Implemented in commit `7157c232`.
+- New `tool-capabilities.ts` registry with `kind`, `weight`, and `summary`
+  for all TOOLSET-registered tools plus standalone tools.
+- `activation` (default vs on-demand) derived at runtime from
+  `getDefaultActiveToolNames()` — no duplication.
+- Text output includes compact `[kind, weight, activation]` per tool.
+- Details payload includes all fields for programmatic consumers.
+- Unknown/custom tools get sensible defaults.
+- 14 tests passing (3 capability registry + 5 internal-tools + 6 activation).
 
 ### 2026-04-12
 - Split from `adopt-mcp-style-discovery-for-internal-tools` as the first concrete capability-summary slice.
