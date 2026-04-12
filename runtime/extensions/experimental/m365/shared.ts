@@ -30,6 +30,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execFileSync, execSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
+import { createLogger } from "../../../src/utils/logger.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AUTH LAYER
@@ -38,9 +39,14 @@ import { createHash, randomBytes } from "node:crypto";
 
 
 
+const log = createLogger("extensions.experimental.m365.shared");
+
 const PROFILE_DIR = path.join(os.tmpdir(), "m365tools-edge-profile");
 export const USE_TEMP_EDGE_PROFILE = (process.env["M365_USE_TEMP_EDGE_PROFILE"] ?? "").toLowerCase() === "true";
-const M365_YOLO = /^(1|true|yes|on)$/i.test((process.env["PICLAW_M365_YOLO"] ?? "").trim());
+export function isM365YoloEnabled(value: string | undefined): boolean {
+	return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+}
+const M365_YOLO = isM365YoloEnabled(process.env["PICLAW_M365_YOLO"]);
 export const CDP_PORT_START = 9224;
 const TEAMS_CLIENT_ID = "5e3ce6c0-2b1f-4285-8d4b-75ee78787346";
 const TEAMS_START_URL = "https://teams.microsoft.com/v2";
@@ -662,8 +668,8 @@ async function hasOutlookLiveSession(): Promise<boolean> {
 			})()`, false, 5000);
 			return hasConsumer === true;
 		} finally {
-			try { ws.close(); } catch {
-				// Best-effort debugger cleanup.
+			try { ws.close(); } catch (err) {
+				log.debug("Failed to close Outlook Live debugger websocket.", { err });
 			}
 		}
 	} catch {
@@ -686,8 +692,8 @@ async function showConsumerConsentAndWait(): Promise<boolean> {
 		const bindingMsgs = await cdpCollect(ws, 300);
 		const bindingError = bindingMsgs.find((m) => m.id === addBindingId && m.error);
 		if (bindingError) {
-			try { ws.close(); } catch {
-				// Best-effort debugger cleanup.
+			try { ws.close(); } catch (err) {
+				log.warn("Failed to close consumer consent websocket after binding error.", { err });
 			}
 			return false;
 		}
@@ -701,13 +707,13 @@ async function showConsumerConsentAndWait(): Promise<boolean> {
 			const msgs = await cdpCollect(ws, 750);
 			const approved = msgs.find((m) => m.method === "Runtime.bindingCalled" && m.params?.name === "__m365ConsentApproved");
 			if (approved) {
-				try { ws.close(); } catch {
-					// Best-effort debugger cleanup.
+				try { ws.close(); } catch (err) {
+					log.debug("Failed to close consumer consent websocket after approval.", { err });
 				}
 				// Close the consent tab
 				if (target.id) {
-					try { await httpPut(`http://localhost:${existingPort}/json/close/${target.id}`, 3000); } catch {
-						// Best-effort tab cleanup.
+					try { await httpPut(`http://localhost:${existingPort}/json/close/${target.id}`, 3000); } catch (err) {
+						log.warn("Failed to close consumer consent tab after approval.", { err, targetId: target.id });
 					}
 				}
 				return true;
@@ -715,28 +721,55 @@ async function showConsumerConsentAndWait(): Promise<boolean> {
 			if (target.id) {
 				const page = await findPageTargetById(existingPort, target.id).catch(() => null);
 				if (!page) {
-					try { ws.close(); } catch {
-						// Best-effort debugger cleanup.
+					try { ws.close(); } catch (err) {
+						log.warn("Failed to close consumer consent websocket after tab disappeared.", { err, targetId: target.id });
 					}
 					return false;
 				}
 			}
 		}
-		try { ws.close(); } catch {
-			// Best-effort debugger cleanup.
+		try { ws.close(); } catch (err) {
+			log.warn("Failed to close consumer consent websocket after timeout.", { err });
 		}
 		if (target.id) {
-			try { await httpPut(`http://localhost:${existingPort}/json/close/${target.id}`, 3000); } catch {
-				// Best-effort tab cleanup.
+			try { await httpPut(`http://localhost:${existingPort}/json/close/${target.id}`, 3000); } catch (err) {
+				log.warn("Failed to close consumer consent tab after timeout.", { err, targetId: target.id });
 			}
 		}
 		return false;
-	} catch {
-		try { ws.close(); } catch {
-			// Best-effort debugger cleanup.
+	} catch (err) {
+		try { ws.close(); } catch (closeErr) {
+			log.warn("Failed to close consumer consent websocket after fatal error.", { err: closeErr });
 		}
+		log.warn("Consumer consent flow failed.", { err });
 		return false;
 	}
+}
+
+export function extractConsumerAuthCodeFromRedirect(url: string, expectedRedirectUri: string, expectedState: string): string | null {
+	try {
+		const expectedRedirect = new URL(expectedRedirectUri);
+		const urlObj = new URL(url);
+		if (urlObj.origin !== expectedRedirect.origin || urlObj.pathname !== expectedRedirect.pathname) return null;
+		if (urlObj.searchParams.get("error")) return null;
+		const returnedState = urlObj.searchParams.get("state");
+		const returnedCode = urlObj.searchParams.get("code");
+		return returnedCode && returnedState === expectedState ? returnedCode : null;
+	} catch {
+		return null;
+	}
+}
+
+export function resolveGraphAuthMode(options: {
+	tenantId?: string;
+	isConsumer?: boolean;
+	consumerSessionVisible?: boolean;
+}): { useConsumerFlow: boolean; hardFailOnConsumerFailure: boolean } {
+	const consumerKnown = options.tenantId === CONSUMER_TENANT_ID || options.isConsumer === true;
+	const consumerVisible = options.consumerSessionVisible === true;
+	if (consumerKnown) return { useConsumerFlow: true, hardFailOnConsumerFailure: true };
+	if (consumerVisible) return { useConsumerFlow: true, hardFailOnConsumerFailure: false };
+	return { useConsumerFlow: false, hardFailOnConsumerFailure: false };
 }
 
 async function acquireConsumerGraphToken(): Promise<string | null> {
@@ -764,7 +797,6 @@ async function acquireConsumerGraphToken(): Promise<string | null> {
 	const verifier = base64UrlEncode(randomBytes(32));
 	const challenge = base64UrlEncode(createHash("sha256").update(verifier).digest());
 	const state = base64UrlEncode(randomBytes(16));
-	const expectedRedirect = new URL(OUTLOOK_REDIRECT_URI);
 
 	const authUrl =
 		`https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize` +
@@ -799,30 +831,18 @@ async function acquireConsumerGraphToken(): Promise<string | null> {
 				if (!page) break; // tab was closed externally
 				const url = page.url ?? "";
 
-				// Validate: must be our redirect URI origin/path, must have matching state
-				try {
-					const urlObj = new URL(url);
-					if (urlObj.origin !== expectedRedirect.origin || urlObj.pathname !== expectedRedirect.pathname) continue;
-
-					const returnedState = urlObj.searchParams.get("state");
-					const returnedCode = urlObj.searchParams.get("code");
-					const returnedError = urlObj.searchParams.get("error");
-
-					if (returnedError) break; // auth error, stop polling
-
-					if (returnedCode && returnedState === state) {
-						authCode = returnedCode;
-						break;
-					}
-					// If code present but state mismatch, ignore (stale/foreign redirect)
-				} catch { /* invalid URL, skip */ }
+				const maybeCode = extractConsumerAuthCodeFromRedirect(url, OUTLOOK_REDIRECT_URI, state);
+				if (maybeCode) {
+					authCode = maybeCode;
+					break;
+				}
 			} catch { /* retry */ }
 		}
 
 		// Cleanup auth tab
 		if (authTabId) {
-			try { await httpPut(`http://localhost:${cdpPort}/json/close/${authTabId}`, 3000); } catch {
-				// Best-effort tab cleanup.
+			try { await httpPut(`http://localhost:${cdpPort}/json/close/${authTabId}`, 3000); } catch (err) {
+				log.warn("Failed to close consumer auth tab.", { err, authTabId });
 			}
 		}
 
@@ -847,8 +867,8 @@ async function acquireConsumerGraphToken(): Promise<string | null> {
 				try {
 					const msg = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
 					if (msg.id === id) { ws.removeEventListener("message", handler); clearTimeout(timer); resolve(msg.result?.result?.value ?? null); }
-				} catch {
-					// Ignore malformed interim debugger frames.
+				} catch (err) {
+					log.debug("Failed to parse consumer auth websocket frame.", { err });
 				}
 			};
 			ws.addEventListener("message", handler);
@@ -1453,18 +1473,20 @@ export async function acquireGraphToken(): Promise<string> {
 	// Do this before any Teams-specific logic. Outlook consumer sessions use encrypted
 	// MSAL cache entries, so the Teams/localStorage extraction path will not work, and
 	// falling through to the old implicit-token flow yields unsupported_response_type.
-	const consumerKnown = _tenantId === CONSUMER_TENANT_ID || _isConsumer;
-	const consumerSessionVisible = !consumerKnown && await hasOutlookLiveSession();
-	if (consumerKnown || consumerSessionVisible) {
+	const consumerSessionVisible = await hasOutlookLiveSession();
+	const authMode = resolveGraphAuthMode({
+		tenantId: _tenantId,
+		isConsumer: _isConsumer,
+		consumerSessionVisible,
+	});
+	if (authMode.useConsumerFlow) {
 		const consumerToken = await acquireConsumerGraphToken();
 		if (consumerToken) {
 			saveToken("graph", consumerToken);
 			setTenantIdFromToken(consumerToken);
 			return consumerToken;
 		}
-		// If consumer mode was definitively known (tenant/flag), hard-fail.
-		// If only inferred from visible session, fall through to enterprise paths.
-		if (consumerKnown) {
+		if (authMode.hardFailOnConsumerFailure) {
 			throw new Error("Consumer Graph token acquisition failed");
 		}
 		// Inferred consumer session failed — try enterprise paths below.

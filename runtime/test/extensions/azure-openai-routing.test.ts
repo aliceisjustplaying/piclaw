@@ -120,10 +120,10 @@ describe("Responses text config", () => {
 });
 
 describe("Responses reasoning config", () => {
-  test("defaults reasoning summary to detailed when omitted", () => {
+  test("defaults reasoning summary to concise when omitted", () => {
     expect(getAzureResponsesReasoningConfig("gpt-5-4", { reasoningEffort: "high" }, false)).toEqual({
       effort: "high",
-      summary: "detailed",
+      summary: "concise",
     });
   });
 
@@ -137,7 +137,7 @@ describe("Responses reasoning config", () => {
   test("applies tool-flow effort cap without dropping the summary", () => {
     expect(getAzureResponsesReasoningConfig("gpt-5-mini", { reasoningEffort: "high" }, true)).toEqual({
       effort: "medium",
-      summary: "detailed",
+      summary: "concise",
     });
   });
 

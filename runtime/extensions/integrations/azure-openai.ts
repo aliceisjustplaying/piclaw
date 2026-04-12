@@ -243,7 +243,7 @@ export function getAzureResponsesReasoningConfig(
     || options.reasoningSummary === "concise"
     || options.reasoningSummary === "detailed"
     ? options.reasoningSummary
-    : "detailed";
+    : "concise";
 
   return { effort, summary };
 }

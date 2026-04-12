@@ -12,8 +12,11 @@ import { detectChannel } from "../router.js";
 import { executeSlashCommand } from "./slash-command.js";
 import { getProviderUsage } from "./provider-usage.js";
 import { resolveModelLabel } from "../utils/model-utils.js";
+import { createLogger } from "../utils/logger.js";
 import { withChatContext } from "../core/chat-context.js";
 import type { PoolEntry } from "./session-manager.js";
+
+const log = createLogger("agent-pool.runtime-facade");
 
 function truncateText(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
@@ -48,12 +51,16 @@ function parseToolArgs(block: Record<string, unknown>): Record<string, unknown> 
     if (!val) continue;
     if (typeof val === "object" && val !== null) return val as Record<string, unknown>;
     if (typeof val === "string") {
-      try { const parsed = JSON.parse(val); if (parsed && typeof parsed === "object") return parsed; } catch {}
+      try { const parsed = JSON.parse(val); if (parsed && typeof parsed === "object") return parsed; } catch (err) {
+        log.debug("Failed to parse tool arguments JSON.", { err, key, valuePreview: truncateText(val, 120) });
+      }
     }
   }
   // Try partialJson field
   if (typeof block.partialJson === "string") {
-    try { const parsed = JSON.parse(block.partialJson); if (parsed && typeof parsed === "object") return parsed; } catch {}
+    try { const parsed = JSON.parse(block.partialJson); if (parsed && typeof parsed === "object") return parsed; } catch (err) {
+      log.debug("Failed to parse partial tool JSON.", { err, valuePreview: truncateText(block.partialJson, 120) });
+    }
   }
   return null;
 }

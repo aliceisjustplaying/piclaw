@@ -1,28 +1,72 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
-const sourcePath = join(process.cwd(), "extensions", "experimental", "m365", "shared.ts");
-const source = readFileSync(sourcePath, "utf8");
+import {
+  extractConsumerAuthCodeFromRedirect,
+  isM365YoloEnabled,
+  resolveGraphAuthMode,
+} from "../../extensions/experimental/m365/shared.js";
 
-test("m365 consumer auth only shows consent when YOLO is off", () => {
-  expect(source).toContain('const M365_YOLO = /^(1|true|yes|on)$/i.test((process.env["PICLAW_M365_YOLO"] ?? "").trim());');
-  expect(source).toContain('if (!M365_YOLO) {');
-  expect(source).toContain('const consentOk = await showConsumerConsentAndWait();');
+test("isM365YoloEnabled accepts common truthy spellings", () => {
+  expect(isM365YoloEnabled(undefined)).toBe(false);
+  expect(isM365YoloEnabled("0")).toBe(false);
+  expect(isM365YoloEnabled("1")).toBe(true);
+  expect(isM365YoloEnabled("true")).toBe(true);
+  expect(isM365YoloEnabled("YES")).toBe(true);
+  expect(isM365YoloEnabled(" on ")).toBe(true);
 });
 
-test("m365 business auth uses the shared YOLO gate via prepareFreshAuthBrowserSession", () => {
-  expect(source).toContain('async function prepareFreshAuthBrowserSession(');
-  expect(source).toContain('if (M365_YOLO) {');
-  expect(source).toContain('const launched = await launchEdge(targetUrl, { forceNewInstance: options.forceNewInstance });');
-  expect(source).toContain('const { proc, port, ws: preparedWs } = await prepareFreshAuthBrowserSession(');
-  expect(source).toContain('const oauth = await prepareFreshAuthBrowserSession(');
+test("extractConsumerAuthCodeFromRedirect requires exact redirect origin/path and matching state", () => {
+  expect(
+    extractConsumerAuthCodeFromRedirect(
+      "https://outlook.live.com/mail/?code=abc&state=ok",
+      "https://outlook.live.com/mail/",
+      "ok",
+    ),
+  ).toBe("abc");
+
+  expect(
+    extractConsumerAuthCodeFromRedirect(
+      "https://outlook.live.com/mail/inbox?code=abc&state=ok",
+      "https://outlook.live.com/mail/",
+      "ok",
+    ),
+  ).toBeNull();
+
+  expect(
+    extractConsumerAuthCodeFromRedirect(
+      "https://outlook.live.com/mail/?code=abc&state=wrong",
+      "https://outlook.live.com/mail/",
+      "ok",
+    ),
+  ).toBeNull();
+
+  expect(
+    extractConsumerAuthCodeFromRedirect(
+      "https://outlook.live.com/mail/?error=access_denied&state=ok",
+      "https://outlook.live.com/mail/",
+      "ok",
+    ),
+  ).toBeNull();
 });
 
-test("m365 graph auth still preserves business-first recovery paths", () => {
-  expect(source).toContain('// ── Method 0: Extract Graph token from Teams v2 (teams.cloud.microsoft) localStorage ──');
-  expect(source).toContain('const refreshed = await redeemTeamsRefreshToken("https://graph.microsoft.com");');
-  expect(source).toContain('const consumerKnown = _tenantId === CONSUMER_TENANT_ID || _isConsumer;');
-  expect(source).toContain('const consumerSessionVisible = !consumerKnown && await hasOutlookLiveSession();');
-  expect(source).toContain('// Inferred consumer session failed — try enterprise paths below.');
+test("resolveGraphAuthMode hard-fails only for known consumer mode", () => {
+  expect(resolveGraphAuthMode({ tenantId: "9188040d-6c67-4c5b-b112-36a304b66dad" })).toEqual({
+    useConsumerFlow: true,
+    hardFailOnConsumerFailure: true,
+  });
+
+  expect(resolveGraphAuthMode({ isConsumer: true })).toEqual({
+    useConsumerFlow: true,
+    hardFailOnConsumerFailure: true,
+  });
+
+  expect(resolveGraphAuthMode({ consumerSessionVisible: true })).toEqual({
+    useConsumerFlow: true,
+    hardFailOnConsumerFailure: false,
+  });
+
+  expect(resolveGraphAuthMode({ consumerSessionVisible: false })).toEqual({
+    useConsumerFlow: false,
+    hardFailOnConsumerFailure: false,
+  });
 });
