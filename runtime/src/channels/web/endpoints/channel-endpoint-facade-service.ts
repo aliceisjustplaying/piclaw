@@ -7,6 +7,7 @@ import {
   handleAgentModelsRequest,
   handleAgentStatusRequest,
 } from "../agent/agent-status.js";
+import { handleAgentDebugRequest } from "../agent/agent-debug.js";
 import {
   handleSessionTreeRequest,
 } from "../agent/session-tree.js";
@@ -32,9 +33,12 @@ import type {
 } from "./channel-endpoint-context-factory.js";
 
 /** Dependencies required by the extracted endpoint facade. */
+import type { AgentPool } from "../../../agent-pool.js";
+
 export interface WebChannelEndpointFacadeOptions {
   endpointContexts: WebChannelEndpointContexts;
   defaultChatJid: string;
+  agentPool: AgentPool;
   getIdentitySnapshot(): WebChannelIdentitySnapshot;
   ensureAvatarCache(kind: "agent", source: string): Promise<ManifestIconMeta | null>;
   json(payload: unknown, status?: number): Response;
@@ -146,6 +150,14 @@ export class WebChannelEndpointFacadeService {
 
   async handleAgentModels(req: Request): Promise<Response> {
     return await handleAgentModelsRequest(req, this.options.endpointContexts.agentStatus());
+  }
+
+  async handleAgentDebug(req: Request): Promise<Response> {
+    return await handleAgentDebugRequest(req, {
+      defaultChatJid: this.options.defaultChatJid,
+      agentPool: this.options.agentPool,
+      json: (payload: unknown, status = 200) => this.options.json(payload, status),
+    });
   }
 
   handleSessionTree(req: Request): Response {

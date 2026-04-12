@@ -390,6 +390,11 @@ export class AgentPool {
     await this.sessionManager.shutdown();
   }
 
+  /** Return an existing session for read-only introspection, or create one if needed. */
+  async getSessionForIntrospection(chatJid: string): Promise<AgentSession> {
+    return this.getOrCreate(chatJid);
+  }
+
   // ── internal ────────────────────────────────────────────
 
   private async getOrCreateRuntime(chatJid: string): Promise<AgentSessionRuntime> {

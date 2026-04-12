@@ -193,27 +193,31 @@ export async function handleCommands(session: AgentSession, _command: CommandsCo
     description?: string;
     source: CommandSource;
     detail?: string;
+    scope?: string;
     extensions: ExtensionMeta[];
   }
 
-  const describeSource = (source: CommandSource, detail?: string): string => {
+  const describeSource = (source: CommandSource, detail?: string, scope?: string): string => {
     const base =
       source === "core" ? "core"
         : source === "extension" ? "workspace extension"
           : source === "pi-extension" ? "pi extension"
             : source === "template" ? "prompt template"
               : "skill";
-    return detail ? `${base} (${detail})` : base;
+    const parts = [base];
+    if (scope && scope !== "project") parts.push(scope);
+    if (detail) parts.push(detail);
+    return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(", ")})` : parts[0];
   };
 
   const entries = new Map<string, CommandEntry>();
-  const addEntry = (name: string, description: string | undefined, source: CommandSource, detail?: string) => {
+  const addEntry = (name: string, description: string | undefined, source: CommandSource, detail?: string, scope?: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     const key = trimmed.toLowerCase();
     const existing = entries.get(key);
     if (!existing) {
-      entries.set(key, { name: trimmed, description, source, detail, extensions: [] });
+      entries.set(key, { name: trimmed, description, source, detail, scope, extensions: [] });
       return;
     }
 
@@ -255,22 +259,29 @@ export async function handleCommands(session: AgentSession, _command: CommandsCo
     for (const entry of extCommands) {
       const name = entry.invocationName || entry.name;
       if (!name) continue;
-      const entryPath = entry.sourceInfo?.path;
+      const si = entry.sourceInfo;
+      const entryPath = si?.path;
+      const entryScope = si?.scope;
       const description = entry.description || `extension (${entryPath || "unknown"})`;
       const source: CommandSource = isPiBuiltin(entryPath) ? "pi-extension" : "extension";
-      addEntry(`/${name}`, description, source, entryPath || undefined);
+      const detail = si ? `${si.source}${si.origin === "package" ? " pkg" : ""}` : (entryPath || undefined);
+      addEntry(`/${name}`, description, source, detail, entryScope);
     }
   }
 
   for (const template of session.promptTemplates) {
     const description = template.description || "prompt template";
-    addEntry(`/${template.name}`, description, "template", template.name);
+    const si = template.sourceInfo;
+    const detail = si ? si.source : template.name;
+    addEntry(`/${template.name}`, description, "template", detail, si?.scope);
   }
 
   const skills = session.resourceLoader.getSkills().skills;
   for (const skill of skills) {
     const description = skill.description || "skill";
-    addEntry(`/skill:${skill.name}`, description, "skill", skill.name);
+    const si = skill.sourceInfo;
+    const detail = si ? si.source : skill.name;
+    addEntry(`/skill:${skill.name}`, description, "skill", detail, si?.scope);
   }
 
   const sorted = Array.from(entries.values()).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
@@ -279,7 +290,7 @@ export async function handleCommands(session: AgentSession, _command: CommandsCo
     const suffix = entry.description ? ` - ${entry.description}` : "";
     const notes: string[] = [];
     if (entry.source !== "core") {
-      notes.push(describeSource(entry.source, entry.detail));
+      notes.push(describeSource(entry.source, entry.detail, entry.scope));
     }
     if (entry.extensions.length) {
       const extNotes = entry.extensions.map((ext) => describeSource(ext.source, ext.detail));

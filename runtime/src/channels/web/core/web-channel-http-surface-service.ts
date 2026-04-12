@@ -25,6 +25,7 @@ type WebChannelHttpSurfaceEndpointFacade = Pick<
   | "handlePost"
   | "handleAgentStatus"
   | "handleAgentContext"
+  | "handleAgentDebug"
   | "handleAgentModels"
   | "handleSessionTree"
   | "handleAgentActiveChats"
@@ -173,6 +174,10 @@ export class WebChannelHttpSurfaceService {
 
   async handleAgentContext(req: Request): Promise<Response> {
     return await this.channel.endpointFacade.handleAgentContext(req);
+  }
+
+  async handleAgentDebug(req: Request): Promise<Response> {
+    return await this.channel.endpointFacade.handleAgentDebug(req);
   }
 
   async handleAutoresearchStatus(req: Request): Promise<Response> {

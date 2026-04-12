@@ -42,6 +42,11 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   },
   {
     method: "GET",
+    path: "/agent/debug",
+    handle: (channel, req) => channel.handleAgentDebug(req),
+  },
+  {
+    method: "GET",
     path: "/agent/autoresearch/status",
     handle: (channel, req) => channel.handleAutoresearchStatus(req),
   },

@@ -356,6 +356,7 @@ export function createWebChannelConstructorFactory(
   const endpointFacade = deps.createEndpointFacade({
     endpointContexts,
     defaultChatJid: options.defaultChatJid,
+    agentPool: channel.agentPool,
     getIdentitySnapshot,
     ensureAvatarCache: deps.ensureAvatarCache,
     json: (payload, status = 200) => channel.json(payload, status),
