@@ -144,6 +144,10 @@ test("agent control info and mode commands", async () => {
   expect(commands.message).toContain("/template");
   expect(commands.message).toContain("/skill:demo");
 
+  // sourceInfo provenance surfaces in /commands output
+  expect(commands.message).toMatch(/\/ext.*user/);       // extension command shows scope
+  expect(commands.message).toMatch(/\/skill:demo.*user/); // skill shows scope from sourceInfo
+
   const steering = await applyControlCommand(runtime as any, registry, { type: "steering_mode", mode: "all", raw: "/steering-mode all" });
   expect(steering.message).toContain("all");
   expect(session.steeringModeCalls).toContain("all");

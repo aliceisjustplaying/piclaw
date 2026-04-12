@@ -4,101 +4,141 @@ This document outlines the main components, how they fit together, and where the
 
 ## Component overview
 
+### Primary runtime architecture
+
 ```mermaid
 flowchart TB
-  subgraph Channels
-    WA[WhatsApp - Baileys]
-    WEB[Web UI + HTTP and SSE]
+  subgraph Clients[Clients]
+    WEBUI[Web UI\nBrowser]
+    WA[WhatsApp\nBaileys]
   end
 
-  WA --> WCH[WhatsAppChannel]
-  WEB --> WCH2[WebChannel]
+  subgraph Channels[Ingress and delivery]
+    WEBCH[WebChannel\nHTTP + SSE + WebSocket routes]
+    WACH[WhatsAppChannel]
+  end
 
-  WCH --> ROUTER[Router]
-  WCH2 --> ROUTER
+  subgraph Core[Runtime core]
+    ROUTER[Router / request dispatch]
+    QUEUE[AgentQueue\nchat:{jid} lanes\ndream:{jid} lanes]
+    POOL[AgentPool]
+    SDK[Pi SDK AgentSession]
+  end
 
-  ROUTER --> POOL[AgentPool]
-  POOL --> SDK[Pi SDK AgentSession]
-  POOL --> EXT[Extensions]
+  subgraph Ext[Tools and extensions]
+    INLINE[Built-in extension factories]
+    PACKAGED[Packaged runtime extensions]
+    TOOLS[Core tools\nread / write / edit / bash / ...]
+  end
 
-  ROUTER --> DB[(SQLite)]
-  WCH2 --> DB
-  EXT --> DB
+  subgraph Workers[Background workers]
+    IPC[IPC watcher]
+    SCHED[Task scheduler]
+    DREAM[Dream / AutoDream\nout-of-band model turns\non temporary dream: chats]
+  end
 
-  IPC[IPC watcher] --> ROUTER
-  SCHED[Task scheduler] --> ROUTER
+  subgraph Data[State and storage]
+    DB[(SQLite\nmessages / chats / tasks / configs / token_usage)]
+    SESS[(Session trees\nand session dirs)]
+    WS[/Workspace\nnotes / skills / files/]
+  end
+
+  WEBUI --> WEBCH
+  WA --> WACH
+  WEBCH --> ROUTER
+  WACH --> ROUTER
+  ROUTER --> QUEUE
+  IPC --> QUEUE
+  SCHED --> QUEUE
+  DREAM --> QUEUE
+  QUEUE --> POOL
+  POOL --> SDK
+  SDK --> INLINE
+  SDK --> PACKAGED
+  INLINE --> TOOLS
+  PACKAGED --> TOOLS
+  WEBCH <--> DB
+  ROUTER <--> DB
+  POOL <--> DB
+  POOL <--> SESS
+  TOOLS <--> WS
+  DREAM <--> WS
 ```
+
+### Execution-lane split
+
+```mermaid
+flowchart LR
+  USER[Interactive user turn] --> CHATLANE[chat:{jid} lane]
+  DREAMTURN[Dream / AutoDream] --> DREAMLANE[dream:{jid} lane]
+
+  CHATLANE --> MAIN[AgentPool + warm chat session]
+  DREAMLANE --> TEMP[AgentPool + temporary dream: session]
+
+  MAIN --> CHATOUT[Normal chat replies]
+  TEMP --> DREAMOUT[Dream summary + memory updates]
+```
+
+### Reading guide
+
+- **Channels** accept user input and deliver output.
+- **Router + AgentQueue** decide where work goes and serialize it per lane.
+- **AgentPool + AgentSession** execute turns with the Pi SDK.
+- **Extensions and tools** are the capability surface the model actually uses.
+- **Background workers** schedule or enqueue work without going through the interactive compose path.
+- **SQLite / sessions / workspace** hold durable state, note memory, scheduled tasks, and session trees.
 
 ## Code layout (high level)
 
 ```
 piclaw/
-├── src/
-│   ├── index.ts                 # Entry point
-│   ├── cli.ts                   # CLI parsing
-│   ├── runtime.ts               # Service startup orchestration
-│   ├── runtime/                 # Message loop + state management
-│   ├── core/                    # Env, config, chat context (AsyncLocalStorage)
-│   ├── router.ts                # Message routing
-│   ├── queue.ts                 # Agent queue with retry
-│   ├── queue/                   # Retry policy
-│   ├── agent-pool.ts            # AgentSession pool + side-prompt primitive
-│   ├── agent-pool/              # Session helpers, logging, slash commands
-│   ├── agent-control/           # Slash command handling + parsers
-│   ├── extensions/              # Inline extension factories
-│   ├── channels/                # WhatsApp + Web channels
-│   │   └── web/                 # HTTP handlers, SSE, adaptive cards, workspace, auth, extension routes
-│   ├── tools/                   # Bash tracking + context wrappers
-│   ├── db/                      # SQLite schema + accessors
-│   ├── db.ts                    # Legacy DB re-export
-│   ├── secure/                  # Keychain (AES-256-GCM)
-│   ├── utils/                   # Shared helpers (ids, preview, model utils)
-│   ├── workspace-search.ts      # FTS over workspace files
-│   ├── task-scheduler.ts        # Cron/interval scheduling
-│   ├── tool-output.ts           # Stored tool output management
-│   ├── ipc.ts                   # IPC file watcher
-│   └── types.ts                 # Shared type definitions
-├── extensions/                  # Packaged filesystem-backed runtime extensions
-│   ├── browser/                 # Browser automation extensions
-│   │   └── cdp-browser/         # Chromium CDP browser control extension
-│   ├── platform/                # Platform-specific packaged extensions
-│   │   └── windows/
-│   │       └── win-ui/          # Windows desktop automation extension
-│   ├── integrations/            # Packaged integration/helper extensions
-│   │   ├── azure-openai.ts      # Azure OpenAI/Foundry provider (optional)
-│   │   └── context-mode.ts      # Tool output + exec_batch extension
-│   ├── viewers/                 # Route-backed viewers and editor surfaces
-│   │   ├── drawio-editor/       # Self-hosted draw.io editor extension
-│   │   ├── editor/              # Standalone editor web pane extension
-│   │   └── office-viewer/       # Lightweight JS Office document viewer extension
-│   └── experimental/            # Harness-only or experimental entries
-│       └── azure-openai.harness.ts
-└── web/
-    ├── src/
-    │   ├── app.ts               # Main Preact app
-    │   ├── api.ts               # HTTP/SSE client
-    │   ├── components/          # UI components (timeline, compose, etc.)
-    │   ├── panes/               # Pane system infrastructure
-    │   │   ├── pane-types.ts    # WebPaneExtension contracts
-    │   │   ├── pane-registry.ts # PaneRegistry singleton
-    │   │   ├── editor-loader.ts # Lazy proxy for editor bundle
-    │   │   ├── tab-store.ts     # Framework-agnostic tab state
-    │   │   ├── terminal-pane.ts # Terminal dock scaffold
-    │   │   ├── vnc-pane.ts      # VNC remote-display pane (RFB client)
-    │   │   ├── remote-display-protocol.ts # Remote display protocol interface + events
-    │   │   ├── remote-display-socket.ts # Transport wrapper (metrics + control messages)
-    │   │   ├── remote-display-decoder.ts # WASM fast-path decoder + JS fallback
-    │   │   ├── remote-display-vnc.ts # VNC protocol adapter (negotiation + frame parsing)
-    │   │   ├── drawio-pane.ts   # Draw.io editor pane (iframe embed)
-    │   │   ├── office-viewer-pane.ts  # Office document viewer pane (iframe route-backed)
-    │   │   ├── csv-viewer-pane.ts     # CSV/TSV table viewer pane
-    │   │   ├── pdf-viewer-pane.ts     # PDF viewer pane
-    │   │   ├── image-viewer-pane.ts   # Image viewer pane
-    │   │   └── workspace-preview-pane.ts # Default workspace preview pane
-    │   ├── ui/                  # Hooks + state management (queue helpers, windowing, optional API fallbacks, mobile viewport recovery)
-    │   ├── vendor/              # Vendored libs (preact-htm, mermaid)
-    │   └── styles/              # CSS source
-    └── static/                  # Served files (HTML, built bundles, icons)
+├── runtime/
+│   ├── src/
+│   │   ├── index.ts                 # Runtime entry point
+│   │   ├── runtime.ts               # Service startup orchestration
+│   │   ├── runtime/                 # Worker wiring, message loop, startup helpers
+│   │   ├── core/                    # Env, config, chat context (AsyncLocalStorage)
+│   │   ├── router.ts                # Message routing
+│   │   ├── queue.ts                 # Lane-aware queue with retry
+│   │   ├── queue/                   # Retry policy
+│   │   ├── agent-pool.ts            # AgentSession pool + side-prompt primitive
+│   │   ├── agent-pool/              # Session helpers, logging, slash commands
+│   │   ├── agent-control/           # Slash command handling + parsers
+│   │   ├── agent-memory/            # Daily-note seeding + Dream memory refresh helpers
+│   │   ├── dream.ts                 # Dream / AutoDream orchestration
+│   │   ├── extensions/              # Built-in inline extension factories
+│   │   ├── channels/                # WhatsApp + web channels
+│   │   │   └── web/                 # HTTP handlers, SSE, adaptive cards, workspace, auth, extension routes
+│   │   ├── tools/                   # Bash tracking + context wrappers
+│   │   ├── db/                      # SQLite schema + accessors
+│   │   ├── db.ts                    # DB facade re-export
+│   │   ├── secure/                  # Keychain (AES-256-GCM)
+│   │   ├── utils/                   # Shared helpers (ids, preview, model utils)
+│   │   ├── workspace-search.ts      # FTS over workspace files
+│   │   ├── task-scheduler.ts        # Cron/interval scheduling
+│   │   ├── tool-output.ts           # Stored tool output management
+│   │   ├── ipc.ts                   # IPC file watcher
+│   │   └── types.ts                 # Shared type definitions
+│   ├── extensions/                  # Packaged filesystem-backed runtime extensions
+│   │   ├── browser/                 # Browser automation extensions
+│   │   ├── integrations/            # Packaged integration/helper extensions
+│   │   ├── platform/                # Platform-specific packaged extensions
+│   │   └── viewers/                 # Route-backed viewers and editor surfaces
+│   ├── skills/                      # Packaged runtime skills
+│   ├── web/
+│   │   ├── src/
+│   │   │   ├── app.ts               # Main Preact app
+│   │   │   ├── api.ts               # HTTP/SSE client
+│   │   │   ├── components/          # UI components (timeline, compose, etc.)
+│   │   │   ├── panes/               # Pane system infrastructure
+│   │   │   ├── ui/                  # Hooks + state management
+│   │   │   ├── vendor/              # Vendored browser libs
+│   │   │   └── styles/              # CSS source
+│   │   └── static/                  # Served files (HTML, built bundles, icons)
+│   └── docs/                        # Packaged runtime-facing docs
+├── docs/                            # Repo-level architecture / audits / design docs
+├── skel/                            # Workspace skeleton for new installs
+└── README.md
 ```
 
 ## Extensions
@@ -111,15 +151,21 @@ These are compiled into the package and registered via `extensionFactories` on t
 |---------|-----------------|
 | `fileAttachments` | `attach_file` |
 | `messagesCrud` | `messages` |
-| `workspaceSearch` | `search_workspace` |
 | `modelControl` | `get_model_state`, `list_models`, `switch_model`, `switch_thinking` |
-| `scheduledTasks` | `schedule_task`, `/tasks`, `/scheduled` slash commands |
-| `dreamMaintenance` | `/dream` memory-consolidation slash command |
-| `sqlIntrospect` | `introspect_sql` (read-only SQLite queries) |
 | `internalTools` | `list_internal_tools` |
-| `sendAdaptiveCard` | `send_adaptive_card` for agent-owned Adaptive Card posting |
+| `toolActivation` | `activate_tools`, `reset_active_tools` |
+| `sqlIntrospect` | `introspect_sql` (read-only SQLite queries) |
+| `scheduledTasks` | `schedule_task`, `/tasks`, `/scheduled` slash commands |
+| `workspaceSearch` | `search_workspace` |
+| `workspaceMemoryBootstrap` | startup memory bootstrap hook (`before_agent_start`) |
+| `dreamMaintenance` | `/dream` memory-consolidation slash command |
 | `uiThemeExtension` | `/theme`, `/tint` web UI theme controls |
 | `smartCompaction` | Smart compaction via `session_before_compact` hook (DB-driven file lists, junk-path filtering) |
+| `sendAdaptiveCard` | `send_adaptive_card` for agent-owned Adaptive Card posting |
+| `sendDashboardWidget` | `send_dashboard_widget` |
+| `openWorkspaceFile` | `open_workspace_file` |
+| `exitProcess` | `exit_process` |
+| `autoresearchSupervisor` | `start_autoresearch`, `stop_autoresearch`, `autoresearch_status` |
 
 Each factory receives an `ExtensionAPI` and registers tools or commands via `pi.registerTool()` and `pi.registerCommand()`. System prompt hints are injected via `pi.on("before_agent_start")`.
 
@@ -150,6 +196,7 @@ Dream-backed startup memory now follows a compact-index pattern inside the works
 - optional sparse files under `notes/memory/days/` preserve durable transcript-derived signals only when a day needs an extra agent-facing memory beyond the human-readable `notes/daily/*.md` overview
 - runtime no longer auto-generates a mirrored `notes/memory/days/*.md` for every complete daily note; the model owns that sparse subtree, while `MEMORY.md` falls back to linking the daily note when no sparse day-memory file exists
 - the built-in nightly AutoDream task and the manual `/dream` command now execute as out-of-band model turns on a temporary `dream:` channel
+- Dream work is queued on a dedicated `dream:<chatJid>` lane so long consolidations do not block the interactive `chat:<chatJid>` lane
 - runtime creates a pre-Dream `.zip` backup, prunes older Dream backups (default keep: 10), and seeds in-window daily notes from the database before the model turn starts
 - Dream ends with a runtime-owned workspace FTS refresh so newly written memory files are searchable immediately
 - the temporary dream channel/session is cleaned up after the cycle completes
@@ -184,33 +231,33 @@ This contract is also a context-conservation strategy: compact family summaries 
 
 ### Web pane extensions
 
-The web UI uses a separate **pane extension** system for content-area components. These are client-side only and live in `extensions/` (editor) or `web/src/panes/` (core infrastructure):
+The web UI uses a separate **pane extension** system for content-area components. These are client-side only and live in `runtime/extensions/` (editor) or `runtime/web/src/panes/` (core infrastructure):
 
 | Extension | Placement | Location |
 |-----------|-----------|----------|
-| `editor` | tabs | `extensions/viewers/editor/editor-extension.ts` |
-| `drawio` | tabs | `web/src/panes/drawio-pane.ts` |
-| `office-viewer` | tabs | `web/src/panes/office-viewer-pane.ts` |
-| `csv-viewer` | tabs | `web/src/panes/csv-viewer-pane.ts` |
-| `pdf-viewer` | tabs | `web/src/panes/pdf-viewer-pane.ts` |
-| `image-viewer` | tabs | `web/src/panes/image-viewer-pane.ts` |
-| `workspace-preview` | tabs | `web/src/panes/workspace-preview-pane.ts` |
-| `terminal` | dock | `web/src/panes/terminal-pane.ts` |
-| `terminal-tab` | tabs | `web/src/panes/terminal-pane.ts` |
-| `vnc-viewer` | tabs | `web/src/panes/vnc-pane.ts` |
+| `editor` | tabs | `runtime/extensions/viewers/editor/editor-extension.ts` |
+| `drawio` | tabs | `runtime/web/src/panes/drawio-pane.ts` |
+| `office-viewer` | tabs | `runtime/web/src/panes/office-viewer-pane.ts` |
+| `csv-viewer` | tabs | `runtime/web/src/panes/csv-viewer-pane.ts` |
+| `pdf-viewer` | tabs | `runtime/web/src/panes/pdf-viewer-pane.ts` |
+| `image-viewer` | tabs | `runtime/web/src/panes/image-viewer-pane.ts` |
+| `workspace-preview` | tabs | `runtime/web/src/panes/workspace-preview-pane.ts` |
+| `terminal` | dock | `runtime/web/src/panes/terminal-pane.ts` |
+| `terminal-tab` | tabs | `runtime/web/src/panes/terminal-pane.ts` |
+| `vnc-viewer` | tabs | `runtime/web/src/panes/vnc-pane.ts` |
 
-The editor extension is lazy-loaded as a separate bundle (`editor.bundle.js`, 889 KB) on first file open. Specialized viewers (draw.io, office, CSV, PDF, image) use route-backed iframes served through the extension route system, and their workspace-preview affordances now normalize around explicit “Edit/Open in Tab” promotion actions. See [web-pane-extensions.md](web-pane-extensions.md) for the pane contract and [extension-ui-contract.md](extension-ui-contract.md) for how pane extensions fit alongside timeline-native UI and the lower-level `extension_ui_*` bridge.
+The editor extension is lazy-loaded as a separate bundle (`editor.bundle.js`, ~1.57 MB) on first file open. Specialized viewers (draw.io, office, CSV, PDF, image) use route-backed iframes served through the extension route system, and their workspace-preview affordances now normalize around explicit “Edit/Open in Tab” promotion actions. See [web-pane-extensions.md](web-pane-extensions.md) for the pane contract and [extension-ui-contract.md](extension-ui-contract.md) for how pane extensions fit alongside timeline-native UI and the lower-level `extension_ui_*` bridge.
 
 ## Web UI loading sequence
 
 ```
 Page load
   ├── index.html loads:
-  │   ├── app.bundle.css (415 KB) ─── all styles
+  │   ├── app.bundle.css (~517 KB) ── all styles
   │   ├── marked.min.js ───────────── markdown parser (global)
   │   ├── katex.min.js ────────────── math rendering (global)
-  │   ├── beautiful-mermaid.js ─────── diagram rendering (global)
-  │   └── app.bundle.js (185 KB) ──── core app (Preact, timeline, compose, panes)
+  │   ├── beautiful-mermaid.js ────── diagram rendering (global)
+  │   └── app.bundle.js (~1.24 MB) ── core app (Preact, timeline, compose, panes, workspace UI)
   │
   ├── app.ts init:
   │   ├── import panes/index.ts
@@ -231,7 +278,7 @@ Page load
       ├── editorPaneExtension.mount(container, context)
       │   └── new LazyEditorInstance()
       │       ├── Shows "Loading..." spinner
-      │       ├── import('/static/dist/editor.bundle.js') ← 889 KB, one-time
+      │       ├── import('/static/dist/editor.bundle.js') ← ~1.57 MB, one-time
       │       │   └── exports { StandaloneEditorInstance, editorPaneExtension }
       │       ├── new mod.StandaloneEditorInstance(container, context)
       │       ├── Replays queued callbacks (dirty, save, close, viewState)
@@ -243,23 +290,23 @@ Page load
 
 | Bundle | Size | Contents |
 |--------|------|----------|
-| `app.bundle.js` | 185 KB | Core app: Preact, timeline, compose box, pane registry, tab store, workspace explorer |
-| `editor.bundle.js` | 889 KB | CodeMirror 6 + languages + themes (lazy-loaded) |
+| `app.bundle.js` | ~1.24 MB | Core app: Preact, timeline, compose box, pane registry, tab store, workspace explorer, pane infrastructure |
+| `editor.bundle.js` | ~1.57 MB | CodeMirror 6 + languages + themes (lazy-loaded) |
 | `login.bundle.js` | 2.2 KB | Login page |
-| `app.bundle.css` | 415 KB | All styles |
+| `app.bundle.css` | ~517 KB | All styles |
 
 ## Notes
 
 - The agent pool keeps one warm session per chat JID and evicts idle sessions after a TTL.
 - The web UI is the primary interface; the WhatsApp channel is optional (skipped entirely when `WHATSAPP_PHONE` is not configured).
 - Web and WhatsApp share the same storage and agent pool.
-- Core utilities (config/env/chat context) live in `src/core`; shared helpers live in `src/utils`.
+- Core utilities (config/env/chat context) live in `runtime/src/core`; shared helpers live in `runtime/src/utils`.
 - Chat context (chat JID + channel) is tracked in AsyncLocalStorage; tools/extensions read from the scoped context (defaults to `web:default` / `web`) rather than env variables.
 - SSH-backed core-tool state is session-scoped and persisted in SQLite (`ssh_configs`). `AgentPool` injects a per-session `ssh-core` extension and can hot-swap the live SSH backend for an existing warm session.
 - Proxmox and Portainer API profiles are also session-scoped and persisted in SQLite (`proxmox_configs`, `portainer_configs`). Their native tools share the same low-context discovery pattern: `discover` → `capabilities` / `recommend` → `workflow_help` → `workflow` or `request`.
 - Workspace tree responses are cached briefly (1s) and rate-limited to prevent bursty UI reloads (HTTP 429 when exceeded).
 - The **workspace explorer** is a responsive sidebar (visible on desktop/tablet ≥1024px landscape) that shows a file tree of `/workspace`, supports file previews, drag-and-drop upload with progress reporting, a client-side 256 MB upload guard, inline file creation, inline rename, drag-and-drop move, file reference pills for prompts, and a live workspace-index status chip with one-click reindex.
-- The **code editor** is a standalone pane extension (`extensions/viewers/editor/`) using CodeMirror 6 directly (no Preact wrapper). It opens in the tabbed content area when a file is clicked in the explorer. Supports syntax highlighting for 12 languages, search/replace, line wrapping, dirty tracking, Cmd+S save, vim mode, whitespace toggle, and accent-aware theming. The editor bundle is lazy-loaded on first file open. Backend endpoints: `GET /workspace/file?mode=edit` (full content up to 256 KB) and `PUT /workspace/file` (save).
+- The **code editor** is a standalone pane extension (`runtime/extensions/viewers/editor/`) using CodeMirror 6 directly (no Preact wrapper). It opens in the tabbed content area when a file is clicked in the explorer. Supports syntax highlighting for 12 languages, search/replace, line wrapping, dirty tracking, Cmd+S save, vim mode, whitespace toggle, and accent-aware theming. The editor bundle is lazy-loaded on first file open. Backend endpoints: `GET /workspace/file?mode=edit` (full content up to 256 KB) and `PUT /workspace/file` (save).
 - **Adaptive Cards** are rendered in the web timeline from `content_blocks` using the vendored Microsoft `adaptivecards` SDK. Action handling routes through `POST /agent/card-action`; submissions are also persisted as `adaptive_card_submission` blocks so the timeline can render compact receipts instead of raw text fallbacks. Finished cards are re-rendered with their submitted values populated, inputs locked read-only, and a concise state banner. Agent-owned cards should be posted through the internal `send_adaptive_card` tool (or equivalent agent-response message path) rather than a local slash command.
 - The **tab strip** provides multi-file editing with dirty indicators, pin support, MRU-based tab switching, context menus (Close / Close Others / Close All / Pin / Preview), and keyboard shortcuts (Ctrl+Tab, Ctrl+W).
 - Operational remote surfaces:

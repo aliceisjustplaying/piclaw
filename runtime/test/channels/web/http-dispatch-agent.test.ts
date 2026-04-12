@@ -40,6 +40,7 @@ describe("web http agent dispatch", () => {
       handleAgents: async () => new Response("roster"),
       handleAgentStatus: () => new Response("status"),
       handleAgentContext: async () => new Response("context"),
+      handleAgentDebug: async () => new Response("debug"),
       handleAutoresearchStatus: async () => new Response("autoresearch-status"),
       handleAutoresearchStop: async () => new Response("autoresearch-stop", { status: 213 }),
       handleAutoresearchDismiss: async () => new Response("autoresearch-dismiss", { status: 214 }),
@@ -75,6 +76,9 @@ describe("web http agent dispatch", () => {
 
     const contextReq = new Request("https://example.com/agent/context", { method: "GET" });
     expect(await (await handleAgentRoutes(channel, contextReq, "/agent/context", new URL(contextReq.url)))?.text()).toBe("context");
+
+    const debugReq = new Request("https://example.com/agent/debug", { method: "GET" });
+    expect(await (await handleAgentRoutes(channel, debugReq, "/agent/debug", new URL(debugReq.url)))?.text()).toBe("debug");
 
     const autoresearchStatusReq = new Request("https://example.com/agent/autoresearch/status", { method: "GET" });
     expect(await (await handleAgentRoutes(channel, autoresearchStatusReq, "/agent/autoresearch/status", new URL(autoresearchStatusReq.url)))?.text()).toBe("autoresearch-status");

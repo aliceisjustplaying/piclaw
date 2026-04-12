@@ -319,29 +319,29 @@ Verify no leaked listeners or DOM nodes after pane lifecycle:
 
 | ID | Placement | Priority | Location | Description |
 |---|---|---|---|---|
-| `editor` | tabs | 1 | `extensions/viewers/editor/editor-extension.ts` | CodeMirror 6 editor — handles all text files (fallback). Lazy-loaded as `editor.bundle.js` (889 KB). |
-| `drawio` | tabs | 10 | `web/src/panes/drawio-pane.ts` | Self-hosted draw.io editor for `.drawio` files. Uses iframe + extension route; workspace preview promotes via **Edit in Tab**. |
-| `office-viewer` | tabs | 10 | `web/src/panes/office-viewer-pane.ts` | Built-in JS viewer (`/office-viewer/*`) for `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp` with zoom/fit/search and format-specific controls; workspace preview promotes via **Open in Tab**. |
-| `csv-viewer` | tabs | 10 | `web/src/panes/csv-viewer-pane.ts` | Lightweight table viewer for `.csv` and `.tsv` files; workspace preview promotes via **Open in Tab**. |
-| `pdf-viewer` | tabs | 10 | `web/src/panes/pdf-viewer-pane.ts` | Inline PDF viewer for `.pdf` files; workspace preview promotes via **Open in Tab**. |
-| `image-viewer` | tabs | 10 | `web/src/panes/image-viewer-pane.ts` | Inline image viewer with zoom for common image formats; workspace preview promotes via **Open in Tab**. |
-| `workspace-preview` | tabs | — | `web/src/panes/workspace-preview-pane.ts` | Default workspace preview surface for the explorer sidebar; generic text previews rely on the explorer header's editor action instead of pane-body CTA duplication. |
-| `terminal` | dock | — | `web/src/panes/terminal-pane.ts` | Terminal dock pane. Enabled by default on Linux/macOS; controlled by `PICLAW_WEB_TERMINAL_ENABLED`. |
-| `terminal-tab` | tabs | 10_000 | `web/src/panes/terminal-pane.ts` | Same terminal implementation opened by explicit path `piclaw://terminal` from the pane registry. |
-| `vnc-viewer` | tabs | 9_000 | `web/src/panes/vnc-pane.ts` | VNC viewer tab (`piclaw://vnc`, optional `/target`) with allowlist and direct-connect mode enabled by default on Linux/macOS/Windows. |
+| `editor` | tabs | 1 | `runtime/extensions/viewers/editor/editor-extension.ts` | CodeMirror 6 editor — handles all text files (fallback). Lazy-loaded as `editor.bundle.js` (~1.57 MB). |
+| `drawio` | tabs | 10 | `runtime/web/src/panes/drawio-pane.ts` | Self-hosted draw.io editor for `.drawio` files. Uses iframe + extension route; workspace preview promotes via **Edit in Tab**. |
+| `office-viewer` | tabs | 10 | `runtime/web/src/panes/office-viewer-pane.ts` | Built-in JS viewer (`/office-viewer/*`) for `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp` with zoom/fit/search and format-specific controls; workspace preview promotes via **Open in Tab**. |
+| `csv-viewer` | tabs | 10 | `runtime/web/src/panes/csv-viewer-pane.ts` | Lightweight table viewer for `.csv` and `.tsv` files; workspace preview promotes via **Open in Tab**. |
+| `pdf-viewer` | tabs | 10 | `runtime/web/src/panes/pdf-viewer-pane.ts` | Inline PDF viewer for `.pdf` files; workspace preview promotes via **Open in Tab**. |
+| `image-viewer` | tabs | 10 | `runtime/web/src/panes/image-viewer-pane.ts` | Inline image viewer with zoom for common image formats; workspace preview promotes via **Open in Tab**. |
+| `workspace-preview` | tabs | — | `runtime/web/src/panes/workspace-preview-pane.ts` | Default workspace preview surface for the explorer sidebar; generic text previews rely on the explorer header's editor action instead of pane-body CTA duplication. |
+| `terminal` | dock | — | `runtime/web/src/panes/terminal-pane.ts` | Terminal dock pane. Enabled by default on Linux/macOS; controlled by `PICLAW_WEB_TERMINAL_ENABLED`. |
+| `terminal-tab` | tabs | 10_000 | `runtime/web/src/panes/terminal-pane.ts` | Same terminal implementation opened by explicit path `piclaw://terminal` from the pane registry. |
+| `vnc-viewer` | tabs | 9_000 | `runtime/web/src/panes/vnc-pane.ts` | VNC viewer tab (`piclaw://vnc`, optional `/target`) with allowlist and direct-connect mode enabled by default on Linux/macOS/Windows. |
 
 ### Editor extension architecture
 
-The editor lives in `extensions/viewers/editor/` as a self-contained pane extension:
+The editor lives in `runtime/extensions/viewers/editor/` as a self-contained pane extension:
 
 ```
-extensions/viewers/editor/
+runtime/extensions/viewers/editor/
   editor-extension.ts       — StandaloneEditorInstance + WebPaneExtension registration
   vendor/
     codemirror-entry.ts     — CodeMirror re-export entry point
     codemirror.js           — Pre-built CodeMirror vendor bundle
 ```
 
-The core app only includes a lightweight **lazy proxy** (`web/src/panes/editor-loader.ts`)
+The core app only includes a lightweight **lazy proxy** (`runtime/web/src/panes/editor-loader.ts`)
 that shows a loading spinner and dynamically imports `editor.bundle.js` on first mount.
-This keeps the core bundle at 185 KB; the 889 KB editor is only loaded when needed.
+This keeps the editor isolated from the main app bundle; the current built sizes are roughly ~1.24 MB for `app.bundle.js` and ~1.57 MB for `editor.bundle.js`.

@@ -118,8 +118,16 @@ export class TestAgentControlSession {
       ],
       getCommand: (name: string) => (name === "ext" ? { name: "ext" } : null),
     };
-    this.promptTemplates = [{ name: "template", description: "Template command" }];
-    this.resourceLoader = { getSkills: () => ({ skills: [{ name: "demo", description: "Demo skill" }] }) };
+    this.promptTemplates = [
+      { name: "template", description: "Template command", sourceInfo: { path: "/prompts/template.md", source: "template", scope: "project", origin: "top-level" } },
+    ];
+    this.resourceLoader = {
+      getSkills: () => ({
+        skills: [
+          { name: "demo", description: "Demo skill", sourceInfo: { path: "/skills/demo/SKILL.md", source: "demo", scope: "user", origin: "package" } },
+        ],
+      }),
+    };
   }
 
   getSteeringMessages() {

@@ -58,6 +58,7 @@ Behavior:
 - queues an out-of-band Dream run
 - no visible user message is injected
 - the Dream run executes on a temporary `dream:` channel
+- Dream work is queued on a dedicated `dream:<chatJid>` lane so it does not block the interactive chat lane
 - a visible agent summary is posted back to the original chat when done
 - default window: last 7 days unless you pass an explicit `/dream <days>`
 
@@ -75,6 +76,7 @@ Behavior:
 - prunes older Dream backups after writing the new archive (default keep: 10)
 - refreshes/seeds in-window daily note files from the messages database before the model starts
 - runs in the background on a temporary `dream:` channel
+- runs on the dedicated `dream:<chatJid>` queue lane rather than the interactive chat lane
 - executes silently unless you inspect logs/task results
 - cleans up the temporary dream channel after the run
 - default window: last 2 days
