@@ -20,8 +20,8 @@ function FileAttachment({ mediaId, onPreview }) {
     const [info, setInfo] = useState(null);
 
     useEffect(() => {
-        getMediaInfo(mediaId).then(setInfo).catch(() => {
-            /* expected: attachment metadata is best-effort for message file cards. */
+        getMediaInfo(mediaId).then(setInfo).catch((error) => {
+            console.warn('[post] Failed to load attachment metadata for file card:', mediaId, error);
         });
     }, [mediaId]);
 
@@ -77,8 +77,8 @@ function AttachmentPill({ attachment, onPreview }) {
 
     useEffect(() => {
         if (!Number.isFinite(mediaId)) return undefined;
-        getMediaInfo(mediaId).then(setInfo).catch(() => {
-            /* expected: attachment metadata is best-effort for attachment pills. */
+        getMediaInfo(mediaId).then(setInfo).catch((error) => {
+            console.warn('[post] Failed to load attachment metadata for attachment pill:', mediaId, error);
         });
         return undefined;
     }, [mediaId]);

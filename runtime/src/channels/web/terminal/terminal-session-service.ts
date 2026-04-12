@@ -273,8 +273,11 @@ export class TerminalSessionService {
         if (client === ws) continue;
         try {
           client.close(1000, "terminal handoff");
-        } catch {
-          /* expected: old browser websocket may already be closing during handoff. */
+        } catch (error) {
+          debugSuppressedError(log, "Old terminal websocket was already closing during handoff.", error, {
+            token: owner.token,
+            userId: owner.userId,
+          });
         }
         session.clients.delete(client);
       }

@@ -268,7 +268,7 @@ export const editorPaneExtension: WebPaneExtension = {
  * This ensures the editor loads instantly when the user first opens a file.
  */
 export function preloadEditorBundle(): void {
-    loadEditorModule().catch(() => {
-        /* expected: background preload is best-effort; the editor can still load on demand. */
+    loadEditorModule().catch((error) => {
+        console.warn('[editor-loader] Background preload failed; the editor will retry on demand.', error);
     }); // fire and forget
 }

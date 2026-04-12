@@ -113,6 +113,21 @@ test("static helpers serve files and not-found", async () => {
   expect(notFound.status).toBe(404);
 });
 
+test("ui bridge stop clears pending requests even when a pending reject throws", () => {
+  const channel = { broadcastEvent: () => undefined } as any;
+  const uiBridge = new UiBridge(channel);
+  uiBridge.pendingUiRequests.set("req-1", {
+    chatJid: "web:default",
+    kind: "input",
+    timeoutId: setTimeout(() => undefined, 60_000),
+    resolve: () => undefined,
+    reject: () => { throw new Error("boom"); },
+  } as any);
+
+  expect(() => uiBridge.stop()).not.toThrow();
+  expect(uiBridge.pendingUiRequests.size).toBe(0);
+});
+
 test("ui context emits requests and resolves", async () => {
   const events: Array<{ type: string; payload: any }> = [];
   const channel = {

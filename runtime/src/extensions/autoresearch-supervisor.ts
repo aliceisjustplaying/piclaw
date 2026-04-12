@@ -18,7 +18,7 @@ import { Type } from "@sinclair/typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import { WORKSPACE_DIR } from "../core/config.js";
 import { createMedia } from "../db/media.js";
-import { createLogger } from "../utils/logger.js";
+import { createLogger, debugSuppressedError } from "../utils/logger.js";
 import { buildAutoresearchSubagentCommand, hasPiCliModel, listPiCliModels } from "./autoresearch-launcher.js";
 import { clearAutoresearchSessionFiles, prepareDirectAutoresearchWorktree } from "./autoresearch-workdir.js";
 import { postMessagesToolMessage } from "./messages-crud.js";
@@ -87,7 +87,11 @@ function installVendoredExtension(piAgentDir: string): void {
 
   // Clean previous symlinks/copies
   for (const dir of [extDir, skillDir]) {
-    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ok */ }
+    try { rmSync(dir, { recursive: true, force: true }); } catch (error) {
+      debugSuppressedError(log, "Failed to clear a stale vendored autoresearch link before reinstalling it.", error, {
+        dir,
+      });
+    }
   }
 
   mkdirSync(dirname(extDir), { recursive: true });
@@ -449,8 +453,12 @@ function emitAutoresearchStatus(
     }
     autoresearchWidgetsByChat.set(exp.chatJid, widget);
     broadcastEvent("extension_ui_widget", widget);
-  } catch {
-    // best effort only
+  } catch (error) {
+    debugSuppressedError(log, "Failed to emit autoresearch status widget update.", error, {
+      experimentId: exp?.id ?? null,
+      chatJid: exp?.chatJid ?? null,
+      state,
+    });
   }
 }
 
@@ -1130,7 +1138,9 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
       broadcastEvent = global.__PICLAW_BROADCAST_EVENT__;
       autoresearchWidgetBroadcast = global.__PICLAW_BROADCAST_EVENT__;
     }
-  } catch { /* ok */ }
+  } catch (error) {
+    debugSuppressedError(log, "Autoresearch supervisor could not inspect the runtime broadcast hook; continuing without live widget broadcasts.", error);
+  }
 
   pi.on("before_agent_start", async (event) => ({
     systemPrompt: `${event.systemPrompt}\n\n${HINT}`,

@@ -11,7 +11,7 @@
 
 import type { AgentSessionRuntime, ExtensionUIContext } from "@mariozechner/pi-coding-agent";
 
-import { createLogger } from "../../../utils/logger.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 import { createFallbackTheme } from "./theme.js";
 
 const log = createLogger("web.ui-bridge");
@@ -252,8 +252,11 @@ export class UiBridge {
       clearTimeout(pending.timeoutId);
       try {
         pending.reject(new Error("Web channel stopped"));
-      } catch {
-        // ignore
+      } catch (error) {
+        debugSuppressedError(log, "Failed to reject a pending web UI request during shutdown.", error, {
+          chatJid: pending.chatJid,
+          kind: pending.kind,
+        });
       }
     }
     this.pendingUiRequests.clear();

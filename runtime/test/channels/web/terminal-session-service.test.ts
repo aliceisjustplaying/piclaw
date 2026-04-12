@@ -114,6 +114,35 @@ test("terminal session service spawns one shell per web session and relays IO", 
   expect(service.getSessionInfo(owner).active).toBe(false);
 });
 
+test("terminal session handoff ignores already-closing prior clients during takeover", () => {
+  createWebSession("terminal-handoff-throws", "user-handoff", 3600, "totp");
+  const proc = new FakeProcess();
+  const service = new TerminalSessionService({
+    spawnProcess: () => proc as any,
+  });
+  const first = {
+    data: { kind: "terminal", token: "terminal-handoff-throws", userId: "user-handoff", handoffToken: null },
+    send: () => {},
+    close: () => { throw new Error("already closing"); },
+  } as any;
+
+  service.attachClient(first);
+  const req = new Request("https://example.com/terminal/handoff", {
+    method: "POST",
+    headers: { cookie: "piclaw_session=terminal-handoff-throws" },
+  });
+  const handoff = service.createHandoffFromRequest(req);
+
+  const second = {
+    data: { kind: "terminal", token: "terminal-handoff-throws", userId: "user-handoff", handoffToken: handoff?.token || null },
+    send: () => {},
+    close: () => undefined,
+  } as any;
+
+  expect(() => service.attachClient(second)).not.toThrow();
+  expect(service.getSessionInfo({ token: "terminal-handoff-throws", userId: "user-handoff" }).connected_clients).toBe(1);
+});
+
 test("terminal session handoff tokens are issued for live sessions and close prior clients on takeover", () => {
   createWebSession("terminal-handoff", "user-handoff", 3600, "totp");
   const proc = new FakeProcess();
