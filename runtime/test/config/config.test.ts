@@ -301,6 +301,7 @@ test("workspace search config getter groups configured FTS roots from env or con
       expect(Object.isFrozen(cfg.WORKSPACE_SEARCH_CONFIG)).toBe(true);
       expect(cfg.WORKSPACE_SEARCH_CONFIG).toEqual({
         roots: ["notes", ".pi/skills", "docs"],
+        extraExtensions: [],
       });
     },
   );
@@ -318,6 +319,7 @@ test("workspace search config getter groups configured FTS roots from env or con
       const cfg = await importFresh<typeof import("../../src/core/config.js")>("../src/core/config.js");
       expect(cfg.getWorkspaceSearchConfig()).toEqual({
         roots: ["notes", ".pi/skills", "workitems"],
+        extraExtensions: [],
       });
     },
   );

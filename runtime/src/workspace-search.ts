@@ -94,6 +94,10 @@ const DEFAULT_EXTS = new Set([
   ".yaml",
   ".yml",
   ".sh",
+  ".csv",
+  ".xml",
+  ".toml",
+  ".env",
 ]);
 
 const activeIndexScopes = new Set<WorkspaceSearchScope>();
@@ -147,9 +151,25 @@ const toRelative = (absPath: string): string => {
   return absPath;
 };
 
+function getIndexedExtensions(): Set<string> {
+  // Read env at call time (like getConfiguredRoots does for roots)
+  const envExtras = process.env.PICLAW_WORKSPACE_SEARCH_EXTENSIONS
+    ?.split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const extras = envExtras && envExtras.length > 0 ? envExtras : getWorkspaceSearchConfig().extraExtensions;
+  if (!extras || extras.length === 0) return DEFAULT_EXTS;
+  const merged = new Set(DEFAULT_EXTS);
+  for (const ext of extras) {
+    const normalized = ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+    merged.add(normalized);
+  }
+  return merged;
+}
+
 const isTextFile = (filePath: string): boolean => {
   const ext = path.extname(filePath).toLowerCase();
-  return DEFAULT_EXTS.has(ext);
+  return getIndexedExtensions().has(ext);
 };
 
 async function walkFiles(root: string): Promise<string[]> {

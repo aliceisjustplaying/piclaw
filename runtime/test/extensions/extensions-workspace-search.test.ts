@@ -179,4 +179,33 @@ describe("workspace-search extension", () => {
     expect(result.details.count).toBe(50);
     expect(result.content[0].text).toContain("notes/file-");
   });
+
+  test("indexes extra file extensions from config", async () => {
+    const notesDir = path.join(ws.workspace, "notes");
+    await fs.mkdir(notesDir, { recursive: true });
+
+    // .csv is now in DEFAULT_EXTS, so it should be indexed without extra config
+    await fs.writeFile(path.join(notesDir, "data.csv"), "name,value\nkittens,42");
+    // .vtt is not in defaults — needs PICLAW_WORKSPACE_SEARCH_EXTENSIONS
+    await fs.writeFile(path.join(notesDir, "transcript.vtt"), "WEBVTT\n\n00:00.000 --> 00:01.000\nkittens are cute");
+
+    // Without extra config, csv is found but vtt is not
+    const tool = await getSearchTool();
+    const csvResult = await executeWithContext(tool, { query: "kittens", refresh: true, scope: "all" });
+    expect(csvResult.content[0].text).toContain("data.csv");
+    expect(csvResult.content[0].text).not.toContain("transcript.vtt");
+
+    // With extra extensions configured, vtt is also found
+    const restore = setEnv({ PICLAW_WORKSPACE_SEARCH_EXTENSIONS: ".vtt" });
+    try {
+      const { workspaceSearch } = await import(`../../src/extensions/workspace-search.js?t=${Date.now()}-${Math.random().toString(36).slice(2)}`) as typeof import("../../src/extensions/workspace-search.js");
+      const fake = createFakeExtensionApi();
+      workspaceSearch(fake.api);
+      const searchTool = fake.tools.get("search_workspace");
+      const vttResult = await executeWithContext(searchTool, { query: "kittens", refresh: true, scope: "all" });
+      expect(vttResult.content[0].text).toContain("transcript.vtt");
+    } finally {
+      restore();
+    }
+  });
 });

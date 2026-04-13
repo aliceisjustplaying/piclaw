@@ -152,7 +152,7 @@ function languageForPath(path: string) {
     if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return yaml();
     if (lower.endsWith('.sql') || lower.endsWith('.sqlite')) return sql();
     if (lower.endsWith('.xml') || lower.endsWith('.svg') || lower.endsWith('.plist')) return xml();
-    if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.zsh')) return shellLanguage;
+    if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.zsh') || lower.endsWith('.env')) return shellLanguage;
     return null;
 }
 

@@ -611,6 +611,11 @@ const configWorkspaceSearchRoots = pickStringArray(toolsConfig, [
   "workspace_search_roots",
   "PICLAW_WORKSPACE_SEARCH_ROOTS",
 ]);
+const configWorkspaceSearchExtensions = pickStringArray(toolsConfig, [
+  "workspaceSearchExtensions",
+  "workspace_search_extensions",
+  "PICLAW_WORKSPACE_SEARCH_EXTENSIONS",
+]);
 
 /** Typed session-file safeguards grouped for runtime/session wiring. */
 export interface SessionStorageConfig {
@@ -653,9 +658,11 @@ export const TOOL_ACTIVATION_CONFIG = Object.freeze<ToolActivationConfig>({
   additionalDefaultTools: configAdditionalDefaultTools ?? [],
 });
 
-/** Typed workspace-search config grouped for FTS root selection. */
+/** Typed workspace-search config grouped for FTS root and extension selection. */
 export interface WorkspaceSearchConfig {
   roots: string[];
+  /** Additional file extensions to index (merged with built-in defaults). */
+  extraExtensions: string[];
 }
 
 const workspaceSearchRoots = pickStringArray(
@@ -663,9 +670,15 @@ const workspaceSearchRoots = pickStringArray(
   ["PICLAW_WORKSPACE_SEARCH_ROOTS"],
 ) ?? configWorkspaceSearchRoots ?? ["notes", ".pi/skills"];
 
+const workspaceSearchExtensions = pickStringArray(
+  { PICLAW_WORKSPACE_SEARCH_EXTENSIONS: process.env.PICLAW_WORKSPACE_SEARCH_EXTENSIONS ?? envConfig.PICLAW_WORKSPACE_SEARCH_EXTENSIONS },
+  ["PICLAW_WORKSPACE_SEARCH_EXTENSIONS"],
+) ?? configWorkspaceSearchExtensions ?? [];
+
 /** Grouped workspace-search config loaded from env/config. */
 export const WORKSPACE_SEARCH_CONFIG = Object.freeze<WorkspaceSearchConfig>({
   roots: workspaceSearchRoots,
+  extraExtensions: workspaceSearchExtensions,
 });
 
 /** Return grouped workspace-search config for runtime wiring and tests. */
