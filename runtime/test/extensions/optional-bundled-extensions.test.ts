@@ -9,6 +9,7 @@ type FakeState = {
   tools: Map<string, any>;
   commands: Map<string, any>;
   routes: Array<{ prefix: string; extensionDir: string }>;
+  routeRegistrations: Map<string, number>;
 };
 
 function createFakeApi(): { api: ExtensionAPI; state: FakeState } {
@@ -16,6 +17,7 @@ function createFakeApi(): { api: ExtensionAPI; state: FakeState } {
     tools: new Map<string, any>(),
     commands: new Map<string, any>(),
     routes: [],
+    routeRegistrations: new Map<string, number>(),
   };
 
   const api: ExtensionAPI = {
@@ -54,7 +56,14 @@ function createFakeApi(): { api: ExtensionAPI; state: FakeState } {
 function withRouteCapture<T>(state: FakeState, fn: () => Promise<T>): Promise<T> {
   const previous = (globalThis as any).__piclaw_registerRoute;
   (globalThis as any).__piclaw_registerRoute = (prefix: string, _handler: unknown, extensionDir: string) => {
-    state.routes.push({ prefix, extensionDir });
+    const key = `${prefix}::${extensionDir}`;
+    const count = (state.routeRegistrations.get(key) ?? 0) + 1;
+    state.routeRegistrations.set(key, count);
+    if (count === 1) {
+      state.routes.push({ prefix, extensionDir });
+      return "created";
+    }
+    return "updated";
   };
   return fn().finally(() => {
     if (previous === undefined) delete (globalThis as any).__piclaw_registerRoute;
@@ -122,5 +131,51 @@ describe("bundled optional extensions", () => {
 
     expect(fake.state.tools.has("open_drawio_editor")).toBe(true);
     expect(fake.state.routes.some((route) => route.prefix === "/drawio")).toBe(true);
+  });
+
+  test("drawio-editor only logs route registration on first registration", async () => {
+    const { default: registerDrawioEditor } = await import("../../extensions/viewers/drawio-editor/index.ts");
+    const fake = createFakeApi();
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (...args: any[]) => {
+      logs.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withRouteCapture(fake.state, async () => {
+        registerDrawioEditor(fake.api);
+        registerDrawioEditor(fake.api);
+      });
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(fake.state.routeRegistrations.size).toBe(1);
+    expect(fake.state.routeRegistrations.get(`${"/drawio"}::${fake.state.routes[0]?.extensionDir}`)).toBe(2);
+    expect(logs.filter((line) => line.includes("[drawio-editor] Route registered")).length).toBe(1);
+  });
+
+  test("office-viewer only logs route registration on first registration", async () => {
+    const { default: registerOfficeViewer } = await import("../../extensions/viewers/office-viewer/index.ts");
+    const fake = createFakeApi();
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (...args: any[]) => {
+      logs.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withRouteCapture(fake.state, async () => {
+        registerOfficeViewer(fake.api);
+        registerOfficeViewer(fake.api);
+      });
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(fake.state.routeRegistrations.size).toBe(1);
+    expect(fake.state.routeRegistrations.get(`${"/office-viewer"}::${fake.state.routes[0]?.extensionDir}`)).toBe(2);
+    expect(logs.filter((line) => line.includes("[office-viewer] Route registered")).length).toBe(1);
   });
 });

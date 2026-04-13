@@ -17,9 +17,11 @@ afterEach(() => {
 
 describe("extension route registry", () => {
   test("dedupes repeated registrations for the same prefix and extension path", async () => {
-    registerExtensionRoute("/drawio", () => new Response("first"), "/ext/drawio");
-    registerExtensionRoute("/drawio", () => new Response("second"), "/ext/drawio");
+    const first = registerExtensionRoute("/drawio", () => new Response("first"), "/ext/drawio");
+    const second = registerExtensionRoute("/drawio", () => new Response("second"), "/ext/drawio");
 
+    expect(first).toBe("created");
+    expect(second).toBe("updated");
     expect(getRegisteredRoutes()).toEqual([
       { prefix: "/drawio", extensionPath: "/ext/drawio" },
     ]);

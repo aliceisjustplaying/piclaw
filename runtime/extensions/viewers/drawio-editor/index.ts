@@ -728,10 +728,14 @@ function handleRoute(req: Request, pathname: string): Response | Promise<Respons
 
 export default function drawioEditor(pi: any) {
   // Register the HTTP route
-  const registerRoute = (globalThis as any).__piclaw_registerRoute;
+  const registerRoute = (globalThis as any).__piclaw_registerRoute as
+    | ((prefix: string, handler: typeof handleRoute, extensionPath?: string) => "created" | "updated")
+    | undefined;
   if (typeof registerRoute === "function") {
-    registerRoute(ROUTE_PREFIX, handleRoute, EXT_DIR);
-    console.log(`[drawio-editor] Route registered: /drawio/* → ${VENDOR_DIR}`);
+    const registration = registerRoute(ROUTE_PREFIX, handleRoute, EXT_DIR);
+    if (registration === "created") {
+      console.log(`[drawio-editor] Route registered: /drawio/* → ${VENDOR_DIR}`);
+    }
   } else {
     console.warn("[drawio-editor] WARNING: __piclaw_registerRoute not available.");
   }

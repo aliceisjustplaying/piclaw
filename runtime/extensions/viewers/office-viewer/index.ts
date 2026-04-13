@@ -94,10 +94,14 @@ function handleRoute(req: Request, pathname: string): Response | null {
 // ── Extension entry point ───────────────────────────────────────
 
 export default function officeViewer(pi: any) {
-  const registerRoute = (globalThis as any).__piclaw_registerRoute;
+  const registerRoute = (globalThis as any).__piclaw_registerRoute as
+    | ((prefix: string, handler: typeof handleRoute, extensionPath?: string) => "created" | "updated")
+    | undefined;
   if (typeof registerRoute === "function") {
-    registerRoute(ROUTE_PREFIX, handleRoute, EXT_DIR);
-    console.log("[office-viewer] Route registered: /office-viewer/* → " + VENDOR_DIR);
+    const registration = registerRoute(ROUTE_PREFIX, handleRoute, EXT_DIR);
+    if (registration === "created") {
+      console.log("[office-viewer] Route registered: /office-viewer/* → " + VENDOR_DIR);
+    }
   } else {
     console.warn("[office-viewer] WARNING: __piclaw_registerRoute not available. Route NOT registered.");
   }
