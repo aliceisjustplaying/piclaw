@@ -30,8 +30,14 @@ function formatPercent(value) {
     return `${Math.round(Number(value) || 0)}%`;
 }
 
-export function SystemMetersHud() {
+function readIsNarrowLayout() {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(max-width: 900px)').matches;
+}
+
+export function SystemMetersHud({ mode = 'overlay' }) {
     const [enabled, setEnabled] = useState(() => readStoredMetersEnabled(false));
+    const [isNarrowLayout, setIsNarrowLayout] = useState(() => readIsNarrowLayout());
     const [metrics, setMetrics] = useState({
         cpu_percent: 0,
         ram_percent: 0,
@@ -54,7 +60,23 @@ export function SystemMetersHud() {
     }, []);
 
     useEffect(() => {
-        if (!enabled) return undefined;
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const mediaQuery = window.matchMedia('(max-width: 900px)');
+        const sync = () => setIsNarrowLayout(Boolean(mediaQuery.matches));
+        sync();
+        if (typeof mediaQuery.addEventListener === 'function') {
+            mediaQuery.addEventListener('change', sync);
+            return () => mediaQuery.removeEventListener('change', sync);
+        }
+        mediaQuery.addListener(sync);
+        return () => mediaQuery.removeListener(sync);
+    }, []);
+
+    const activeMode = isNarrowLayout ? 'inline' : 'overlay';
+    const isActiveInstance = mode === activeMode;
+
+    useEffect(() => {
+        if (!enabled || !isActiveInstance) return undefined;
         let cancelled = false;
         let timer = 0;
 
@@ -91,17 +113,17 @@ export function SystemMetersHud() {
             cancelled = true;
             if (timer) window.clearInterval(timer);
         };
-    }, [enabled]);
+    }, [enabled, isActiveInstance]);
 
     const cpuPath = useMemo(() => buildSparklinePath(metrics.cpu_series), [metrics.cpu_series]);
     const ramPath = useMemo(() => buildSparklinePath(metrics.ram_series), [metrics.ram_series]);
     const swapPath = useMemo(() => buildSparklinePath(metrics.swap_series), [metrics.swap_series]);
     const showSwap = Number.isFinite(Number(metrics.swap_percent)) && metrics.swap_total_bytes > 0;
 
-    if (!enabled) return null;
+    if (!enabled || !isActiveInstance) return null;
 
     return html`
-        <div class="system-meters-hud" aria-live="polite">
+        <div class=${`system-meters-hud system-meters-hud-${mode}`} aria-live="polite">
             <div class="system-meters-card" title=${loading ? 'Updating system meters…' : 'System meters'}>
                 <div class="system-meters-row cpu">
                     <span class="system-meters-label">CPU</span>

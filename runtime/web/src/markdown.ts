@@ -261,7 +261,14 @@ function extractLeadingYamlFrontmatter(text) {
 function normalizeLeadingFrontmatter(text) {
     const { text: body, frontmatter } = extractLeadingYamlFrontmatter(text);
     if (frontmatter === null) return body;
-    return [`\`\`\`yaml`, frontmatter, '\`\`\`', body].filter(Boolean).join('\n\n');
+    return [
+        '<!--frontmatter-block-start-->',
+        '```yaml',
+        frontmatter,
+        '```',
+        '<!--frontmatter-block-end-->',
+        body,
+    ].filter(Boolean).join('\n\n');
 }
 
 function extractMermaidBlocks(text) {
@@ -348,13 +355,16 @@ function normalizeHtmlCodeTags(text) {
 
 export function applySyntaxHighlighting(html) {
     if (!html) return html;
-    return html.replace(/<pre><code(?:\s+class="language-([A-Za-z0-9_+-]+)")?>([\s\S]*?)<\/code><\/pre>/g, (match, lang, code) => {
+    const highlighted = html.replace(/<pre><code(?:\s+class="language-([A-Za-z0-9_+-]+)")?>([\s\S]*?)<\/code><\/pre>/g, (match, lang, code) => {
         const normalizedLanguage = String(lang || '').trim().toLowerCase();
         const decodedCode = decodeEntitiesDeep(code, 2);
         const languageClass = normalizedLanguage || 'plaintext';
-        const highlighted = highlightCodeToHtml(decodedCode, normalizedLanguage);
-        return `<pre><code class="hljs language-${escapeHtmlAttr(languageClass)}">${highlighted}</code></pre>`;
+        const highlightedCode = highlightCodeToHtml(decodedCode, normalizedLanguage);
+        return `<pre><code class="hljs language-${escapeHtmlAttr(languageClass)}">${highlightedCode}</code></pre>`;
     });
+    return highlighted
+        .replace(/<!--frontmatter-block-start-->\s*<pre>/g, '<pre class="frontmatter-block">')
+        .replace(/<\/pre>\s*<!--frontmatter-block-end-->/g, '</pre>');
 }
 
 const RESTORABLE_HTML_ATTRS = {
