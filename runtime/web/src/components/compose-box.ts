@@ -230,6 +230,51 @@ export function getModelPickerOptionSearchLabel(option) {
     ].filter(Boolean).join(' ');
 }
 
+function unwrapQueuedTranscriptContent(value) {
+    if (!value) return value;
+    const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!normalized.includes(' @ ') || !normalized.includes(':\n')) return value;
+
+    const lines = normalized.split('\n');
+    const collected = [];
+    let index = 0;
+    let sawTranscript = false;
+
+    while (index < lines.length) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (!trimmed) {
+            index += 1;
+            continue;
+        }
+        if (trimmed === 'Messages:' || trimmed.startsWith('Channel:')) {
+            sawTranscript = true;
+            index += 1;
+            continue;
+        }
+        if (/^[^\n]+\s@\s[^\n]+:$/.test(trimmed)) {
+            sawTranscript = true;
+            index += 1;
+            const bodyLines = [];
+            while (index < lines.length) {
+                const current = lines[index];
+                const currentTrimmed = current.trim();
+                if (/^[^\n]+\s@\s[^\n]+:$/.test(currentTrimmed)) break;
+                if (currentTrimmed.startsWith('Channel:') || currentTrimmed === 'Messages:') break;
+                bodyLines.push(current.startsWith('  ') ? current.slice(2) : current);
+                index += 1;
+            }
+            if (bodyLines.length > 0) {
+                collected.push(bodyLines.join('\n').trim());
+            }
+            continue;
+        }
+        return value;
+    }
+
+    return sawTranscript && collected.length > 0 ? collected.filter(Boolean).join('\n\n') : value;
+}
+
 function extractQueuedFileRefs(value) {
     if (!value) return { content: value, fileRefs: [] };
     const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -293,13 +338,55 @@ function extractQueuedMessageRefs(value) {
     return { content: cleaned, messageRefs: refs };
 }
 
-function parseQueuedContent(value) {
-    const withFiles = extractQueuedFileRefs(value || '');
+function extractQueuedAttachmentRefs(value) {
+    if (!value) return { content: value, attachmentRefs: [] };
+    const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = normalized.split('\n');
+    let start = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+        if (lines[i].trim() === 'Attachments:' && lines[i + 1] && /^\s*-\s+/.test(lines[i + 1])) {
+            start = i;
+            break;
+        }
+    }
+    if (start === -1) return { content: value, attachmentRefs: [] };
+    const refs = [];
+    let end = start + 1;
+    for (; end < lines.length; end += 1) {
+        const line = lines[end];
+        if (/^\s*-\s+/.test(line)) {
+            const item = line.replace(/^\s*-\s+/, '').trim();
+            const match = item.match(/^attachment:(\d+)(?:\s*\((.+)\))?$/i);
+            if (match) {
+                refs.push({
+                    id: match[1],
+                    label: (match[2] || '').trim() || `attachment:${match[1]}`,
+                    raw: item,
+                });
+            }
+        } else if (!line.trim()) {
+            break;
+        } else {
+            break;
+        }
+    }
+    if (refs.length === 0) return { content: value, attachmentRefs: [] };
+    const before = lines.slice(0, start);
+    const after = lines.slice(end);
+    const cleaned = [...before, ...after].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return { content: cleaned, attachmentRefs: refs };
+}
+
+export function parseQueuedContent(value) {
+    const unwrapped = unwrapQueuedTranscriptContent(value || '');
+    const withFiles = extractQueuedFileRefs(unwrapped || '');
     const withMessages = extractQueuedMessageRefs(withFiles.content || '');
+    const withAttachments = extractQueuedAttachmentRefs(withMessages.content || '');
     return {
-        text: withMessages.content || '',
+        text: withAttachments.content || '',
         fileRefs: withFiles.fileRefs,
         messageRefs: withMessages.messageRefs,
+        attachmentRefs: withAttachments.attachmentRefs,
     };
 }
 
@@ -315,12 +402,12 @@ export function QueuedFollowupStack({
             ${items.map((item) => {
                 const rowText = typeof item?.content === 'string' ? item.content : '';
                 const parsed = parseQueuedContent(rowText);
-                if (!parsed.text.trim() && parsed.fileRefs.length === 0 && parsed.messageRefs.length === 0) return null;
+                if (!parsed.text.trim() && parsed.fileRefs.length === 0 && parsed.messageRefs.length === 0 && parsed.attachmentRefs.length === 0) return null;
                 return html`
                     <div class="compose-queue-stack-item" role="listitem">
                         <div class="compose-queue-stack-content" title=${rowText}>
                             ${parsed.text.trim() && html`<div class="compose-queue-stack-text">${parsed.text}</div>`}
-                            ${(parsed.messageRefs.length > 0 || parsed.fileRefs.length > 0) && html`
+                            ${(parsed.messageRefs.length > 0 || parsed.fileRefs.length > 0 || parsed.attachmentRefs.length > 0) && html`
                                 <div class="compose-queue-stack-refs">
                                     ${parsed.messageRefs.map((id) => html`
                                         <${FilePill}
@@ -343,6 +430,14 @@ export function QueuedFollowupStack({
                                             />
                                         `;
                                     })}
+                                    ${parsed.attachmentRefs.map((attachment) => html`
+                                        <${FilePill}
+                                            key=${'queue-attachment-' + attachment.id}
+                                            prefix="compose"
+                                            label=${attachment.label}
+                                            title=${attachment.raw}
+                                        />
+                                    `)}
                                 </div>
                             `}
                         </div>

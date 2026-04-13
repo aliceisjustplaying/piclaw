@@ -536,6 +536,24 @@
     line-height: 1.5;
 }
 
+.md-preview-body pre.frontmatter-block {
+    margin-top: 0;
+}
+
+.md-preview-body pre.frontmatter-block code.hljs {
+    line-height: 1.18;
+}
+
+.md-preview-body pre.frontmatter-block code.hljs .tok-meta,
+.md-preview-body pre.frontmatter-block code.hljs .tok-punctuation,
+.md-preview-body pre.frontmatter-block code.hljs .tok-propertyName,
+.md-preview-body pre.frontmatter-block code.hljs .tok-atom,
+.md-preview-body pre.frontmatter-block code.hljs .tok-bool,
+.md-preview-body pre.frontmatter-block code.hljs .tok-string,
+.md-preview-body pre.frontmatter-block code.hljs .tok-string2 {
+    line-height: inherit;
+}
+
 .editor-status-row {
     display: flex;
     align-items: center;

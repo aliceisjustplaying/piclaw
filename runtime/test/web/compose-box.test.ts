@@ -7,6 +7,7 @@ import {
   getComposeHistoryStorageKey,
   getModelPickerOptionSearchLabel,
   normalizeModelPickerOptions,
+  parseQueuedContent,
   resolveComposePrefillRequest,
 } from '../../web/src/components/compose-box.ts';
 import { CONTROL_COMMAND_DEFINITIONS } from '../../src/agent-control/command-registry.ts';
@@ -104,6 +105,31 @@ test('resolveComposePrefillRequest applies new non-search prefill tokens exactly
     nextToken: '',
     text: '',
   });
+});
+
+test('parseQueuedContent extracts file, message, and attachment refs from transcript-wrapped queue items', () => {
+  const parsed = parseQueuedContent([
+    'Channel: web',
+    '',
+    'Rui Carmo @ 2026-04-13T08:40:35.008Z:',
+    '  Please check this later.',
+    '  ',
+    '  Files:',
+    '  - notes/todo.md',
+    '  ',
+    '  Referenced messages:',
+    '  - message:23123',
+    '  ',
+    '  Attachments:',
+    '  - attachment:784 (image.png)',
+  ].join('\n'));
+
+  expect(parsed.text).toBe('Please check this later.');
+  expect(parsed.fileRefs).toEqual(['notes/todo.md']);
+  expect(parsed.messageRefs).toEqual(['23123']);
+  expect(parsed.attachmentRefs).toEqual([
+    { id: '784', label: 'image.png', raw: 'attachment:784 (image.png)' },
+  ]);
 });
 
 test('model picker helpers expose searchable names and formatted context windows', () => {

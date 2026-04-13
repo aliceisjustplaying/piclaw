@@ -261,7 +261,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
 
   return html`
     <div class=${buildMainShellClassName({ workspaceOpen, editorOpen, chatOnlyMode, zenMode })} ref=${appShellRef}>
-      <${SystemMetersHud} />
+      <${SystemMetersHud} mode="overlay" />
       ${isRenameBranchFormOpen && html`
         <div class="rename-branch-overlay" onPointerDown=${(event: any) => {
           if (event.target === event.currentTarget) {
@@ -438,6 +438,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
               </span>
               <span class="chat-window-header-subtitle">${currentBranchRecord?.chat_jid || currentChatJid}</span>
             </div>
+            <${SystemMetersHud} mode="inline" />
             <div class="chat-window-header-actions">
               ${currentChatBranches.length > 1 && html`
                 <label class="chat-window-branch-picker-wrap">

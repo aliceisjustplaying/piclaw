@@ -69,6 +69,21 @@ test('prepareMarkdownSource rewrites leading YAML frontmatter into a fenced yaml
   expect(safeHtml).toContain('# Hello');
 });
 
+test('applySyntaxHighlighting tags leading frontmatter code blocks for compact preview styling', async () => {
+  globalThis.DOMParser = class {
+    parseFromString(input: string) {
+      return { documentElement: { textContent: decodeEntities(input) } } as any;
+    }
+  } as any;
+
+  const { applySyntaxHighlighting } = await import('../../web/src/markdown.ts');
+  const highlighted = applySyntaxHighlighting('<!--frontmatter-block-start--><pre><code class="language-yaml">title: Test\ntags:\n  - demo\n</code></pre><!--frontmatter-block-end-->');
+
+  expect(highlighted).toContain('<pre class="frontmatter-block"><code class="hljs language-yaml">');
+  expect(highlighted).not.toContain('frontmatter-block-start');
+  expect(highlighted).not.toContain('frontmatter-block-end');
+});
+
 test('applySyntaxHighlighting adds token spans for supported fenced languages', async () => {
   globalThis.DOMParser = class {
     parseFromString(input: string) {
