@@ -466,10 +466,9 @@ function MainApp({ locationParams, navigate }) {
         panePopoutMode,
         modelsLoaded: surface.hasLoadedAgentModels,
         modelPayload: surface.agentModelsPayload,
-        activeModel: surface.activeModel,
         providerMissingDismissed,
         providerReadyCompleted,
-    }), [panePopoutMode, surface.hasLoadedAgentModels, surface.agentModelsPayload, surface.activeModel, providerMissingDismissed, providerReadyCompleted]);
+    }), [panePopoutMode, surface.hasLoadedAgentModels, surface.agentModelsPayload, providerMissingDismissed, providerReadyCompleted]);
 
     const requestComposePrefill = useCallback((text: string) => {
         const nextText = typeof text === 'string' ? text.trim() : '';

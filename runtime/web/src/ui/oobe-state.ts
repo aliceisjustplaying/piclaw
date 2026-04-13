@@ -27,7 +27,6 @@ export function resolveOobePanelState(options: {
   panePopoutMode?: boolean;
   modelsLoaded: boolean;
   modelPayload: Record<string, unknown> | null | undefined;
-  activeModel?: string | null;
   providerMissingDismissed?: boolean;
   providerReadyCompleted?: boolean;
 }): OobePanelState {
@@ -35,14 +34,12 @@ export function resolveOobePanelState(options: {
     panePopoutMode = false,
     modelsLoaded,
     modelPayload,
-    activeModel = null,
     providerMissingDismissed = false,
     providerReadyCompleted = false,
   } = options;
 
   const availableModelCount = countAvailableModels(modelPayload);
-  const hasActiveModel = typeof activeModel === 'string' && activeModel.trim().length > 0;
-  const hasAvailableModels = hasActiveModel || availableModelCount > 0;
+  const hasAvailableModels = availableModelCount > 0;
 
   if (panePopoutMode || !modelsLoaded) {
     return {
