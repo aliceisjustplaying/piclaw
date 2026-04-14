@@ -48,6 +48,22 @@ export function resolveAgentStatusEscapeCollapseKey(expandedPanels) {
     return null;
 }
 
+export function orderAgentStatusHints(statusHints) {
+    if (!Array.isArray(statusHints) || statusHints.length === 0) return [];
+    const priority = new Map([
+        ['ssh', 0],
+    ]);
+    return statusHints
+        .map((hint, index) => ({ hint, index }))
+        .sort((left, right) => {
+            const leftPriority = priority.get(left.hint?.key) ?? 100;
+            const rightPriority = priority.get(right.hint?.key) ?? 100;
+            if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+            return left.index - right.index;
+        })
+        .map((entry) => entry.hint);
+}
+
 /** Preact component: agent status bar with draft/thought/plan panels. */
 export function AgentStatus({ status, draft, plan, thought, pendingRequest, intent, extensionPanels = [], pendingPanelActions = new Set(), onExtensionPanelAction, turnId, steerQueued, onPanelToggle, showCorePanels = true, showExtensionPanels = true }) {
     const THOUGHT_MAX_LINES = 8;
@@ -246,6 +262,18 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
         ? [toolRepoRepoPath, toolRepoBranch].filter(Boolean).join(' · ')
         : '';
     const statusHints = normalizeStatusHints(status?.status_hints || status?.statusHints);
+    const orderedStatusHints = useMemo(
+        () => orderAgentStatusHints(statusHints),
+        [statusHints],
+    );
+    const leadingStatusHints = useMemo(
+        () => orderedStatusHints.filter((hint) => hint?.key === 'ssh'),
+        [orderedStatusHints],
+    );
+    const trailingStatusHints = useMemo(
+        () => orderedStatusHints.filter((hint) => hint?.key !== 'ssh'),
+        [orderedStatusHints],
+    );
 
     const renderThinkingPanel = ({ panelTitle, text, fullText, totalLines, maxLines, titleClass, panelKey }) => {
         const isExpanded = expandedPanels.has(panelKey);
@@ -669,22 +697,32 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                         : (runningIndicatorMode === 'spinner' && html`<div class="agent-status-spinner"></div>`)}
                     <div class="agent-status-copy">
                         <span class="agent-status-text">${content}</span>
-                        ${toolRepoLabel && html`
-                            <span class="agent-status-git-row" title=${toolContextPath || toolRepoLabel}>
-                                <span class="agent-status-git-icon">${GIT_BRANCH_ICON_SVG}</span>
-                                <span class="agent-status-git-label">
-                                    ${toolRepoRepoPath && html`<span class="agent-status-git-part">${toolRepoRepoPath}</span>`}
-                                    ${toolRepoRepoPath && toolRepoBranch && html`<span class="agent-status-git-separator" aria-hidden="true">•</span>`}
-                                    ${toolRepoBranch && html`<span class="agent-status-git-part">${toolRepoBranch}</span>`}
-                                </span>
+                        ${(toolRepoLabel || orderedStatusHints.length > 0) && html`
+                            <span class="agent-status-meta-row">
+                                ${leadingStatusHints.map((hint) => html`
+                                    <span key=${hint.key} class="agent-status-hint-row" title=${hint.title || hint.label}>
+                                        <span class="agent-status-hint-icon" dangerouslySetInnerHTML=${{ __html: hint.iconSvg }}></span>
+                                        <span class="agent-status-hint-label">${hint.label}</span>
+                                    </span>
+                                `)}
+                                ${toolRepoLabel && html`
+                                    <span class="agent-status-git-row" title=${toolContextPath || toolRepoLabel}>
+                                        <span class="agent-status-git-icon">${GIT_BRANCH_ICON_SVG}</span>
+                                        <span class="agent-status-git-label">
+                                            ${toolRepoRepoPath && html`<span class="agent-status-git-part">${toolRepoRepoPath}</span>`}
+                                            ${toolRepoRepoPath && toolRepoBranch && html`<span class="agent-status-git-separator" aria-hidden="true">•</span>`}
+                                            ${toolRepoBranch && html`<span class="agent-status-git-part">${toolRepoBranch}</span>`}
+                                        </span>
+                                    </span>
+                                `}
+                                ${trailingStatusHints.map((hint) => html`
+                                    <span key=${hint.key} class="agent-status-hint-row" title=${hint.title || hint.label}>
+                                        <span class="agent-status-hint-icon" dangerouslySetInnerHTML=${{ __html: hint.iconSvg }}></span>
+                                        <span class="agent-status-hint-label">${hint.label}</span>
+                                    </span>
+                                `)}
                             </span>
                         `}
-                        ${statusHints.map((hint) => html`
-                            <span key=${hint.key} class="agent-status-hint-row" title=${hint.title || hint.label}>
-                                <span class="agent-status-hint-icon" dangerouslySetInnerHTML=${{ __html: hint.iconSvg }}></span>
-                                <span class="agent-status-hint-label">${hint.label}</span>
-                            </span>
-                        `)}
                     </div>
                 </div>
             `}

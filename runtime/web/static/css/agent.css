@@ -165,6 +165,14 @@
     white-space: nowrap;
 }
 
+.agent-status-meta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+}
+
 .agent-status-git-row,
 .agent-status-hint-row {
     display: inline-flex;
