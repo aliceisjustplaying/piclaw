@@ -17,13 +17,16 @@ function stripRemotePathFromSshTarget(value) {
     const match = target.match(/^(.*?):((?:\/|~).*)$/);
     return (match?.[1] || target).trim() || null;
 }
+export function getSshStatusHintTarget(chatJid, payload) {
+    return stripRemotePathFromSshTarget(readTrimmedString(payload?.ssh_target, registeredHandlers?.get(chatJid)?.ssh_target));
+}
 export function setSshToolHandlers(handlers) {
     registeredHandlers = handlers ?? null;
 }
 registerToolStatusHintProvider({
     id: "ssh",
     buildHints: ({ chatJid, payload }) => {
-        const target = stripRemotePathFromSshTarget(readTrimmedString(payload?.ssh_target, registeredHandlers?.get(chatJid)?.ssh_target));
+        const target = getSshStatusHintTarget(chatJid, payload);
         if (!target)
             return null;
         return {
