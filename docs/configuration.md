@@ -124,8 +124,8 @@ Once enabled:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PICLAW_AUTOSTART` | `1` | Set to `0` to keep the supervisor service idle (run `pi`/`piclaw` manually) |
-| `PICLAW_AGENT_TIMEOUT` | `1800000` | Max `pi` invocation time (ms) |
-| `PICLAW_BACKGROUND_AGENT_TIMEOUT` | `0` | Max background invocation time (ms; `0` disables) |
+| `PICLAW_AGENT_TIMEOUT` | `3600000` | Max foreground agent turn time (ms), including interactive web chats |
+| `PICLAW_BACKGROUND_AGENT_TIMEOUT` | `0` | Max background invocation time (ms; `0` disables and falls back to `PICLAW_AGENT_TIMEOUT`) |
 | `PICLAW_ASSISTANT_NAME` | `PiClaw` | Display name in the web UI |
 | `PICLAW_ASSISTANT_AVATAR` | _(empty)_ | Avatar URL for the web UI |
 | `PICLAW_USER_NAME` | _(empty)_ | Display name for the human user in the web UI |
@@ -138,7 +138,7 @@ Once enabled:
 | `PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS` | `43200000` | Cleanup interval (ms) |
 
 Notes:
-- Interactive web turns currently use `min(PICLAW_AGENT_TIMEOUT, 1200000)` — effectively a 20 minute cap unless you configure a lower global timeout.
+- Interactive web turns now use `PICLAW_AGENT_TIMEOUT` directly.
 - Background/scheduled turns use `PICLAW_BACKGROUND_AGENT_TIMEOUT` when set, otherwise they fall back to `PICLAW_AGENT_TIMEOUT`.
 - On `systemd --user` installs, keep `PICLAW_WORKSPACE`, `PICLAW_STORE`, and `PICLAW_DATA` stable across restarts. Startup recovery relies on the persisted SQLite state plus writable IPC files under `PICLAW_DATA/ipc/tasks`.
 
