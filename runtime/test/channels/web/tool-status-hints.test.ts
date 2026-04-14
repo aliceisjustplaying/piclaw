@@ -129,6 +129,24 @@ test('resolveToolStatusHints uses M365 extension-owned provider metadata', () =>
   expect(String(hints[0]?.icon_svg)).toContain('<rect');
 });
 
+test('resolveToolStatusHints recognizes SharePoint sync-specific M365 URL fields', () => {
+  const hints = resolveToolStatusHints({
+    chatJid: 'web:m365-sync',
+    toolName: 'm365_spo_sync',
+    args: { folderUrl: 'https://contoso.sharepoint.com/sites/Docs/Shared%20Documents' },
+    payload: {},
+  });
+
+  expect(hints).toEqual([
+    expect.objectContaining({
+      key: 'm365',
+      label: 'contoso.sharepoint.com',
+      title: 'Microsoft 365 target',
+      kind: 'service',
+    }),
+  ]);
+});
+
 test('resolveToolStatusHints covers keychain, bun_run, browser, windows UI, and office-file extensions', () => {
   expect(resolveToolStatusHints({
     chatJid: 'web:keychain',

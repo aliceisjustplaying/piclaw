@@ -78,11 +78,27 @@ registerToolStatusHintProvider({
 			record?.web_url,
 			record?.shareUrl,
 			record?.share_url,
+			record?.folderUrl,
+			record?.folder_url,
+			record?.attachmentUrl,
+			record?.attachment_url,
+			record?.documentUrl,
+			record?.document_url,
+			record?.fileUrl,
+			record?.file_url,
+			record?.linkUrl,
+			record?.link_url,
 			record?.base_url,
 			record?.baseUrl,
 			record?.url,
 			record?.endpoint,
-		)) || (toolName.startsWith("m365_teams_") ? "teams.microsoft.com" : "graph.microsoft.com");
+		)) || (
+			toolName.startsWith("m365_teams_")
+				? "teams.microsoft.com"
+				: (toolName.startsWith("m365_spo_") || toolName.startsWith("m365_onedrive_")
+					? "sharepoint.microsoft.com"
+					: "graph.microsoft.com")
+		);
 		return {
 			key: "m365",
 			icon_svg: M365_STATUS_ICON_SVG,
