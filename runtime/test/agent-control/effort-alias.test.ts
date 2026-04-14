@@ -8,17 +8,20 @@ import {
   resolveThinkingAlias,
   isEffortProvider,
   formatThinkingLevelForDisplay,
-  THINKING_LEVEL_ALIASES,
+  EFFORT_PROVIDER_THINKING_LEVEL_ALIASES,
 } from "../../src/agent-control/agent-control-helpers.js";
 import { parseControlCommand } from "../../src/agent-control/index.js";
 
 describe("thinking level alias helpers", () => {
   test("resolveThinkingAlias maps provider-native aliases to internal levels", () => {
-    expect(resolveThinkingAlias("max")).toBe("xhigh");
-    expect(resolveThinkingAlias("high")).toBe("high");
-    expect(resolveThinkingAlias("low")).toBe("low");
-    expect(resolveThinkingAlias("off")).toBe("off");
-    expect(resolveThinkingAlias("unknown")).toBe("unknown");
+    expect(resolveThinkingAlias("max", "anthropic")).toBe("xhigh");
+    expect(resolveThinkingAlias("high", "anthropic")).toBe("high");
+    expect(resolveThinkingAlias("low", "anthropic")).toBe("low");
+    expect(resolveThinkingAlias("off", "anthropic")).toBe("off");
+    expect(resolveThinkingAlias("unknown", "anthropic")).toBe("unknown");
+    // max is NOT resolved on non-Anthropic providers
+    expect(resolveThinkingAlias("max", "openai")).toBe("max");
+    expect(resolveThinkingAlias("max", null)).toBe("max");
   });
 
   test("isEffortProvider identifies Anthropic as effort-terminology provider", () => {
@@ -43,8 +46,8 @@ describe("thinking level alias helpers", () => {
     expect(formatThinkingLevelForDisplay("high", "openai")).toBe("high");
   });
 
-  test("THINKING_LEVEL_ALIASES contains expected mappings", () => {
-    expect(THINKING_LEVEL_ALIASES).toEqual({ max: "xhigh" });
+  test("EFFORT_PROVIDER_THINKING_LEVEL_ALIASES contains expected mappings", () => {
+    expect(EFFORT_PROVIDER_THINKING_LEVEL_ALIASES).toEqual({ max: "xhigh" });
   });
 });
 

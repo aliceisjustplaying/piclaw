@@ -210,11 +210,10 @@ test("applyControlCommand reports unsupported thinking", async () => {
 test("applyControlCommand resolves /effort max alias through thinking handler", async () => {
   const session = new StubSession();
   const runtime = createRuntime(session);
-  session.model = modelReasoning;
+  // max alias only resolves on Anthropic (effort provider)
+  session.model = { provider: "anthropic", id: "claude-test", reasoning: true } as any;
   session.thinkingLevel = "low";
 
-  // max → xhigh via alias, but StubSession doesn't have xhigh in available levels
-  // so the session clamps to the first available level; handler reports the applied level
   const result = await applyControlCommand(runtime as any, registry, {
     type: "thinking",
     level: "max",
@@ -222,10 +221,10 @@ test("applyControlCommand resolves /effort max alias through thinking handler", 
   });
 
   expect(result.status).toBe("success");
-  // The handler resolves max→xhigh, session clamps to "off" (first available),
-  // and the note shows "(requested max)" because applied !== resolved
+  // max→xhigh via alias, StubSession clamps to "off" (xhigh not in available list)
   expect(result.message).toContain("requested max");
   expect(result.thinking_level).toBe("off");
+  expect(result.thinking_level_label).toBeDefined();
 });
 
 test("applyControlCommand includes thinking_level_label in response", async () => {
