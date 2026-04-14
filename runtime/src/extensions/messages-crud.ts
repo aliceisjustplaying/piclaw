@@ -39,10 +39,14 @@ const MessagesSchema = Type.Object({
       description: "Optional role filter for read/search actions.",
     }),
   ),
+  sender: Type.Optional(Type.String({ description: "Optional sender/sender_name filter for read/search actions." })),
   after: Type.Optional(Type.String({ description: "Filter messages with timestamp greater than this ISO value." })),
   before: Type.Optional(Type.String({ description: "Filter messages with timestamp less than this ISO value." })),
   since: Type.Optional(Type.String({ description: "Alias for `after`." })),
+  after_row: Type.Optional(Type.Integer({ description: "Filter messages with rowid greater than this value.", minimum: 1 })),
+  before_row: Type.Optional(Type.Integer({ description: "Filter messages with rowid less than this value.", minimum: 1 })),
   limit: Type.Optional(Type.Integer({ description: "Max search results (1-50).", minimum: 1, maximum: 50 })),
+  excerpt_chars: Type.Optional(Type.Integer({ description: "Return bounded highlighted excerpts around search matches (0 disables).", minimum: 0, maximum: 1000 })),
   offset: Type.Optional(Type.Integer({ description: "Offset for search pagination.", minimum: 0 })),
   context_before: Type.Optional(Type.Integer({ description: "Context rows before each row (get action).", minimum: 0, maximum: 20 })),
   context_after: Type.Optional(Type.Integer({ description: "Context rows after each row (get action).", minimum: 0, maximum: 20 })),
@@ -53,6 +57,8 @@ const MessagesSchema = Type.Object({
       maximum: 20_000,
     }),
   ),
+  content_lines: Type.Optional(Type.String({ description: "Line selection for get action, e.g. '10-20' or '15'." })),
+  content_grep: Type.Optional(Type.String({ description: "Filter get action content lines by substring match." })),
   content: Type.Optional(Type.String({ description: "Message content to insert (add action)." })),
   type: Type.Optional(
     Type.Union([Type.Literal("user"), Type.Literal("agent")], {
@@ -91,12 +97,29 @@ type MessageResultRow = Omit<MessageRow, "content_blocks"> & {
   content_truncated?: boolean;
   content_full_length?: number;
   content_blocks?: unknown[];
+  content_excerpt?: string;
+  content_excerpt_truncated?: boolean;
+};
+
+type MessageLineMatch = {
+  line_number: number;
+  content: string;
+};
+
+type MessageLineView = {
+  total_lines: number;
+  selected_start: number;
+  selected_end: number;
+  grep: string | null;
+  match_count: number;
+  lines: MessageLineMatch[];
 };
 
 type GetResultItem = {
   message: MessageResultRow;
   context_before: MessageResultRow[];
   context_after: MessageResultRow[];
+  line_view?: MessageLineView;
 };
 
 function normalizeChatJid(input: string | undefined, defaultChat: string): string | null {
@@ -112,6 +135,125 @@ function normalizeRole(input: string | undefined): number | null {
   if (norm === "assistant") return 1;
   if (norm === "user") return 0;
   return null;
+}
+
+function normalizeSender(input: string | undefined): string | null {
+  const trimmed = input?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function appendSenderFilter(
+  conditions: string[],
+  params: (string | number)[],
+  senderFilter: string | null,
+  qualifier = "",
+): void {
+  if (!senderFilter) return;
+  const prefix = qualifier ? `${qualifier}.` : "";
+  conditions.push(`(${prefix}sender = ? COLLATE NOCASE OR ${prefix}sender_name = ? COLLATE NOCASE)`);
+  params.push(senderFilter, senderFilter);
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractSearchTerms(query: string): string[] {
+  const trimmed = query.trim();
+  if (!trimmed || trimmed === "*") return [];
+  if (trimmed.startsWith("#")) {
+    const tag = trimmed.replace(/^#+/, "").trim();
+    return tag ? [tag] : [];
+  }
+  return Array.from(new Set(
+    trimmed
+      .split(/\s+/)
+      .map((term) => term.replace(/^[^\p{L}\p{N}_-]+|[^\p{L}\p{N}_-]+$/gu, ""))
+      .filter(Boolean),
+  ));
+}
+
+function buildContentExcerpt(content: string, terms: string[], excerptChars: number): { text: string; truncated: boolean } | null {
+  if (!terms.length || excerptChars <= 0) return null;
+  const lower = content.toLowerCase();
+  const normalizedTerms = Array.from(new Set(terms.map((term) => term.toLowerCase()).filter(Boolean)));
+  let matchIndex = -1;
+  let matchLength = 0;
+  for (const term of normalizedTerms) {
+    const index = lower.indexOf(term);
+    if (index !== -1 && (matchIndex === -1 || index < matchIndex)) {
+      matchIndex = index;
+      matchLength = term.length;
+    }
+  }
+  if (matchIndex === -1) return null;
+
+  const safeWidth = Math.max(8, excerptChars);
+  let start = Math.max(0, matchIndex - Math.floor((safeWidth - matchLength) / 2));
+  let end = Math.min(content.length, start + safeWidth);
+  if ((end - start) < safeWidth) {
+    start = Math.max(0, end - safeWidth);
+  }
+
+  const rawSnippet = content.slice(start, end);
+  const highlightPattern = new RegExp(normalizedTerms.map(escapeRegex).sort((a, b) => b.length - a.length).join("|"), "gi");
+  const highlighted = rawSnippet.replace(highlightPattern, (match) => `[[${match}]]`);
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < content.length ? "…" : "";
+  return {
+    text: `${prefix}${highlighted}${suffix}`,
+    truncated: start > 0 || end < content.length,
+  };
+}
+
+function parseContentLines(input: string | undefined): { start: number; end: number } | null {
+  const trimmed = input?.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+  if (!match) return null;
+  const start = Number.parseInt(match[1]!, 10);
+  const end = Number.parseInt(match[2] ?? match[1]!, 10);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0 || start > end) {
+    return null;
+  }
+  return { start, end };
+}
+
+function clipText(value: string, limit?: number): string {
+  const max = Number.isFinite(limit ?? NaN) ? Math.max(limit as number, 0) : undefined;
+  if (max === undefined) return value;
+  if (max <= 0) return "";
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(1, max - 1))}…`;
+}
+
+function buildLineView(
+  content: string,
+  range: { start: number; end: number } | null,
+  grep: string | undefined,
+  detailsMaxChars?: number,
+): MessageLineView {
+  const rawLines = content.split(/\r?\n/);
+  const totalLines = rawLines.length;
+  const selectedStart = Math.min(Math.max(range?.start ?? 1, 1), Math.max(totalLines, 1));
+  const selectedEnd = Math.min(Math.max(range?.end ?? totalLines, selectedStart), Math.max(totalLines, 1));
+  const grepNeedle = grep?.trim().toLowerCase() || null;
+  const lines: MessageLineMatch[] = [];
+
+  for (let lineNumber = selectedStart; lineNumber <= selectedEnd; lineNumber += 1) {
+    const line = rawLines[lineNumber - 1] ?? "";
+    if (grepNeedle && !line.toLowerCase().includes(grepNeedle)) continue;
+    lines.push({ line_number: lineNumber, content: clipText(line, detailsMaxChars) });
+  }
+
+  return {
+    total_lines: totalLines,
+    selected_start: selectedStart,
+    selected_end: selectedEnd,
+    grep: grep?.trim() || null,
+    match_count: lines.length,
+    lines,
+  };
 }
 
 function parseMessageContentBlocks(raw: string | null | undefined): unknown[] | undefined {
@@ -153,10 +295,13 @@ function runSearch(
   query: string,
   chatJid: string | null,
   roleFilter: number | null,
+  senderFilter: string | null,
   limit: number,
   offset: number,
   afterTs?: string,
   beforeTs?: string,
+  afterRow?: number,
+  beforeRow?: number,
 ): MessageRow[] {
   const db = getDb();
   const trimmed = query.trim();
@@ -164,6 +309,8 @@ function runSearch(
 
   const timeClauses: string[] = [];
   const timeValues: string[] = [];
+  const rowClauses: string[] = [];
+  const rowValues: number[] = [];
   if (afterTs) {
     timeClauses.push("timestamp > ?");
     timeValues.push(afterTs);
@@ -171,6 +318,14 @@ function runSearch(
   if (beforeTs) {
     timeClauses.push("timestamp < ?");
     timeValues.push(beforeTs);
+  }
+  if (typeof afterRow === "number" && Number.isInteger(afterRow) && afterRow > 0) {
+    rowClauses.push("rowid > ?");
+    rowValues.push(afterRow);
+  }
+  if (typeof beforeRow === "number" && Number.isInteger(beforeRow) && beforeRow > 0) {
+    rowClauses.push("rowid < ?");
+    rowValues.push(beforeRow);
   }
 
   if (trimmed === "*") {
@@ -184,8 +339,11 @@ function runSearch(
       conditions.push("is_bot_message = ?");
       params.push(roleFilter);
     }
+    appendSenderFilter(conditions, params, senderFilter);
     for (const c of timeClauses) conditions.push(c);
     params.push(...timeValues);
+    for (const c of rowClauses) conditions.push(c);
+    params.push(...rowValues);
 
     const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
     const sql = `SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message
@@ -207,8 +365,11 @@ function runSearch(
       conditions.push("is_bot_message = ?");
       params.push(roleFilter);
     }
+    appendSenderFilter(conditions, params, senderFilter);
     for (const c of timeClauses) conditions.push(c);
     params.push(...timeValues);
+    for (const c of rowClauses) conditions.push(c);
+    params.push(...rowValues);
     const sql = `SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message
       FROM messages WHERE ${conditions.join(" AND ")} ORDER BY rowid DESC LIMIT ? OFFSET ?`;
     return db.prepare(sql).all(...params, limit, offset) as MessageRow[];
@@ -228,8 +389,11 @@ function runSearch(
       conditions.push("messages.is_bot_message = ?");
       params.push(roleFilter);
     }
+    appendSenderFilter(conditions, params, senderFilter, "messages");
     for (const c of timeClauses) conditions.push(c);
     params.push(...timeValues);
+    for (const c of rowClauses) conditions.push(c.replace(/\browid\b/g, "messages.rowid"));
+    params.push(...rowValues);
 
     const sql = `SELECT messages.rowid, messages.chat_jid, messages.sender,
       messages.sender_name, messages.content, messages.content_blocks, messages.timestamp, messages.is_bot_message
@@ -255,8 +419,11 @@ function runSearch(
       conditions.push("is_bot_message = ?");
       params.push(roleFilter);
     }
+    appendSenderFilter(conditions, params, senderFilter);
     for (const c of timeClauses) conditions.push(c);
     params.push(...timeValues);
+    for (const c of rowClauses) conditions.push(c);
+    params.push(...rowValues);
 
     const sql = `SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message
       FROM messages WHERE ${conditions.join(" AND ")} ORDER BY rowid DESC LIMIT ? OFFSET ?`;
@@ -264,7 +431,12 @@ function runSearch(
   }
 }
 
-function fetchByRowId(chatJid: string | null, roleFilter: number | null, rowId: number): MessageRow | null {
+function fetchByRowId(
+  chatJid: string | null,
+  roleFilter: number | null,
+  senderFilter: string | null,
+  rowId: number,
+): MessageRow | null {
   const db = getDb();
   const conditions: string[] = ["rowid = ?"];
   const params: (string | number)[] = [rowId];
@@ -276,6 +448,7 @@ function fetchByRowId(chatJid: string | null, roleFilter: number | null, rowId: 
     conditions.push("is_bot_message = ?");
     params.push(roleFilter);
   }
+  appendSenderFilter(conditions, params, senderFilter);
   const sql = `SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message
       FROM messages WHERE ${conditions.join(" AND ")} LIMIT 1`;
   return (db.prepare(sql).get(...params) as MessageRow | undefined) ?? null;
@@ -285,30 +458,35 @@ function fetchContextRows(
   chatJid: string,
   rowId: number,
   roleFilter: number | null,
+  senderFilter: string | null,
   before: number,
   after: number,
 ): { context_before: MessageRow[]; context_after: MessageRow[] } {
   const db = getDb();
 
-  const beforeParams: (string | number)[] = [chatJid, rowId, before];
-  let beforeSql = "SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message\n      FROM messages WHERE chat_jid = ? AND rowid < ?";
+  const beforeConditions = ["chat_jid = ?", "rowid < ?"];
+  const beforeParams: (string | number)[] = [chatJid, rowId];
   if (roleFilter !== null) {
-    beforeSql += " AND is_bot_message = ?";
-    beforeParams.splice(2, 0, roleFilter);
+    beforeConditions.push("is_bot_message = ?");
+    beforeParams.push(roleFilter);
   }
-  beforeSql += " ORDER BY rowid DESC LIMIT ?";
+  appendSenderFilter(beforeConditions, beforeParams, senderFilter);
+  const beforeSql = `SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message
+      FROM messages WHERE ${beforeConditions.join(" AND ")} ORDER BY rowid DESC LIMIT ?`;
 
-  const afterParams: (string | number)[] = [chatJid, rowId, after];
-  let afterSql = "SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message\n      FROM messages WHERE chat_jid = ? AND rowid > ?";
+  const afterConditions = ["chat_jid = ?", "rowid > ?"];
+  const afterParams: (string | number)[] = [chatJid, rowId];
   if (roleFilter !== null) {
-    afterSql += " AND is_bot_message = ?";
-    afterParams.splice(2, 0, roleFilter);
+    afterConditions.push("is_bot_message = ?");
+    afterParams.push(roleFilter);
   }
-  afterSql += " ORDER BY rowid ASC LIMIT ?";
+  appendSenderFilter(afterConditions, afterParams, senderFilter);
+  const afterSql = `SELECT rowid, chat_jid, sender, sender_name, content, content_blocks, timestamp, is_bot_message
+      FROM messages WHERE ${afterConditions.join(" AND ")} ORDER BY rowid ASC LIMIT ?`;
 
-  const beforeRows = before > 0 ? (db.prepare(beforeSql).all(...beforeParams) as MessageRow[]) : [];
+  const beforeRows = before > 0 ? (db.prepare(beforeSql).all(...beforeParams, before) as MessageRow[]) : [];
   beforeRows.reverse();
-  const afterRows = after > 0 ? (db.prepare(afterSql).all(...afterParams) as MessageRow[]) : [];
+  const afterRows = after > 0 ? (db.prepare(afterSql).all(...afterParams, after) as MessageRow[]) : [];
 
   return { context_before: beforeRows, context_after: afterRows };
 }
@@ -336,11 +514,13 @@ function executeSearch(params: MessagesParams, defaultChat: string): AgentToolRe
 
   const chatJid = normalizeChatJid(params.chat_jid, defaultChat);
   const roleFilter = normalizeRole(params.role);
+  const senderFilter = normalizeSender(params.sender);
   const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
   const offset = Math.max(params.offset ?? 0, 0);
   const detailsMaxChars = typeof params.details_max_chars === "number" ? Math.max(params.details_max_chars, 0) : undefined;
+  const excerptChars = typeof params.excerpt_chars === "number" ? Math.min(Math.max(params.excerpt_chars, 0), 1000) : undefined;
   const afterTs = params.since || params.after;
-  const rows = runSearch(query, chatJid, roleFilter, limit, offset, afterTs, params.before);
+  const rows = runSearch(query, chatJid, roleFilter, senderFilter, limit, offset, afterTs, params.before, params.after_row, params.before_row);
 
   if (rows.length === 0) {
     return {
@@ -349,9 +529,16 @@ function executeSearch(params: MessagesParams, defaultChat: string): AgentToolRe
     };
   }
 
-  const clipped = rows.map((row) => clipContent(row, detailsMaxChars));
+  const searchTerms = excerptChars ? extractSearchTerms(query) : [];
+  const clipped = rows.map((row) => {
+    const base = clipContent(row, detailsMaxChars);
+    const excerpt = excerptChars ? buildContentExcerpt(row.content, searchTerms, excerptChars) : null;
+    return excerpt
+      ? { ...base, content_excerpt: excerpt.text, content_excerpt_truncated: excerpt.truncated }
+      : base;
+  });
   const preview = clipped
-    .map((row) => `[${row.rowid}] ${row.sender_name || row.sender}: ${row.content}`)
+    .map((row) => `[${row.rowid}] ${row.sender_name || row.sender}: ${row.content_excerpt ?? row.content}`)
     .join("\n");
 
   return {
@@ -365,8 +552,12 @@ function executeSearch(params: MessagesParams, defaultChat: string): AgentToolRe
       offset,
       chat_jid: chatJid,
       role: params.role,
+      sender: senderFilter,
       after: params.after || params.since,
       before: params.before,
+      after_row: params.after_row,
+      before_row: params.before_row,
+      excerpt_chars: excerptChars,
       details_max_chars: detailsMaxChars,
     },
   };
@@ -383,15 +574,24 @@ function executeGet(params: MessagesParams, defaultChat: string): AgentToolResul
 
   const chatJid = normalizeChatJid(params.chat_jid, defaultChat);
   const roleFilter = normalizeRole(params.role);
+  const senderFilter = normalizeSender(params.sender);
   const contextBefore = Math.min(Math.max(params.context_before ?? 0, 0), 20);
   const contextAfter = Math.min(Math.max(params.context_after ?? 0, 0), 20);
   const detailsMaxChars = typeof params.details_max_chars === "number" ? Math.max(params.details_max_chars, 0) : undefined;
+  const contentLines = parseContentLines(params.content_lines);
+  if (params.content_lines && !contentLines) {
+    return {
+      content: [{ type: "text", text: "Invalid content_lines. Use 'start-end' or a single line number." }],
+      details: { action: "get", count: 0, messages: [], missing_row_ids: [], content_lines: params.content_lines, error: "invalid_content_lines" },
+    };
+  }
+  const contentGrep = params.content_grep?.trim() || undefined;
 
   const messages: GetResultItem[] = [];
   const missing: number[] = [];
 
   for (const rowId of rowIds) {
-    const row = fetchByRowId(chatJid, roleFilter, rowId);
+    const row = fetchByRowId(chatJid, roleFilter, senderFilter, rowId);
     if (!row) {
       missing.push(rowId);
       continue;
@@ -401,14 +601,20 @@ function executeGet(params: MessagesParams, defaultChat: string): AgentToolResul
       row.chat_jid,
       row.rowid,
       roleFilter,
+      senderFilter,
       contextBefore,
       contextAfter,
     );
+
+    const lineView = (contentLines || contentGrep)
+      ? buildLineView(row.content, contentLines, contentGrep, detailsMaxChars)
+      : undefined;
 
     messages.push({
       message: clipContent(row, detailsMaxChars),
       context_before: context_before.map((item) => clipContent(item, detailsMaxChars)),
       context_after: context_after.map((item) => clipContent(item, detailsMaxChars)),
+      line_view: lineView,
     });
   }
 
@@ -422,6 +628,13 @@ function executeGet(params: MessagesParams, defaultChat: string): AgentToolResul
         .map((r) => `  [${r.rowid}] ${r.sender_name || r.sender}: ${r.content}`)
         .join("\n");
       const parts = [header];
+      if (item.line_view) {
+        const lineHeader = `  lines ${item.line_view.selected_start}-${item.line_view.selected_end}${item.line_view.grep ? ` grep=${JSON.stringify(item.line_view.grep)}` : ""}:`;
+        const lineBody = item.line_view.lines.length > 0
+          ? item.line_view.lines.map((line) => `  ${line.line_number}| ${line.content}`).join("\n")
+          : "  [no matching lines]";
+        parts.push(`${lineHeader}\n${lineBody}`);
+      }
       if (before) parts.push(`  before:\n${before}`);
       if (after) parts.push(`  after:\n${after}`);
       return parts.join("\n");
@@ -438,6 +651,9 @@ function executeGet(params: MessagesParams, defaultChat: string): AgentToolResul
       missing_row_ids: missing,
       context_before: contextBefore,
       context_after: contextAfter,
+      sender: senderFilter,
+      content_lines: params.content_lines,
+      content_grep: contentGrep,
       details_max_chars: detailsMaxChars,
     },
   };
@@ -610,7 +826,7 @@ function executeDelete(params: MessagesParams, defaultChat: string): AgentToolRe
   const alreadyPlanned = new Set<number>();
 
   for (const rootId of requested) {
-    const root = fetchByRowId(chatJid, roleFilter, rootId);
+    const root = fetchByRowId(chatJid, roleFilter, null, rootId);
     if (!root) {
       skipped.set(rootId, ["not_found"]);
       continue;

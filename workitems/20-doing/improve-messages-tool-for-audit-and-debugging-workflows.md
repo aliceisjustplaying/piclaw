@@ -160,6 +160,18 @@ portable and less agent-friendly.
 ## Updates
 
 ### 2026-04-14
+- Implemented the first/highest-leverage slice in `runtime/src/extensions/messages-crud.ts`:
+  - `search` now supports `after_row` / `before_row`
+  - `search` now supports sender/sender_name filtering via `sender`
+  - `search` can return bounded highlighted excerpts via `excerpt_chars`
+  - `get` now supports `content_lines` range selection and `content_grep` line filtering
+- Added focused regression coverage in `runtime/test/extensions/messages-crud.test.ts` and revalidated `runtime/test/extensions/messages-delete-all-chats.test.ts`.
+- Focused validation passed:
+  - `bun test test/extensions/messages-crud.test.ts test/extensions/messages-delete-all-chats.test.ts`
+  - `bun run typecheck`
+- Remaining scope on this ticket is the explicit `grep` / `extract` action tranche and any later `diff` follow-up.
+
+### 2026-04-14
 - Created from an external improvement spec captured at `http://orangepi6plus.local:8080/media/634`.
 - Initial assessment:
   - strongest immediate value is row-bounded `search` plus smarter `get`

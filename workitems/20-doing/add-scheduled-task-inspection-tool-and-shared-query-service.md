@@ -113,6 +113,21 @@ This is the first implementation slice from
 ## Updates
 
 ### 2026-04-14
+- Implemented the core shared inspection slice:
+  - added `runtime/src/scheduled-task-query-service.ts` as the canonical scheduled-task query service
+  - added a first-class `scheduled_tasks` internal tool for structured list/get inspection
+  - migrated `/tasks` and `/scheduled` to read through the same shared query service instead of ad hoc extension SQL
+- The structured inspection surface returns the required core fields (`id`, `chat_jid`, `task_kind`, `status`, `schedule_type`, `schedule_value`, `next_run`, `last_run`, `last_result`) plus summary fields and optional latest-run-log summaries.
+- Added focused regression coverage in:
+  - `runtime/test/scheduled-task-query-service.test.ts`
+  - `runtime/test/extensions/extensions-scheduled-tasks.test.ts`
+  - `runtime/test/agent-pool/agent-pool-tools.test.ts`
+- Focused validation passed:
+  - `bun test test/extensions/extensions-scheduled-tasks.test.ts test/scheduled-task-query-service.test.ts test/agent-pool/agent-pool-tools.test.ts`
+  - `bun run typecheck`
+- Remaining closeout work is mostly board hygiene / docs / any follow-up scope split rather than the core service/tool implementation.
+
+### 2026-04-14
 - Promoted from `10-next` to `20-doing` and marked `high` priority by user direction.
 - This remains the recommended first implementation slice for the scheduling/tooling gap because it replaces the most common unsupported workflow: routine task inspection via raw DB queries.
 
