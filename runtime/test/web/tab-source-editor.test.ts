@@ -3,12 +3,13 @@ import { describe, expect, test } from 'bun:test';
 import {
   SOURCE_EDITABLE_PANE_IDS,
   canTabEditSource,
+  getTabEditSourceLabel,
   resolveEffectiveTabPaneId,
 } from '../../web/src/ui/tab-source-editor.js';
 
 describe('tab source editor helpers', () => {
-  test('only the specialized kanban and mindmap panes are source-editable', () => {
-    expect(Array.from(SOURCE_EDITABLE_PANE_IDS).sort()).toEqual(['kanban-editor', 'mindmap-editor']);
+  test('only the specialized HTML, kanban, and mindmap panes are source-editable', () => {
+    expect(Array.from(SOURCE_EDITABLE_PANE_IDS).sort()).toEqual(['html-viewer', 'kanban-editor', 'mindmap-editor']);
   });
 
   test('uses the pane override when present', () => {
@@ -23,16 +24,20 @@ describe('tab source editor helpers', () => {
     expect(resolved).toBe('mindmap-editor');
   });
 
-  test('shows Edit Source only for kanban and mindmap tabs while they are in specialized mode', () => {
+  test('shows Edit/Edit Source only for HTML, kanban, and mindmap tabs while they are in specialized mode', () => {
     const resolvePane = ({ path }: any) => {
+      if (String(path).endsWith('.html')) return { id: 'html-viewer' };
       if (String(path).endsWith('.kanban.md')) return { id: 'kanban-editor' };
       if (String(path).endsWith('.mindmap.yaml')) return { id: 'mindmap-editor' };
       return { id: 'editor' };
     };
 
+    expect(canTabEditSource('pages/index.html', null, resolvePane)).toBe(true);
     expect(canTabEditSource('boards/team.kanban.md', null, resolvePane)).toBe(true);
     expect(canTabEditSource('maps/plan.mindmap.yaml', null, resolvePane)).toBe(true);
-    expect(canTabEditSource('boards/team.kanban.md', 'editor', resolvePane)).toBe(false);
+    expect(canTabEditSource('pages/index.html', 'editor', resolvePane)).toBe(false);
     expect(canTabEditSource('notes/todo.md', null, resolvePane)).toBe(false);
+    expect(getTabEditSourceLabel('pages/index.html', null, resolvePane)).toBe('Edit');
+    expect(getTabEditSourceLabel('boards/team.kanban.md', null, resolvePane)).toBe('Edit Source');
   });
 });

@@ -62,21 +62,29 @@ test('runBranchLoaderModeEffect launches loader and cancellation flag flips on c
   expect(isCancelledProbe?.()).toBe(true);
 });
 
-test('watchPaneOpenEventBridge maps openTab/popOut events to shell handlers', () => {
-  const opened: Array<{ path: string; label?: string | null }> = [];
+test('watchPaneOpenEventBridge maps openTab/editSource/popOut events to shell handlers', () => {
+  const opened: Array<{ path: string; label?: string | null; paneOverrideId?: string | null }> = [];
   const popped: Array<{ path: string; label?: string | null }> = [];
 
   const cleanup = watchPaneOpenEventBridge({
-    openEditor: (path, options) => opened.push({ path, label: (options as any)?.label ?? null }),
+    openEditor: (path, options) => opened.push({
+      path,
+      label: (options as any)?.label ?? null,
+      paneOverrideId: (options as any)?.paneOverrideId ?? null,
+    }),
     popOutPane: (path, label) => popped.push({ path, label }),
-    watchPaneOpenEventsImpl: ({ openTab, popOutPane }) => {
-      openTab('/workspace/readme.md', 'README');
-      popOutPane('/workspace/diagram.drawio', 'Diagram');
+    watchPaneOpenEventsImpl: ({ openTab, editSource, popOutPane }) => {
+      openTab?.('/workspace/readme.md', 'README');
+      editSource?.('/workspace/site/index.html', 'Home');
+      popOutPane?.('/workspace/diagram.drawio', 'Diagram');
       return () => {};
     },
   });
 
-  expect(opened).toEqual([{ path: '/workspace/readme.md', label: 'README' }]);
+  expect(opened).toEqual([
+    { path: '/workspace/readme.md', label: 'README', paneOverrideId: null },
+    { path: '/workspace/site/index.html', label: 'Home', paneOverrideId: 'editor' },
+  ]);
   expect(popped).toEqual([{ path: '/workspace/diagram.drawio', label: 'Diagram' }]);
   expect(typeof cleanup).toBe('function');
 });

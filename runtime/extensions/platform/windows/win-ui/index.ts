@@ -135,6 +135,38 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "fs";
+import { registerToolStatusHintProvider } from "../../../../src/tool-status-hints.js";
+
+const WINDOWS_UI_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M8 20h8"></path><path d="M12 18v2"></path></svg>`;
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+registerToolStatusHintProvider({
+  id: "win_ui",
+  buildHints: ({ toolName, args }) => {
+    if (!toolName.startsWith("win_")) return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const label = readTrimmedString(
+      record?.windowTitle,
+      record?.titleMatch,
+      record?.elementName,
+      (record?.x !== undefined && record?.y !== undefined) ? `${record.x},${record.y}` : null,
+    );
+    if (!label) return null;
+    return {
+      key: "win_ui",
+      icon_svg: WINDOWS_UI_STATUS_ICON_SVG,
+      label,
+      title: `Windows UI target • ${label}`,
+      kind: "service",
+    };
+  },
+});
 
 // ── DLL bindings (lazy-loaded) ──────────────────────────────────────────
 // All DLL loads and COM init happen inside ensureInit(), called once from

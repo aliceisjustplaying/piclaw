@@ -213,6 +213,7 @@ const groupDefinitions: GroupDefinition[] = [
         "web-channel.test.ts",
         "web-response-service.test.ts",
         "web-sse-client.test.ts",
+        "tool-status-hints.test.ts",
       ]),
   },
   {
@@ -428,6 +429,7 @@ const groupDefinitions: GroupDefinition[] = [
           "input-focus-safety.test.ts",
           "video-viewer-pane.test.ts",
           "zip-preview.test.ts",
+          "status-hints.test.ts",
         ])
         || isAppRenderingPaneTest(relativePath)
       ),

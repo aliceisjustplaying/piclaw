@@ -29,6 +29,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as os from "node:os";
 import { createLogger, debugSuppressedError } from "../../../src/utils/logger.js";
+import { registerToolStatusHintProvider } from "../../../src/tool-status-hints.js";
 
 // Re-export shared infra (used by this file and available to transcripts.ts)
 export * from "./shared.ts";
@@ -45,6 +46,52 @@ import {
 } from "./shared.ts";
 
 const log = createLogger("extensions.experimental.m365.index");
+const M365_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="3" y="3" width="8" height="8" rx="1.2"></rect><rect x="13" y="3" width="8" height="8" rx="1.2"></rect><rect x="3" y="13" width="8" height="8" rx="1.2"></rect><rect x="13" y="13" width="8" height="8" rx="1.2"></rect></svg>`;
+
+function readTrimmedString(...values: unknown[]): string | null {
+	for (const value of values) {
+		if (typeof value === "string" && value.trim()) return value.trim();
+	}
+	return null;
+}
+
+function extractHostLabelFromUrl(value: unknown): string | null {
+	const raw = readTrimmedString(value);
+	if (!raw) return null;
+	try {
+		return new URL(raw).host || null;
+	} catch {
+		const withoutProtocol = raw.replace(/^[a-z]+:\/\//i, "");
+		return withoutProtocol.split("/")[0]?.trim() || null;
+	}
+}
+
+registerToolStatusHintProvider({
+	id: "m365",
+	buildHints: ({ toolName, args }) => {
+		if (!toolName.startsWith("m365_")) return null;
+		const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+		const host = extractHostLabelFromUrl(readTrimmedString(
+			record?.siteUrl,
+			record?.site_url,
+			record?.webUrl,
+			record?.web_url,
+			record?.shareUrl,
+			record?.share_url,
+			record?.base_url,
+			record?.baseUrl,
+			record?.url,
+			record?.endpoint,
+		)) || (toolName.startsWith("m365_teams_") ? "teams.microsoft.com" : "graph.microsoft.com");
+		return {
+			key: "m365",
+			icon_svg: M365_STATUS_ICON_SVG,
+			label: host,
+			title: "Microsoft 365 target",
+			kind: "service",
+		};
+	},
+});
 
 function logSuppressedM365Index(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
   debugSuppressedError(log, message, error, fields);

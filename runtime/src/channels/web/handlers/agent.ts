@@ -41,12 +41,33 @@ import { createAgentEventEmitter, createStreamingEventHandler } from "../sse/age
 import { broadcastInteractionUpdated } from "../cards/interaction-service.js";
 import { storeAgentTurn } from "../messaging/agent-message-store.js";
 import { resolveThreadId, resolveThreadRootId } from "../runtime/threading.js";
+import { resolveToolStatusHints } from "../../../tool-status-hints.js";
 import { createUuid } from "../../../utils/ids.js";
 import { createLogger } from "../../../utils/logger.js";
 import type { AttachmentInfo } from "../../../agent-pool/attachments.js";
 import { checkPendingShutdown } from "../../../runtime/shutdown-registry.js";
 
 const log = createLogger("web.handlers.agent");
+
+export function withResolvedToolStatusHints(chatJid: string, payload: Record<string, unknown>): Record<string, unknown> {
+  const isToolStatus = payload?.type === "tool_call" || payload?.type === "tool_status";
+  const toolName = typeof payload?.tool_name === "string" ? payload.tool_name.trim() : "";
+  if (!isToolStatus || !toolName) return payload;
+
+  const existingHints = Array.isArray(payload?.status_hints)
+    ? payload.status_hints
+    : (Array.isArray(payload?.statusHints) ? payload.statusHints : []);
+  if (existingHints.length > 0) return payload;
+
+  const statusHints = resolveToolStatusHints({
+    chatJid,
+    toolName,
+    args: payload?.tool_args,
+    payload,
+  });
+  if (statusHints.length === 0) return payload;
+  return { ...payload, status_hints: statusHints };
+}
 
 function parseLeadingAgentMention(content: string): { agentName: string; remainder: string } | null {
   const match = content.match(/^\s*@([a-zA-Z0-9][a-zA-Z0-9_-]{0,31})(?:\s+([\s\S]*))?$/);
@@ -844,14 +865,10 @@ export async function processChat(
     ...emitter,
     status: (payload: Record<string, unknown>) => {
       const isToolStatus = payload?.type === "tool_call" || payload?.type === "tool_status";
+      const toolName = typeof payload?.tool_name === "string" ? payload.tool_name.trim() : "";
       let nextPayload = payload;
-      if (isToolStatus && !payload?.ssh_target) {
-        const sshConfig = typeof (channel.agentPool as { getSshConfig?: (chatJid: string) => { ssh_target?: string | null } | null })?.getSshConfig === "function"
-          ? (channel.agentPool as { getSshConfig: (chatJid: string) => { ssh_target?: string | null } | null }).getSshConfig(chatJid)
-          : null;
-        if (sshConfig?.ssh_target) {
-          nextPayload = { ...payload, ssh_target: sshConfig.ssh_target };
-        }
+      if (isToolStatus && toolName) {
+        nextPayload = withResolvedToolStatusHints(chatJid, payload);
       }
       channel.updateAgentStatus(chatJid, nextPayload);
       emitter.status(nextPayload);

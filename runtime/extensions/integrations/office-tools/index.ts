@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { registerToolStatusHintProvider } from "../../../src/tool-status-hints.js";
 import { createRequire } from "node:module";
 import { dirname, extname, resolve, basename, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -10,6 +11,7 @@ import { ensureBrowser, findBrowser, findCdpPort, printToPdf, type MaybeAbortSig
 import { decodeZipEntryText } from "./zip-entry-text.ts";
 
 const EXT_DIR = typeof import.meta.dir === "string" ? import.meta.dir : dirname(new URL(import.meta.url).pathname);
+const OFFICE_TOOLS_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3h7l4 4v14H8z"></path><path d="M15 3v5h4"></path><path d="M10.5 13h6"></path><path d="M10.5 17h6"></path></svg>`;
 const require = createRequire(import.meta.url);
 const XLSX = require("xlsx");
 const PptxGenJS = require(resolve(EXT_DIR, "../../../vendor/pptxgenjs/pptxgen.cjs.js"));
@@ -19,6 +21,31 @@ const PDF_CSS_PATH = resolve(ASSETS_DIR, "md2pdf.css");
 
 const READABLE_FORMATS = new Set([".docx", ".xlsx", ".pptx"]);
 const WRITABLE_FORMATS = new Set([".docx", ".xlsx", ".pptx", ".pdf"]);
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+registerToolStatusHintProvider({
+  id: "office_tools",
+  buildHints: ({ toolName, args }) => {
+    if (toolName !== "office_read" && toolName !== "office_write") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const path = readTrimmedString(record?.path);
+    if (!path) return null;
+    const mode = toolName === "office_read" ? "Office read" : "Office write";
+    return {
+      key: toolName,
+      icon_svg: OFFICE_TOOLS_STATUS_ICON_SVG,
+      label: path,
+      title: `${mode} • ${path}`,
+      kind: "file",
+    };
+  },
+});
 
 function resolveWorkspacePath(baseDir: string, requestedPath: string): string {
   const base = resolve(baseDir);

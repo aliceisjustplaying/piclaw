@@ -1,4 +1,4 @@
-export const SOURCE_EDITABLE_PANE_IDS = new Set(['kanban-editor', 'mindmap-editor']);
+export const SOURCE_EDITABLE_PANE_IDS = new Set(['html-viewer', 'kanban-editor', 'mindmap-editor']);
 
 export interface ResolvePaneContext {
   path: string;
@@ -31,4 +31,13 @@ export function canTabEditSource(
 ): boolean {
   const paneId = resolveEffectiveTabPaneId(path, paneOverrideId, resolvePane);
   return paneId != null && SOURCE_EDITABLE_PANE_IDS.has(paneId);
+}
+
+export function getTabEditSourceLabel(
+  path: string | null | undefined,
+  paneOverrideId: string | null | undefined,
+  resolvePane?: ResolvePaneLike | null,
+): string {
+  const paneId = resolveEffectiveTabPaneId(path, paneOverrideId, resolvePane);
+  return paneId === 'html-viewer' ? 'Edit' : 'Edit Source';
 }

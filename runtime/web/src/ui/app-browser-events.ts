@@ -9,6 +9,7 @@ interface RuntimeLike {
 
 export interface PaneOpenEventCallbacks {
   openTab?: (path: string, label?: string) => void;
+  editSource?: (path: string, label?: string) => void;
   popOutPane?: (path: string, label?: string) => void;
 }
 
@@ -18,6 +19,7 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
   if (!doc) return () => {};
 
   const openTab = callbacks?.openTab;
+  const editSource = callbacks?.editSource;
   const popOutPane = callbacks?.popOutPane;
 
   const openTabHandler = (event: { detail?: { path?: string; label?: string } }) => {
@@ -25,6 +27,14 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
     const label = typeof event?.detail?.label === 'string' && event.detail.label.trim() ? event.detail.label.trim() : undefined;
     if (path) {
       openTab?.(path, label);
+    }
+  };
+
+  const editSourceHandler = (event: { detail?: { path?: string; label?: string } }) => {
+    const path = event?.detail?.path;
+    const label = typeof event?.detail?.label === 'string' && event.detail.label.trim() ? event.detail.label.trim() : undefined;
+    if (path) {
+      editSource?.(path, label);
     }
   };
 
@@ -43,16 +53,19 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
     'pdf-viewer:open-tab',
     'image-viewer:open-tab',
     'video-viewer:open-tab',
+    'html-viewer:open-tab',
     'mindmap:open-tab',
     'kanban:open-tab',
     'vnc:open-tab',
   ];
 
   openTabEvents.forEach((type) => doc.addEventListener(type, openTabHandler));
+  doc.addEventListener('html-viewer:edit-source', editSourceHandler);
   doc.addEventListener('pane:popout', popoutHandler);
 
   return () => {
     openTabEvents.forEach((type) => doc.removeEventListener(type, openTabHandler));
+    doc.removeEventListener('html-viewer:edit-source', editSourceHandler);
     doc.removeEventListener('pane:popout', popoutHandler);
   };
 }

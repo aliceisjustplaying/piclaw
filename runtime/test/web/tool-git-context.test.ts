@@ -1,8 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import {
+  extractHostLabelFromUrl,
   extractShellCwdFromCommand,
   extractToolContextPath,
+  extractToolM365Host,
+  extractToolPortainerHost,
+  extractToolProxmoxHost,
   extractToolSshTarget,
   stripRemotePathFromSshTarget,
 } from '../../web/src/ui/tool-git-context.js';
@@ -45,4 +49,23 @@ test('extractToolSshTarget reads ssh wrapper targets', () => {
 
 test('stripRemotePathFromSshTarget also handles top-level status payload values', () => {
   expect(stripRemotePathFromSshTarget('agent@example.com:/srv/project')).toBe('agent@example.com');
+});
+
+test('extractHostLabelFromUrl keeps hostname and port', () => {
+  expect(extractHostLabelFromUrl('https://pve.example.com:8006/api2/json')).toBe('pve.example.com:8006');
+  expect(extractHostLabelFromUrl('https://portainer.example.com/api')).toBe('portainer.example.com');
+});
+
+test('extractToolProxmoxHost and extractToolPortainerHost read configured API hosts', () => {
+  expect(extractToolProxmoxHost('proxmox', { base_url: 'https://pve.example.com:8006/api2/json' })).toBe('pve.example.com:8006');
+  expect(extractToolPortainerHost('portainer', { base_url: 'https://portainer.example.com/api' })).toBe('portainer.example.com');
+  expect(extractToolProxmoxHost('bash', { base_url: 'https://pve.example.com:8006/api2/json' })).toBeNull();
+  expect(extractToolPortainerHost('bash', { base_url: 'https://portainer.example.com/api' })).toBeNull();
+});
+
+test('extractToolM365Host prefers explicit URLs and falls back by tool family', () => {
+  expect(extractToolM365Host('m365_sharepoint_search', { siteUrl: 'https://contoso.sharepoint.com/sites/TeamA' })).toBe('contoso.sharepoint.com');
+  expect(extractToolM365Host('m365_teams_messages', {})).toBe('teams.microsoft.com');
+  expect(extractToolM365Host('m365_mail_search', {})).toBe('graph.microsoft.com');
+  expect(extractToolM365Host('bash', { siteUrl: 'https://contoso.sharepoint.com/sites/TeamA' })).toBeNull();
 });

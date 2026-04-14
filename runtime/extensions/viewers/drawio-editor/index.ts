@@ -16,8 +16,11 @@
 
 import { resolve, extname, dirname } from "node:path";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { registerToolStatusHintProvider } from "../../../src/tool-status-hints.js";
 
 // ── Constants ───────────────────────────────────────────────────
+
+const DRAWIO_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M8 14l3-3 2.5 2.5L16 11l2 3"></path><path d="M16.5 8.5h3v3"></path><path d="M19.5 8.5l-4 4"></path></svg>`;
 
 const EXT_DIR = typeof import.meta.dir === "string"
   ? import.meta.dir
@@ -123,6 +126,30 @@ export function isBinaryDrawioSaveTarget(savePath: string, format?: string, mime
     || mimeType === "image/jpg"
     || mimeType === "application/pdf";
 }
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+registerToolStatusHintProvider({
+  id: "drawio_editor",
+  buildHints: ({ toolName, args }) => {
+    if (toolName !== "open_drawio_editor") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const path = readTrimmedString(record?.path);
+    if (!path) return null;
+    return {
+      key: "open_drawio_editor",
+      icon_svg: DRAWIO_STATUS_ICON_SVG,
+      label: path,
+      title: `Draw.io editor • ${path}`,
+      kind: "file",
+    };
+  },
+});
 
 // ── Editor wrapper page ─────────────────────────────────────────
 

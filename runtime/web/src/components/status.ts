@@ -5,7 +5,7 @@ import { renderThinkingMarkdown } from '../markdown.js';
 import { getTurnColor } from '../ui/agent-utils.js';
 import { buildTurnDotClass, resolveRunningStatusIndicator, shouldShowRunningStatusDot } from '../ui/status-dot.js';
 import { getStatusElapsedLabel, isCompactionStatus, resolveStatusPanelTitle } from '../ui/status-duration.js';
-import { extractToolContextPath, extractToolSshTarget, stripRemotePathFromSshTarget } from '../ui/tool-git-context.js';
+import { extractToolContextPath } from '../ui/tool-git-context.js';
 
 const COPY_ICON_SVG = html`
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -23,12 +23,20 @@ const GIT_BRANCH_ICON_SVG = html`
     </svg>
 `;
 
-const SSH_LOCK_ICON_SVG = html`
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <rect x="5" y="11" width="14" height="10" rx="2"></rect>
-        <path d="M8 11V8a4 4 0 1 1 8 0v3"></path>
-    </svg>
-`;
+export function normalizeStatusHints(value) {
+    const source = Array.isArray(value)
+        ? value
+        : (value && Array.isArray(value.status_hints) ? value.status_hints : []);
+    return source
+        .filter((hint) => hint && typeof hint === 'object')
+        .map((hint, index) => ({
+            key: typeof hint.key === 'string' && hint.key.trim() ? hint.key.trim() : `hint-${index}`,
+            iconSvg: typeof hint.icon_svg === 'string' ? hint.icon_svg.trim() : '',
+            label: typeof hint.label === 'string' ? hint.label.trim() : '',
+            title: typeof hint.title === 'string' ? hint.title.trim() : '',
+        }))
+        .filter((hint) => hint.iconSvg && hint.label);
+}
 
 /** Preact component: agent status bar with draft/thought/plan panels. */
 export function AgentStatus({ status, draft, plan, thought, pendingRequest, intent, extensionPanels = [], pendingPanelActions = new Set(), onExtensionPanelAction, turnId, steerQueued, onPanelToggle, showCorePanels = true, showExtensionPanels = true }) {
@@ -191,9 +199,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
     const toolRepoLabel = toolRepoContext
         ? [toolRepoRepoPath, toolRepoBranch].filter(Boolean).join(' · ')
         : '';
-    const toolSshTarget = extractToolSshTarget(status?.tool_name, status?.tool_args)
-        || stripRemotePathFromSshTarget(status?.ssh_target)
-        || '';
+    const statusHints = normalizeStatusHints(status?.status_hints || status?.statusHints);
 
     const renderThinkingPanel = ({ panelTitle, text, fullText, totalLines, maxLines, titleClass, panelKey }) => {
         const isExpanded = expandedPanels.has(panelKey);
@@ -610,7 +616,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                 panelKey: 'draft',
             })}
             ${showCorePanels && status && status?.type !== 'intent' && html`
-                <div class=${`agent-status${isLastActivity ? ' agent-status-last-activity' : ''}${status?.type === 'error' ? ' agent-status-error' : ''}${toolRepoLabel || toolSshTarget ? ' agent-status-multiline' : ''}`} aria-live="polite" style=${turnColor ? `--turn-color: ${turnColor};` : ''}>
+                <div class=${`agent-status${isLastActivity ? ' agent-status-last-activity' : ''}${status?.type === 'error' ? ' agent-status-error' : ''}${toolRepoLabel || statusHints.length > 0 ? ' agent-status-multiline' : ''}`} aria-live="polite" style=${turnColor ? `--turn-color: ${turnColor};` : ''}>
                     ${turnColor && showRunningStatusDot && html`<span class=${dotClass} aria-hidden="true"></span>`}
                     ${status?.type === 'error'
                         ? html`<span class="agent-status-error-icon" aria-hidden="true">⚠</span>`
@@ -627,12 +633,12 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                                 </span>
                             </span>
                         `}
-                        ${toolSshTarget && html`
-                            <span class="agent-status-ssh-row" title=${toolSshTarget}>
-                                <span class="agent-status-ssh-icon">${SSH_LOCK_ICON_SVG}</span>
-                                <span class="agent-status-ssh-label">${toolSshTarget}</span>
+                        ${statusHints.map((hint) => html`
+                            <span key=${hint.key} class="agent-status-hint-row" title=${hint.title || hint.label}>
+                                <span class="agent-status-hint-icon" dangerouslySetInnerHTML=${{ __html: hint.iconSvg }}></span>
+                                <span class="agent-status-hint-label">${hint.label}</span>
                             </span>
-                        `}
+                        `)}
                     </div>
                 </div>
             `}

@@ -12,12 +12,15 @@
 
 import { resolve, extname, dirname } from "node:path";
 import { existsSync, realpathSync, statSync } from "node:fs";
+import { registerToolStatusHintProvider } from "../../../src/tool-status-hints.js";
 
 // ── Constants ───────────────────────────────────────────────────
 
 const EXT_DIR = typeof import.meta.dir === "string" ? import.meta.dir : dirname(new URL(import.meta.url).pathname);
 const VENDOR_DIR = resolve(EXT_DIR, "vendor");
 const ROUTE_PREFIX = "/office-viewer";
+
+const OFFICE_VIEWER_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3h7l4 4v14H8z"></path><path d="M15 3v5h4"></path><path d="M4 12h10"></path><circle cx="18" cy="16" r="2.5"></circle></svg>`;
 
 const OFFICE_EXTENSIONS = [
   ".docx", ".doc", ".odt", ".rtf",
@@ -31,6 +34,30 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".woff2": "font/woff2",
 };
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+registerToolStatusHintProvider({
+  id: "office_viewer",
+  buildHints: ({ toolName, args }) => {
+    if (toolName !== "open_office_viewer") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const path = readTrimmedString(record?.path);
+    if (!path) return null;
+    return {
+      key: "open_office_viewer",
+      icon_svg: OFFICE_VIEWER_STATUS_ICON_SVG,
+      label: path,
+      title: `Office viewer • ${path}`,
+      kind: "file",
+    };
+  },
+});
 
 /** Standard security headers — no COOP/COEP needed (no WASM workers). */
 const HEADERS: Record<string, string> = {

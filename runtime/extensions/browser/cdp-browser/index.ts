@@ -8,6 +8,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { registerToolStatusHintProvider } from "../../../src/tool-status-hints.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
@@ -23,6 +24,44 @@ import {
   sleepWithSignal,
   withConnectedTab,
 } from "./cdp.ts";
+
+const CDP_BROWSER_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M8 20h8"></path><path d="M12 18v2"></path></svg>`;
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function extractHostLabelFromUrl(value: unknown): string | null {
+  const raw = readTrimmedString(value);
+  if (!raw) return null;
+  try {
+    return new URL(raw).host || null;
+  } catch {
+    return null;
+  }
+}
+
+registerToolStatusHintProvider({
+  id: "cdp_browser",
+  buildHints: ({ toolName, args }) => {
+    if (toolName !== "cdp_browser") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const label = extractHostLabelFromUrl(record?.url)
+      || readTrimmedString(record?.match)
+      || readTrimmedString(record?.action);
+    if (!label) return null;
+    return {
+      key: "cdp_browser",
+      icon_svg: CDP_BROWSER_STATUS_ICON_SVG,
+      label,
+      title: `Browser target • ${label}`,
+      kind: "service",
+    };
+  },
+});
 
 function buildClickExpression(selector: string): string {
   const selectorLiteral = JSON.stringify(selector);

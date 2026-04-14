@@ -431,6 +431,10 @@ export function watchPaneOpenEventBridge(options: WatchPaneOpenEventBridgeOption
 
   return watchPaneOpenEventsImpl({
     openTab: (path, label) => openEditor(path, label ? { label } : undefined),
+    editSource: (path, label) => openEditor(path, {
+      ...(label ? { label } : {}),
+      paneOverrideId: 'editor',
+    }),
     popOutPane: (path, label) => {
       popOutPane(path, label);
     },

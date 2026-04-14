@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-age
 import { Type } from "@sinclair/typebox";
 
 import { getChatJid } from "../core/chat-context.js";
+import { registerToolStatusHintProvider } from "../tool-status-hints.js";
 import type {
   SshConfig,
   SshConfigApplyTiming,
@@ -20,9 +21,45 @@ export interface SshToolHandlers {
 
 let registeredHandlers: SshToolHandlers | null = null;
 
+const SSH_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>`;
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function stripRemotePathFromSshTarget(value: unknown): string | null {
+  const target = readTrimmedString(value);
+  if (!target) return null;
+  const match = target.match(/^(.*?):((?:\/|~).*)$/);
+  return (match?.[1] || target).trim() || null;
+}
+
 export function setSshToolHandlers(handlers: SshToolHandlers | null | undefined): void {
   registeredHandlers = handlers ?? null;
 }
+
+registerToolStatusHintProvider({
+  id: "ssh",
+  buildHints: ({ chatJid, payload }) => {
+    const target = stripRemotePathFromSshTarget(
+      readTrimmedString(
+        payload?.ssh_target,
+        registeredHandlers?.get(chatJid)?.ssh_target,
+      ),
+    );
+    if (!target) return null;
+    return {
+      key: "ssh",
+      icon_svg: SSH_STATUS_ICON_SVG,
+      label: target,
+      title: "SSH target",
+      kind: "remote",
+    };
+  },
+});
 
 const SshToolSchema = Type.Object({
   action: Type.Union([Type.Literal("get"), Type.Literal("set"), Type.Literal("clear")], {

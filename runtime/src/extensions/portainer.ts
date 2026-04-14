@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-age
 import { Type } from "@sinclair/typebox";
 
 import { getChatJid } from "../core/chat-context.js";
+import { registerToolStatusHintProvider } from "../tool-status-hints.js";
 import type {
   PortainerConfig,
   PortainerConfigClearResult,
@@ -50,9 +51,54 @@ export interface PortainerToolHandlers {
 
 let registeredHandlers: PortainerToolHandlers | null = null;
 
+const PORTAINER_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="7" width="7" height="5.5" rx="1"></rect><rect x="13.5" y="7" width="7" height="5.5" rx="1"></rect><rect x="8.5" y="13.5" width="7" height="5.5" rx="1"></rect><path d="M12 13.5v-1.5"></path></svg>`;
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function extractHostLabelFromUrl(value: unknown): string | null {
+  const raw = readTrimmedString(value);
+  if (!raw) return null;
+  try {
+    return new URL(raw).host || null;
+  } catch {
+    const withoutProtocol = raw.replace(/^[a-z]+:\/\//i, "");
+    return withoutProtocol.split("/")[0]?.trim() || null;
+  }
+}
+
 export function setPortainerToolHandlers(handlers: PortainerToolHandlers | null | undefined): void {
   registeredHandlers = handlers ?? null;
 }
+
+registerToolStatusHintProvider({
+  id: "portainer",
+  buildHints: ({ chatJid, toolName, args }) => {
+    if (toolName !== "portainer") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const host = extractHostLabelFromUrl(
+      readTrimmedString(
+        record?.base_url,
+        record?.baseUrl,
+        record?.url,
+        record?.endpoint,
+        registeredHandlers?.get(chatJid)?.base_url,
+      ),
+    );
+    if (!host) return null;
+    return {
+      key: "portainer",
+      icon_svg: PORTAINER_STATUS_ICON_SVG,
+      label: host,
+      title: "Portainer host",
+      kind: "service",
+    };
+  },
+});
 
 const PortainerWorkflowSchema = Type.Union([
   Type.Literal("endpoint.list"),

@@ -9,9 +9,12 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 
+import { registerToolStatusHintProvider } from "../tool-status-hints.js";
 import type { CapturedBunStreamResult } from "../tools/bun-runner.js";
 import { runBunScript } from "../tools/bun-runner.js";
 import { buildSubprocessExecutionHint } from "../utils/process-spawn.js";
+
+const BUN_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M9 9h2.5v6H9"></path><path d="M13.5 9h3v1.8h-1.2V15c0 1.3-.9 2-2.2 2-.5 0-.9-.1-1.2-.3"></path></svg>`;
 
 const BunRunSchema = Type.Object({
   script: Type.String({ description: "Workspace-relative script file to execute with Bun (for example `runtime/scripts/foo.ts`)." }),
@@ -22,6 +25,30 @@ const BunRunSchema = Type.Object({
 });
 
 type BunRunParams = Static<typeof BunRunSchema>;
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+registerToolStatusHintProvider({
+  id: "bun_run",
+  buildHints: ({ toolName, args }) => {
+    if (toolName !== "bun_run") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const script = readTrimmedString(record?.script);
+    if (!script) return null;
+    return {
+      key: "bun_run",
+      icon_svg: BUN_STATUS_ICON_SVG,
+      label: script,
+      title: `Bun script • ${script}`,
+      kind: "script",
+    };
+  },
+});
 
 export function buildBunRunHint(platform: NodeJS.Platform = process.platform): string {
   return [

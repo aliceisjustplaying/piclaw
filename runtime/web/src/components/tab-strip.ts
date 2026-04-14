@@ -14,7 +14,7 @@
 import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { paneRegistry } from '../panes/index.js';
 import { canTabCompareToSaved } from '../ui/tab-compare-saved.js';
-import { canTabEditSource } from '../ui/tab-source-editor.js';
+import { canTabEditSource, getTabEditSourceLabel } from '../ui/tab-source-editor.js';
 
 /**
  * TabStrip — horizontal tab bar for open editor files.
@@ -174,6 +174,11 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
         if (!tabId) return false;
         return canTabEditSource(tabId, getPaneOverride(tabId), (context) => paneRegistry.resolve(context));
     }, [contextMenu?.id, getPaneOverride]);
+    const contextMenuEditSourceLabel = useMemo(() => {
+        const tabId = contextMenu?.id;
+        if (!tabId) return 'Edit Source';
+        return getTabEditSourceLabel(tabId, getPaneOverride(tabId), (context) => paneRegistry.resolve(context));
+    }, [contextMenu?.id, getPaneOverride]);
     const isContextMenuTabDetached = useMemo(() => {
         const tabId = contextMenu?.id;
         if (!tabId || !(detachedTabs instanceof Map)) return false;
@@ -284,7 +289,7 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
                     <button onClick=${() => {
                         onEditSource(contextMenu.id);
                         setContextMenu(null);
-                    }}>Edit Source</button>
+                    }}>${contextMenuEditSourceLabel}</button>
                 `}
                 ${isContextMenuTabDetached && onReattachTab && html`
                     <button onClick=${() => {

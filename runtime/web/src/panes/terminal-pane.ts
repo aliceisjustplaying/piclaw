@@ -395,8 +395,8 @@ class TerminalPaneInstance implements PaneInstance {
         for (const timer of Array.from(this.resizeRetryTimers)) {
             try {
                 this.ownerWindow.clearTimeout(timer);
-            } catch {
-                /* expected: timeout may already be cleared while a resize retry is draining. */
+            } catch (error) {
+                console.debug('[terminal-pane] Ignoring timeout clear failure during resize retry drain.', error, { timer });
             }
         }
         this.resizeRetryTimers.clear();

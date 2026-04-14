@@ -86,7 +86,9 @@ async function installPageInstrumentation(page) {
     const push = (type, extra = {}) => {
       try {
         target.events.push({ t: Number(performance.now().toFixed(1)), type, ...extra });
-      } catch {}
+      } catch (error) {
+        console.debug('[terminal-reopen] instrumentation event capture failed', error, { type });
+      }
     };
 
     const summarize = (node) => ({
@@ -354,12 +356,16 @@ async function main() {
     if (context) {
       try {
         await context.close();
-      } catch {}
+      } catch (error) {
+        log('Ignoring Playwright context close failure.', error);
+      }
     }
     if (browser) {
       try {
         await browser.close();
-      } catch {}
+      } catch (error) {
+        log('Ignoring Playwright browser close failure.', error);
+      }
     }
   }
 }

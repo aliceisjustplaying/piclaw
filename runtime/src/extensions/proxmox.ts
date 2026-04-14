@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-age
 import { Type } from "@sinclair/typebox";
 
 import { getChatJid } from "../core/chat-context.js";
+import { registerToolStatusHintProvider } from "../tool-status-hints.js";
 import type {
   ProxmoxConfig,
   ProxmoxConfigClearResult,
@@ -49,9 +50,54 @@ export interface ProxmoxToolHandlers {
 
 let registeredHandlers: ProxmoxToolHandlers | null = null;
 
+const PROXMOX_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="6" rx="1.5"></rect><rect x="4" y="14" width="16" height="6" rx="1.5"></rect><path d="M8 7h.01M8 17h.01"></path><path d="M11 7h5M11 17h5"></path></svg>`;
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function extractHostLabelFromUrl(value: unknown): string | null {
+  const raw = readTrimmedString(value);
+  if (!raw) return null;
+  try {
+    return new URL(raw).host || null;
+  } catch {
+    const withoutProtocol = raw.replace(/^[a-z]+:\/\//i, "");
+    return withoutProtocol.split("/")[0]?.trim() || null;
+  }
+}
+
 export function setProxmoxToolHandlers(handlers: ProxmoxToolHandlers | null | undefined): void {
   registeredHandlers = handlers ?? null;
 }
+
+registerToolStatusHintProvider({
+  id: "proxmox",
+  buildHints: ({ chatJid, toolName, args }) => {
+    if (toolName !== "proxmox") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const host = extractHostLabelFromUrl(
+      readTrimmedString(
+        record?.base_url,
+        record?.baseUrl,
+        record?.url,
+        record?.endpoint,
+        registeredHandlers?.get(chatJid)?.base_url,
+      ),
+    );
+    if (!host) return null;
+    return {
+      key: "proxmox",
+      icon_svg: PROXMOX_STATUS_ICON_SVG,
+      label: host,
+      title: "Proxmox host",
+      kind: "service",
+    };
+  },
+});
 
 const ProxmoxWorkflowSchema = Type.Union([
   Type.Literal("cluster.status"),

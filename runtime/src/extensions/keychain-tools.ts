@@ -4,6 +4,7 @@
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 
+import { registerToolStatusHintProvider } from "../tool-status-hints.js";
 import {
   deleteKeychainEntry,
   getKeychainEntry,
@@ -13,6 +14,8 @@ import {
   setKeychainEntry,
 } from "../secure/keychain.js";
 import { createKeychainOutputRedactor } from "../secure/shell-secrets.js";
+
+const KEYCHAIN_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="14" r="3"></circle><path d="M11 14h9"></path><path d="M16 14v-2"></path><path d="M19 14v2"></path></svg>`;
 
 const KeychainToolSchema = Type.Object({
   action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("set"), Type.Literal("delete")], {
@@ -32,6 +35,30 @@ const KeychainToolSchema = Type.Object({
   secret: Type.Optional(Type.String({ description: "Plaintext secret for action=set." })),
   username: Type.Optional(Type.String({ description: "Optional username for action=set." })),
   limit: Type.Optional(Type.Integer({ description: "Max entries for action=list (1-200).", minimum: 1, maximum: 200 })),
+});
+
+function readTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+registerToolStatusHintProvider({
+  id: "keychain",
+  buildHints: ({ toolName, args }) => {
+    if (toolName !== "keychain") return null;
+    const record = args && typeof args === "object" ? args as Record<string, unknown> : null;
+    const name = readTrimmedString(record?.name);
+    if (!name) return null;
+    return {
+      key: "keychain",
+      icon_svg: KEYCHAIN_STATUS_ICON_SVG,
+      label: name,
+      title: `Keychain entry • ${name}`,
+      kind: "profile",
+    };
+  },
 });
 
 function clampLimit(value: number | undefined, fallback = 100): number {

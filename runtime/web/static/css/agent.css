@@ -166,7 +166,7 @@
 }
 
 .agent-status-git-row,
-.agent-status-ssh-row {
+.agent-status-hint-row {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -181,26 +181,30 @@
 }
 
 .agent-status-git-icon,
-.agent-status-ssh-icon {
+.agent-status-hint-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
 }
 
-.agent-status-git-icon svg,
-.agent-status-ssh-icon svg {
+.agent-status-git-icon svg {
     width: 12px;
     height: 12px;
-    fill: none;
     stroke: currentColor;
+    fill: none;
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
 
+.agent-status-hint-icon svg {
+    width: 12px;
+    height: 12px;
+}
+
 .agent-status-git-label,
-.agent-status-ssh-label {
+.agent-status-hint-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
