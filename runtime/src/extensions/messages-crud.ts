@@ -23,6 +23,7 @@ const MessagesSchema = Type.Object({
       Type.Literal("get"),
       Type.Literal("grep"),
       Type.Literal("extract"),
+      Type.Literal("diff"),
       Type.Literal("add"),
       Type.Literal("post"),
       Type.Literal("delete"),
@@ -159,6 +160,18 @@ type ExtractResultItem = {
   first_seen_chat_jid: string;
   first_seen_sender: string;
   first_seen_sender_name: string;
+};
+
+type DiffSummary = {
+  checkpoint_after_row: number | null;
+  checkpoint_before_row: number | null;
+  checkpoint_after: string | null;
+  checkpoint_before: string | null;
+  first_rowid: number | null;
+  last_rowid: number | null;
+  user_count: number;
+  assistant_count: number;
+  sender_counts: Array<{ sender: string; count: number }>;
 };
 
 function normalizeChatJid(input: string | undefined, defaultChat: string): string | null {
@@ -1029,6 +1042,98 @@ function executeExtract(params: MessagesParams, defaultChat: string): AgentToolR
   };
 }
 
+function executeDiff(params: MessagesParams, defaultChat: string): AgentToolResult<Record<string, unknown>> {
+  const hasCheckpoint = typeof params.after_row === "number" || typeof params.before_row === "number" || Boolean(params.after || params.since || params.before);
+  if (!hasCheckpoint) {
+    return {
+      content: [{ type: "text", text: "Provide at least after_row, before_row, after, or before for action=diff." }],
+      details: { action: "diff", count: 0, messages: [], error: "missing_checkpoint" },
+    };
+  }
+
+  const chatJid = normalizeChatJid(params.chat_jid, defaultChat);
+  const roleFilter = normalizeRole(params.role);
+  const senderFilter = normalizeSender(params.sender);
+  const limit = Math.min(Math.max(params.limit ?? 20, 1), 50);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const detailsMaxChars = typeof params.details_max_chars === "number" ? Math.max(params.details_max_chars, 0) : undefined;
+  const rows = listMessageWindow(chatJid, roleFilter, senderFilter, limit, offset, params.since || params.after, params.before, params.after_row, params.before_row)
+    .slice()
+    .reverse();
+
+  if (rows.length === 0) {
+    return {
+      content: [{ type: "text", text: "No changes found in the requested checkpoint window." }],
+      details: {
+        action: "diff",
+        count: 0,
+        messages: [],
+        summary: {
+          checkpoint_after_row: params.after_row ?? null,
+          checkpoint_before_row: params.before_row ?? null,
+          checkpoint_after: params.after || params.since || null,
+          checkpoint_before: params.before || null,
+          first_rowid: null,
+          last_rowid: null,
+          user_count: 0,
+          assistant_count: 0,
+          sender_counts: [],
+        } satisfies DiffSummary,
+      },
+    };
+  }
+
+  const messages = rows.map((row) => clipContent(row, detailsMaxChars));
+  const senderCounts = new Map<string, number>();
+  let userCount = 0;
+  let assistantCount = 0;
+  for (const row of rows) {
+    const senderKey = row.sender_name || row.sender;
+    senderCounts.set(senderKey, (senderCounts.get(senderKey) ?? 0) + 1);
+    if (row.is_bot_message === 1) assistantCount += 1;
+    else userCount += 1;
+  }
+
+  const summary: DiffSummary = {
+    checkpoint_after_row: params.after_row ?? null,
+    checkpoint_before_row: params.before_row ?? null,
+    checkpoint_after: params.after || params.since || null,
+    checkpoint_before: params.before || null,
+    first_rowid: rows[0]?.rowid ?? null,
+    last_rowid: rows[rows.length - 1]?.rowid ?? null,
+    user_count: userCount,
+    assistant_count: assistantCount,
+    sender_counts: Array.from(senderCounts.entries())
+      .map(([sender, count]) => ({ sender, count }))
+      .sort((a, b) => b.count - a.count || a.sender.localeCompare(b.sender)),
+  };
+
+  const senderPreview = summary.sender_counts.slice(0, 5).map((entry) => `${entry.sender}=${entry.count}`).join(", ");
+  const preview = messages.map((row) => `[${row.rowid}] ${row.sender_name || row.sender}: ${row.content}`).join("\n");
+  return {
+    content: [{
+      type: "text",
+      text: `Changed messages: ${messages.length}. Rows ${summary.first_rowid}–${summary.last_rowid}. User ${summary.user_count}, assistant ${summary.assistant_count}.${senderPreview ? ` Senders: ${senderPreview}.` : ""}\n${preview}`,
+    }],
+    details: {
+      action: "diff",
+      count: messages.length,
+      messages,
+      summary,
+      limit,
+      offset,
+      chat_jid: chatJid,
+      role: params.role,
+      sender: senderFilter,
+      after: params.after || params.since,
+      before: params.before,
+      after_row: params.after_row,
+      before_row: params.before_row,
+      details_max_chars: detailsMaxChars,
+    },
+  };
+}
+
 function sanitizeMessageToolContent(rawContent: string | undefined, isBot: boolean): string {
   const trimmed = rawContent?.trim() ?? "";
   if (!isBot) return trimmed;
@@ -1292,6 +1397,7 @@ export function runMessagesTool(
   if (action === "get") return executeGet(params, defaultChat);
   if (action === "grep") return executeGrep(params, defaultChat);
   if (action === "extract") return executeExtract(params, defaultChat);
+  if (action === "diff") return executeDiff(params, defaultChat);
   if (action === "add") return executeAdd(params, defaultChat);
   if (action === "post") return executePost(params, defaultChat, postFn);
   if (action === "delete") return executeDelete(params, defaultChat);
@@ -1318,7 +1424,7 @@ export function postMessagesToolMessage(
 
 const MESSAGES_TOOL_HINT = [
   "## Messages",
-  "Use the messages tool to search, retrieve, grep, extract, add, post, and delete chat messages.",
+  "Use the messages tool to search, retrieve, grep, extract, diff, add, post, and delete chat messages.",
   "Read operations are safe by default; delete requires explicit action=delete and can be dry-run with dry_run=true.",
   "Read/search/get results include message metadata and include parsed content_blocks when available.",
   "The post action stores a message with content_blocks and broadcasts it to connected clients.",
@@ -1327,6 +1433,7 @@ const MESSAGES_TOOL_HINT = [
   "- get: { action: \"get\", row_ids: [123], context_before: 2, context_after: 1 }",
   "- grep: { action: \"grep\", pattern: \"error\", after_row: 100, context_lines: 1 }",
   "- extract: { action: \"extract\", pattern: \"pc=(0x[0-9a-f]+)\", regex: true, capture_group: 1 }",
+  "- diff: { action: \"diff\", after_row: 12345, limit: 20 }",
   "- add: { action: \"add\", type: \"agent\", content: \"Hello\" }",
   "- post: { action: \"post\", type: \"agent\", content: \"Card fallback\", content_blocks: [...] }",
   "- delete: { action: \"delete\", row_ids: [123, 124], dry_run: true, force: true }",
@@ -1357,8 +1464,8 @@ export const messagesCrud: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool({
     name: "messages",
     label: "messages",
-    description: "Search, retrieve, grep, extract, add, post, or delete messages via shared store.",
-    promptSnippet: "messages: search/get/grep/extract/add/post/delete rows in the shared message timeline store.",
+    description: "Search, retrieve, grep, extract, diff, add, post, or delete messages via shared store.",
+    promptSnippet: "messages: search/get/grep/extract/diff/add/post/delete rows in the shared message timeline store.",
     parameters: MessagesSchema,
     async execute(_toolCallId, params) {
       const defaultChat = getChatJid("web:default");

@@ -160,19 +160,16 @@ portable and less agent-friendly.
 ## Updates
 
 ### 2026-04-14
-- Extended the same tranche to cover Slice 2 + Slice 3 in `runtime/src/extensions/messages-crud.ts`:
-  - added `grep` action for bounded content-pattern matching with optional regex mode and context lines
-  - added `extract` action for repeated structured-value extraction with regex capture groups, dedupe, sorting, and first-seen metadata
-- The earlier Slice 1 improvements also landed in the same code path:
-  - `search` now supports `after_row` / `before_row`
-  - `search` now supports sender/sender_name filtering via `sender`
-  - `search` can return bounded highlighted excerpts via `excerpt_chars`
-  - `get` now supports `content_lines` range selection and `content_grep` line filtering
+- Completed the planned message-audit surface in `runtime/src/extensions/messages-crud.ts`:
+  - Slice 1: `search` now supports `after_row` / `before_row`, sender filtering via `sender`, highlighted excerpts via `excerpt_chars`, and `get` now supports `content_lines` / `content_grep`
+  - Slice 2: added `grep` action for bounded content-pattern matching with optional regex mode and context lines
+  - Slice 3: added `extract` action for repeated structured-value extraction with regex capture groups, dedupe, sorting, and first-seen metadata
+  - Slice 4: added lightweight `diff` action for checkpoint-delta review (`what changed since row X?`) with bounded row windows, role counts, sender counts, and ordered changed-message output
 - Added focused regression coverage in `runtime/test/extensions/messages-crud.test.ts` and revalidated `runtime/test/extensions/messages-delete-all-chats.test.ts`.
 - Focused validation passed:
   - `bun test test/extensions/messages-crud.test.ts test/extensions/messages-delete-all-chats.test.ts`
   - `bun run typecheck`
-- Remaining scope on this ticket is now the optional later `diff` / checkpoint-delta tranche.
+- The planned scope from this ticket is now effectively implemented; remaining work is closeout/board hygiene rather than feature gaps.
 
 ### 2026-04-14
 - Created from an external improvement spec captured at `http://orangepi6plus.local:8080/media/634`.

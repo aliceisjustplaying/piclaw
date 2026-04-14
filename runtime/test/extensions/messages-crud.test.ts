@@ -348,6 +348,41 @@ describe("messages tool extension", () => {
     expect(result.content[0].text).toContain("0x1234 (2)");
   });
 
+  test("diff summarizes changes since a checkpoint row", async () => {
+    const checkpoint = insertMessage("checkpoint baseline", { sender: "web-user", sender_name: "Alice" });
+    const userRow = insertMessage("follow-up from user", { sender: "web-user", sender_name: "Alice" });
+    const assistantRow = insertMessage("assistant reply", { sender: "assistant", sender_name: "Pi", is_bot_message: true });
+    insertMessage("later ignored by before_row", { sender: "web-user", sender_name: "Alice" });
+
+    const { tool } = await getTool();
+    const result = await runWithContext(tool, {
+      action: "diff",
+      after_row: checkpoint,
+      before_row: assistantRow + 1,
+      details_max_chars: 200,
+    });
+
+    expect(result.details.action).toBe("diff");
+    expect(result.details.count).toBe(2);
+    expect(result.details.summary).toEqual({
+      checkpoint_after_row: checkpoint,
+      checkpoint_before_row: assistantRow + 1,
+      checkpoint_after: null,
+      checkpoint_before: null,
+      first_rowid: userRow,
+      last_rowid: assistantRow,
+      user_count: 1,
+      assistant_count: 1,
+      sender_counts: [
+        { sender: "Alice", count: 1 },
+        { sender: "Pi", count: 1 },
+      ],
+    });
+    expect(result.details.messages.map((row: any) => row.rowid)).toEqual([userRow, assistantRow]);
+    expect(result.content[0].text).toContain(`Rows ${userRow}–${assistantRow}`);
+    expect(result.content[0].text).toContain("User 1, assistant 1");
+  });
+
   test("get missing row_ids are reported", async () => {
     const { tool } = await getTool();
     const result = await runWithContext(tool, { action: "get", row_ids: [999999] });
