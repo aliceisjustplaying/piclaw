@@ -137,7 +137,7 @@ import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "fs";
 import { registerToolStatusHintProvider } from "../../../../src/tool-status-hints.js";
 
-const WINDOWS_UI_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M8 20h8"></path><path d="M12 18v2"></path></svg>`;
+const WINDOWS_UI_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M8 20h8"></path><path d="M12 18v2"></path><g fill="currentColor" stroke="none"><rect x="8.5" y="7.5" width="3" height="3" rx="0.5"></rect><rect x="12.5" y="7.5" width="3" height="3" rx="0.5"></rect><rect x="8.5" y="11.5" width="3" height="3" rx="0.5"></rect><rect x="12.5" y="11.5" width="3" height="3" rx="0.5"></rect></g></svg>`;
 
 function readTrimmedString(...values: unknown[]): string | null {
   for (const value of values) {

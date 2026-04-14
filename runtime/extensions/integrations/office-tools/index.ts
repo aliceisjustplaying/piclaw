@@ -11,7 +11,7 @@ import { ensureBrowser, findBrowser, findCdpPort, printToPdf, type MaybeAbortSig
 import { decodeZipEntryText } from "./zip-entry-text.ts";
 
 const EXT_DIR = typeof import.meta.dir === "string" ? import.meta.dir : dirname(new URL(import.meta.url).pathname);
-const OFFICE_TOOLS_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3h7l4 4v14H8z"></path><path d="M15 3v5h4"></path><path d="M10.5 13h6"></path><path d="M10.5 17h6"></path></svg>`;
+const OFFICE_TOOLS_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 3h10l4 4v14H4z"></path><path d="M14 3v5h4"></path><path d="M7 13h10"></path><path d="M7 17h10"></path></svg>`;
 const require = createRequire(import.meta.url);
 const XLSX = require("xlsx");
 const PptxGenJS = require(resolve(EXT_DIR, "../../../vendor/pptxgenjs/pptxgen.cjs.js"));

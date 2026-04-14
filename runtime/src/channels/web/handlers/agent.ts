@@ -43,6 +43,7 @@ import { storeAgentTurn } from "../messaging/agent-message-store.js";
 import { resolveThreadId, resolveThreadRootId } from "../runtime/threading.js";
 import { resolveToolStatusHints } from "../../../tool-status-hints.js";
 import "../../../extensions/local-core-tool-status-hints.js";
+import "../../../extensions/generic-tool-status-hints.js";
 import { createUuid } from "../../../utils/ids.js";
 import { createLogger } from "../../../utils/logger.js";
 import type { AttachmentInfo } from "../../../agent-pool/attachments.js";
