@@ -2,6 +2,7 @@
 
 > Last updated: 2026-04-15
 > Applies to: iOS 17.x–18.x, iOS 26, Safari/WebKit, standalone PWA mode
+> Validated on: iPhone 15 Pro and iPad Pro running iOS 26.x
 
 This document captures every failure mode, attempted fix, and the final confirmed solution for the iOS standalone PWA viewport height bug. It exists to prevent regressions. **Read this before changing any layout CSS, viewport meta tags, or mobile-viewport JS.**
 
