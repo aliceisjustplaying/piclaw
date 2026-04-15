@@ -240,6 +240,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     activeChatAgents,
     connectionStatus,
     activeModel,
+    agentModelsPayload,
     activeModelUsage,
     activeThinkingLevel,
     supportsThinking,
@@ -610,6 +611,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           currentChatJid=${currentChatJid}
           connectionStatus=${connectionStatus}
           activeModel=${activeModel}
+          agentModelsPayload=${agentModelsPayload}
           modelUsage=${activeModelUsage}
           thinkingLevel=${activeThinkingLevel}
           supportsThinking=${supportsThinking}

@@ -170,6 +170,7 @@ test('composeRenderedMainAppOptions builds final shell options from grouped app 
   expect(result.mainShellOptions.searchQuery).toBe('hello');
   expect(result.mainShellOptions.oobePanelState).toEqual({ kind: 'provider-ready' });
   expect(result.mainShellOptions.composePrefillRequest).toEqual({ token: 'prefill-2', text: '/model' });
+  expect(result.mainShellOptions.agentModelsPayload).toEqual({ models: ['openai/gpt-4.1'] });
   expect(typeof result.mainShellOptions.openEditor).toBe('function');
   expect(typeof result.mainShellOptions.openTerminalTab).toBe('function');
   expect(typeof result.mainShellOptions.openVncTab).toBe('function');

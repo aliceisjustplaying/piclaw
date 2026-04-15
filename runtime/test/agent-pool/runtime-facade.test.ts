@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 
 import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
+import { clearProviderUsageCache } from "../../src/agent-pool/provider-usage.js";
 import { AgentRuntimeFacade } from "../../src/agent-pool/runtime-facade.js";
 
 function createRuntime(session: any): AgentSessionRuntime {
@@ -17,6 +18,10 @@ function createRuntime(session: any): AgentSessionRuntime {
     dispose: async () => {},
   } as any;
 }
+
+afterEach(() => {
+  clearProviderUsageCache();
+});
 
 function createFacade(overrides: Partial<ConstructorParameters<typeof AgentRuntimeFacade>[0]> = {}) {
   const pool = new Map<string, { runtime: any; lastUsed: number }>();
@@ -94,6 +99,105 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
     contextWindow: 100,
     percent: 10,
   });
+});
+
+test("AgentRuntimeFacade returns registry-backed model options without hydrating a cold chat runtime", async () => {
+  let refreshCalls = 0;
+  let getOrCreateCalls = 0;
+
+  const fixture = createFacade({
+    getOrCreateRuntime: async () => {
+      getOrCreateCalls += 1;
+      throw new Error("cold model lookup should not hydrate a runtime");
+    },
+    modelRegistry: {
+      refresh: () => { refreshCalls += 1; },
+      getAvailable: () => [
+        { provider: "openai", id: "gpt-fast", name: "GPT Fast", contextWindow: 128000, reasoning: true },
+      ],
+      getAll: () => [],
+      registerProvider: () => {},
+    } as any,
+  });
+
+  const available = await fixture.facade.getAvailableModels("web:cold");
+  expect(getOrCreateCalls).toBe(0);
+  expect(refreshCalls).toBe(1);
+  expect(available).toEqual({
+    current: null,
+    models: ["openai/gpt-fast"],
+    model_options: [
+      {
+        label: "openai/gpt-fast",
+        provider: "openai",
+        id: "gpt-fast",
+        name: "GPT Fast",
+        context_window: 128000,
+        reasoning: true,
+      },
+    ],
+    thinking_level: null,
+    thinking_level_label: null,
+    supports_thinking: false,
+    provider_usage: null,
+  });
+});
+
+test("AgentRuntimeFacade does not block getAvailableModels on a cold provider-usage refresh", async () => {
+  const previousFetch = globalThis.fetch;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  globalThis.fetch = (async () => {
+    await gate;
+    return new Response(JSON.stringify({
+      plan_type: "pro",
+      rate_limit: {
+        primary_window: {
+          used_percent: 10,
+          reset_at: Math.floor(Date.now() / 1000) + 3600,
+          limit_window_seconds: 18000,
+        },
+      },
+      credits: {
+        balance: 50,
+        unlimited: false,
+      },
+    }));
+  }) as any;
+
+  try {
+    const session = {
+      model: { provider: "openai-codex", id: "gpt-test", reasoning: true },
+      thinkingLevel: "high",
+      getContextUsage: () => null,
+      modelRegistry: {
+        refresh: () => {},
+        getAvailable: () => [
+          { provider: "openai-codex", id: "gpt-test", name: "GPT Test", contextWindow: 128000, reasoning: true },
+        ],
+      },
+    };
+
+    const fixture = createFacade({
+      authStorage: {
+        get: () => ({ type: "oauth", access: "token", accountId: "acct_123", expires: Date.now() + 60_000 }),
+      } as any,
+    });
+    fixture.pool.set("web:default", { runtime: createRuntime(session), lastUsed: Date.now() });
+
+    const available = await Promise.race([
+      fixture.facade.getAvailableModels("web:default"),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out waiting for getAvailableModels")), 50)),
+    ]);
+
+    expect((available as any).current).toBe("openai-codex/gpt-test");
+    expect((available as any).provider_usage).toBeNull();
+  } finally {
+    release();
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test("AgentRuntimeFacade removes one queued follow-up and replays the remaining queue", async () => {

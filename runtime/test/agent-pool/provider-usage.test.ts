@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { clearProviderUsageCache, getProviderUsage } from "../../src/agent-pool/provider-usage.js";
+import { clearProviderUsageCache, getProviderUsage, peekProviderUsage, warmProviderUsage } from "../../src/agent-pool/provider-usage.js";
 
 function createAuthStorage(credentials: Record<string, unknown>) {
   return {
@@ -108,6 +108,68 @@ describe("provider usage", () => {
       expect(usage?.secondary?.remaining_percent).toBe(80);
       expect(usage?.hint_short).toContain("premium 70%");
       expect(usage?.hint_short).toContain("chat 80%");
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("warms provider usage in the background and reuses the same in-flight refresh", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = mock(async () => {
+      await gate;
+      return new Response(JSON.stringify({
+        plan_type: "pro",
+        rate_limit: {
+          primary_window: {
+            used_percent: 10,
+            reset_at: Math.floor(Date.now() / 1000) + 3600,
+            limit_window_seconds: 18000,
+          },
+        },
+        credits: {
+          balance: 50,
+          unlimited: false,
+        },
+      }));
+    });
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as any;
+
+    try {
+      const first = warmProviderUsage(
+        createAuthStorage({
+          "openai-codex": {
+            type: "oauth",
+            access: "token",
+            accountId: "acct_123",
+            expires: Date.now() + 60_000,
+          },
+        }),
+        "openai-codex"
+      );
+      const second = warmProviderUsage(
+        createAuthStorage({
+          "openai-codex": {
+            type: "oauth",
+            access: "token",
+            accountId: "acct_123",
+            expires: Date.now() + 60_000,
+          },
+        }),
+        "openai-codex"
+      );
+
+      expect(peekProviderUsage("openai-codex", { allowStale: true })).toBeNull();
+      await Promise.resolve();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      release();
+      const usage = await first;
+      expect(await second).toEqual(usage);
+      expect(peekProviderUsage("openai-codex", { allowStale: true })?.provider).toBe("openai-codex");
     } finally {
       globalThis.fetch = previousFetch;
     }

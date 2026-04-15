@@ -28,8 +28,11 @@ type CachedUsage = {
   value: ProviderUsageSnapshot | null;
 };
 
+type SupportedProviderId = ProviderUsageSnapshot["provider"];
+
 const USAGE_CACHE_TTL_MS = Number(process.env.PICLAW_PROVIDER_USAGE_TTL_MS || "60000");
 const usageCache = new Map<string, CachedUsage>();
+const usageRefreshInFlight = new Map<string, Promise<ProviderUsageSnapshot | null>>();
 const log = createLogger("agent-pool.provider-usage");
 
 function clampPercent(value: unknown): number | null {
@@ -232,34 +235,83 @@ async function fetchGitHubCopilotUsage(authStorage: AuthStorage): Promise<Provid
   };
 }
 
-export async function getProviderUsage(authStorage: AuthStorage, providerId: string): Promise<ProviderUsageSnapshot | null> {
-  if (providerId !== "openai-codex" && providerId !== "github-copilot") return null;
+function isSupportedProviderId(providerId: string): providerId is SupportedProviderId {
+  return providerId === "openai-codex" || providerId === "github-copilot";
+}
 
-  const cached = usageCache.get(providerId);
+function getCachedUsageEntry(providerId: string): CachedUsage | null {
+  return usageCache.get(providerId) ?? null;
+}
+
+function hasFreshCachedUsage(providerId: string): boolean {
+  const cached = getCachedUsageEntry(providerId);
+  return Boolean(cached && cached.expiresAt > Date.now());
+}
+
+async function fetchProviderUsage(authStorage: AuthStorage, providerId: SupportedProviderId): Promise<ProviderUsageSnapshot | null> {
+  return providerId === "openai-codex"
+    ? await fetchCodexUsage(authStorage)
+    : await fetchGitHubCopilotUsage(authStorage);
+}
+
+export function peekProviderUsage(providerId: string, options: { allowStale?: boolean } = {}): ProviderUsageSnapshot | null {
+  if (!isSupportedProviderId(providerId)) return null;
+  const cached = getCachedUsageEntry(providerId);
+  if (!cached) return null;
+  if (options.allowStale === true) {
+    return cached.value;
+  }
+  return cached.expiresAt > Date.now() ? cached.value : null;
+}
+
+export async function warmProviderUsage(authStorage: AuthStorage, providerId: string): Promise<ProviderUsageSnapshot | null> {
+  if (!isSupportedProviderId(providerId)) return null;
+  if (hasFreshCachedUsage(providerId)) {
+    return peekProviderUsage(providerId);
+  }
+
+  const existing = usageRefreshInFlight.get(providerId);
+  if (existing) {
+    return await existing;
+  }
+
+  const cached = getCachedUsageEntry(providerId);
+  const refreshPromise = (async () => {
+    let value: ProviderUsageSnapshot | null;
+    try {
+      value = await fetchProviderUsage(authStorage, providerId);
+    } catch (error) {
+      debugSuppressedError(log, "Provider usage refresh failed; returning the cached usage snapshot when available.", error, {
+        providerId,
+        hasCachedValue: cached?.value != null,
+      });
+      value = cached?.value ?? null;
+    }
+
+    usageCache.set(providerId, {
+      expiresAt: Date.now() + USAGE_CACHE_TTL_MS,
+      value,
+    });
+    usageRefreshInFlight.delete(providerId);
+    return value;
+  })();
+
+  usageRefreshInFlight.set(providerId, refreshPromise);
+  return await refreshPromise;
+}
+
+export async function getProviderUsage(authStorage: AuthStorage, providerId: string): Promise<ProviderUsageSnapshot | null> {
+  if (!isSupportedProviderId(providerId)) return null;
+
+  const cached = getCachedUsageEntry(providerId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
   }
 
-  let value: ProviderUsageSnapshot | null;
-  try {
-    value = providerId === "openai-codex"
-      ? await fetchCodexUsage(authStorage)
-      : await fetchGitHubCopilotUsage(authStorage);
-  } catch (error) {
-    debugSuppressedError(log, "Provider usage refresh failed; returning the cached usage snapshot when available.", error, {
-      providerId,
-      hasCachedValue: cached?.value != null,
-    });
-    value = cached?.value ?? null;
-  }
-
-  usageCache.set(providerId, {
-    expiresAt: Date.now() + USAGE_CACHE_TTL_MS,
-    value,
-  });
-  return value;
+  return await warmProviderUsage(authStorage, providerId);
 }
 
 export function clearProviderUsageCache(): void {
   usageCache.clear();
+  usageRefreshInFlight.clear();
 }

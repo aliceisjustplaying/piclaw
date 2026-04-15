@@ -7,6 +7,7 @@ import {
   getComposeHistoryStorageKey,
   getModelPickerOptionSearchLabel,
   normalizeModelPickerOptions,
+  resolveComposeModelPickerState,
   parseQueuedContent,
   resolveComposePrefillRequest,
   resolveUiOnlyCommandNotice,
@@ -148,6 +149,32 @@ test('model picker helpers expose searchable names and formatted context windows
   expect(getModelPickerOptionSearchLabel(option)).toContain('anthropic/claude-sonnet-4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('Claude Sonnet 4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('200K ctx');
+});
+
+test('resolveComposeModelPickerState keeps the model picker visible for cold chats with available models', () => {
+  expect(resolveComposeModelPickerState(null, {
+    current: null,
+    model_options: [{ label: 'openai/gpt-5', provider: 'openai', id: 'gpt-5' }],
+  })).toEqual({
+    showPicker: true,
+    label: 'Select model',
+    hasAvailableModels: true,
+  });
+
+  expect(resolveComposeModelPickerState('openai/gpt-5', {
+    current: null,
+    model_options: [{ label: 'openai/gpt-5', provider: 'openai', id: 'gpt-5' }],
+  })).toEqual({
+    showPicker: true,
+    label: 'openai/gpt-5',
+    hasAvailableModels: true,
+  });
+
+  expect(resolveComposeModelPickerState(null, { current: null, model_options: [] })).toEqual({
+    showPicker: false,
+    label: '',
+    hasAvailableModels: false,
+  });
 });
 
 test('resolveUiOnlyCommandNotice only surfaces read-only model and thinking queries', () => {

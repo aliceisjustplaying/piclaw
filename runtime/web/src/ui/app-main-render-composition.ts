@@ -175,6 +175,7 @@ export function composeRenderedMainAppOptions(input: {
       activeChatAgents: input.surface.activeChatAgents,
       connectionStatus: input.surface.connectionStatus,
       activeModel: input.surface.activeModel,
+      agentModelsPayload: input.surface.agentModelsPayload,
       activeModelUsage: input.surface.activeModelUsage,
       activeThinkingLevel: input.surface.activeThinkingLevel,
       supportsThinking: input.surface.supportsThinking,

@@ -249,6 +249,24 @@ export function getModelPickerOptionSearchLabel(option) {
     ].filter(Boolean).join(' ');
 }
 
+export function resolveComposeModelPickerState(activeModel, agentModelsPayload) {
+    const modelLabel = typeof activeModel === 'string' ? activeModel.trim() : '';
+    if (modelLabel) {
+        return {
+            showPicker: true,
+            label: modelLabel,
+            hasAvailableModels: true,
+        };
+    }
+
+    const hasAvailableModels = normalizeModelPickerOptions(agentModelsPayload).length > 0;
+    return {
+        showPicker: hasAvailableModels,
+        label: hasAvailableModels ? 'Select model' : '',
+        hasAvailableModels,
+    };
+}
+
 function unwrapQueuedTranscriptContent(value) {
     if (!value) return value;
     const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -513,6 +531,7 @@ export function ComposeBox({
     onRemoveMessageRef,
     onClearMessageRefs,
     activeModel = null,
+    agentModelsPayload = null,
     modelUsage = null,
     thinkingLevel = null,
     supportsThinking = false,
@@ -704,7 +723,9 @@ export function ComposeBox({
     const canCreateSession = !searchMode && typeof onCreateSession === 'function';
     const canDeleteSession = !searchMode && typeof onDeleteSession === 'function' && !isCurrentRootSession;
     const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canDeleteSession);
-    const modelHintLabel = activeModel || '';
+    const modelPickerState = resolveComposeModelPickerState(activeModel, agentModelsPayload);
+    const showModelPickerHint = modelPickerState.showPicker;
+    const modelHintLabel = modelPickerState.label;
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
     const modelUsageLabel = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
@@ -713,7 +734,7 @@ export function ComposeBox({
         modelUsageLabel || null,
     ].filter(Boolean).join(' • ');
     const modelUsageTitleParts = [
-        modelHintLabel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
+        activeModel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
         modelUsage?.plan ? `Plan: ${modelUsage.plan}` : null,
         modelUsageLabel || null,
         modelUsage?.primary?.reset_description || null,
@@ -721,7 +742,10 @@ export function ComposeBox({
     ].filter(Boolean);
     const modelHintTitle = switchingModel
         ? 'Switching model…'
-        : (modelUsageTitleParts.join(' • ') || `Current model: ${modelHintLabel}${modelHintSuffix} (tap to open model picker)`);
+        : (modelUsageTitleParts.join(' • ') || (showModelPickerHint
+            ? 'Select a model (tap to open model picker)'
+            : `Current model: ${modelHintLabel}${modelHintSuffix} (tap to open model picker)`));
+    const showComposeMetaRow = !searchMode && (showModelPickerHint || (contextUsage && contextUsage.percent != null));
 
     const emitModelState = (payload) => {
         if (!payload || typeof payload !== 'object') return;
@@ -2032,9 +2056,9 @@ export function ComposeBox({
                     `}
                 </div>
                 <div class="compose-footer" ref=${footerRef}>
-                    ${!searchMode && activeModel && html`
+                    ${showComposeMetaRow && html`
                     <div class="compose-meta-row">
-                        ${!searchMode && activeModel && html`
+                        ${showModelPickerHint && html`
                             <div class="compose-model-meta">
                                 <button
                                     ref=${modelHintRef}
