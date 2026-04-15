@@ -205,6 +205,7 @@ export async function getChatBranches(rootChatJid = null, options = {}) {
     if (options?.prewarmRecent) params.set('prewarm_recent', '1');
     if (Number.isFinite(options?.prewarmLimit)) params.set('prewarm_limit', String(options.prewarmLimit));
     if (options?.excludeChatJid) params.set('exclude_chat_jid', String(options.excludeChatJid));
+    if (options?.prewarmChatJid) params.set('prewarm_chat_jid', String(options.prewarmChatJid));
     const query = params.toString() ? `?${params.toString()}` : '';
     return request(`/agent/branches${query}`);
 }

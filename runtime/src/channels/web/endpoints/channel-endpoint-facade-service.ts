@@ -200,16 +200,25 @@ export class WebChannelEndpointFacadeService {
       const prewarmLimitRaw = Number.parseInt(String(url.searchParams.get("prewarm_limit") || "").trim(), 10);
       const prewarmLimit = Number.isFinite(prewarmLimitRaw)
         ? Math.max(1, Math.min(8, prewarmLimitRaw))
-        : 3;
+        : 5;
       const excludeChatJid = typeof url.searchParams.get("exclude_chat_jid") === "string"
         ? url.searchParams.get("exclude_chat_jid")!.trim()
         : "";
+      const prewarmChatJid = typeof url.searchParams.get("prewarm_chat_jid") === "string"
+        ? url.searchParams.get("prewarm_chat_jid")!.trim()
+        : "";
 
-      if (!rootChatJid && prewarmRecent) {
-        this.options.agentPool.scheduleRecentChatWarmup({
-          limit: prewarmLimit,
-          excludeChatJids: excludeChatJid ? [excludeChatJid] : [],
-        });
+      if (!rootChatJid) {
+        if (prewarmChatJid) {
+          this.options.agentPool.scheduleChatWarmup(prewarmChatJid, { priority: true });
+        }
+        if (prewarmRecent) {
+          const excludeChatJids = [excludeChatJid, prewarmChatJid].filter(Boolean);
+          this.options.agentPool.scheduleRecentChatWarmup({
+            limit: prewarmLimit,
+            excludeChatJids,
+          });
+        }
       }
 
       const chats = typeof this.options.listKnownChats === "function"

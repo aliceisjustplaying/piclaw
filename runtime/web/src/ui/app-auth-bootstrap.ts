@@ -177,7 +177,12 @@ export async function refreshActiveChatAgents(options: RefreshActiveChatAgentsOp
       getActiveChatAgents().catch(() => ({ chats: [] /* expected: active-agent refresh is best-effort. */ })),
       getChatBranches(null, {
         includeArchived: true,
-        ...(prewarmRecent ? { prewarmRecent: true, prewarmLimit, excludeChatJid: targetChatJid } : {}),
+        ...(prewarmRecent ? {
+          prewarmRecent: true,
+          prewarmLimit,
+          excludeChatJid: targetChatJid,
+          prewarmChatJid: targetChatJid,
+        } : {}),
       }).catch(() => ({ chats: [] /* expected: archived-branch refresh is best-effort. */ })),
     ]);
 

@@ -303,6 +303,8 @@ test("agent pool schedules warmup for the most recent inactive chats", async () 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
 
   const created: string[] = [];
+  let activeCreates = 0;
+  let maxConcurrentCreates = 0;
   class StubSession {
     subscribe(_listener: (event: any) => void) {
       return () => {};
@@ -315,6 +317,10 @@ test("agent pool schedules warmup for the most recent inactive chats", async () 
   const pool = new AgentPool({
     createSession: async (chatJid: string) => {
       created.push(chatJid);
+      activeCreates += 1;
+      maxConcurrentCreates = Math.max(maxConcurrentCreates, activeCreates);
+      await Bun.sleep(10);
+      activeCreates -= 1;
       return createRuntime(new StubSession()) as any;
     },
   });
@@ -325,8 +331,9 @@ test("agent pool schedules warmup for the most recent inactive chats", async () 
   });
   expect(scheduled).toEqual(["web:newer", "web:older"]);
 
-  await Bun.sleep(20);
+  await Bun.sleep(40);
   expect(created).toEqual(["web:newer", "web:older"]);
+  expect(maxConcurrentCreates).toBe(1);
 
   await pool.shutdown();
 });

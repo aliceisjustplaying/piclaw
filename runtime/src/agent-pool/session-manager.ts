@@ -48,6 +48,9 @@ export class AgentSessionManager {
   private readonly branchSeedRealizationInFlight = new Map<string, Promise<boolean>>();
   private readonly invalidDeferredBranchSeedErrors = new Map<string, Error>();
   private readonly prewarmInFlight = new Set<string>();
+  private readonly queuedPrewarms = new Set<string>();
+  private readonly prewarmQueue: string[] = [];
+  private prewarmLoopActive = false;
 
   constructor(private readonly options: AgentSessionManagerOptions) {}
 
@@ -204,29 +207,21 @@ export class AgentSessionManager {
     await this.disposeEntry(this.options.sidePool, chatJid, "recreate.dispose_side_session", true);
   }
 
-  prewarm(chatJid: string): void {
-    if (!chatJid || this.prewarmInFlight.has(chatJid)) return;
-    if (this.invalidDeferredBranchSeedErrors.has(chatJid)) return;
-    if (this.options.pool.has(chatJid) && !hasDeferredBranchSeed(chatJid)) return;
+  prewarm(chatJid: string, options: { priority?: boolean } = {}): boolean {
+    const normalizedChatJid = String(chatJid || "").trim();
+    if (!normalizedChatJid) return false;
+    if (this.invalidDeferredBranchSeedErrors.has(normalizedChatJid)) return false;
+    if (this.options.pool.has(normalizedChatJid) && !hasDeferredBranchSeed(normalizedChatJid)) return false;
+    if (this.prewarmInFlight.has(normalizedChatJid) || this.queuedPrewarms.has(normalizedChatJid)) return false;
 
-    this.prewarmInFlight.add(chatJid);
-    void (async () => {
-      try {
-        await this.getOrCreate(chatJid);
-        this.options.onInfo?.("Prewarmed chat session", {
-          operation: "prewarm_session",
-          chatJid,
-        });
-      } catch (err) {
-        this.options.onWarn?.("Failed to prewarm chat session", {
-          operation: "prewarm_session",
-          chatJid,
-          err,
-        });
-      } finally {
-        this.prewarmInFlight.delete(chatJid);
-      }
-    })();
+    this.queuedPrewarms.add(normalizedChatJid);
+    if (options.priority) {
+      this.prewarmQueue.unshift(normalizedChatJid);
+    } else {
+      this.prewarmQueue.push(normalizedChatJid);
+    }
+    this.drainPrewarmQueue();
+    return true;
   }
 
   async shutdown(): Promise<void> {
@@ -408,5 +403,44 @@ export class AgentSessionManager {
         err,
       });
     }
+  }
+
+  private drainPrewarmQueue(): void {
+    if (this.prewarmLoopActive) return;
+    this.prewarmLoopActive = true;
+
+    void (async () => {
+      try {
+        while (this.prewarmQueue.length > 0) {
+          const chatJid = this.prewarmQueue.shift();
+          if (!chatJid) continue;
+          this.queuedPrewarms.delete(chatJid);
+          if (this.prewarmInFlight.has(chatJid)) continue;
+          if (this.options.pool.has(chatJid) && !hasDeferredBranchSeed(chatJid)) continue;
+
+          this.prewarmInFlight.add(chatJid);
+          try {
+            await this.getOrCreate(chatJid);
+            this.options.onInfo?.("Prewarmed chat session", {
+              operation: "prewarm_session",
+              chatJid,
+            });
+          } catch (err) {
+            this.options.onWarn?.("Failed to prewarm chat session", {
+              operation: "prewarm_session",
+              chatJid,
+              err,
+            });
+          } finally {
+            this.prewarmInFlight.delete(chatJid);
+          }
+        }
+      } finally {
+        this.prewarmLoopActive = false;
+        if (this.prewarmQueue.length > 0) {
+          this.drainPrewarmQueue();
+        }
+      }
+    })();
   }
 }

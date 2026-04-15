@@ -226,5 +226,5 @@ test('refreshActiveChatAgents merges active + archived branch rows for target ch
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(rows.map((row) => row.chat_jid).sort()).toEqual(['chat-a', 'chat-b']);
-  expect(branchOptions).toEqual([{ includeArchived: true, prewarmRecent: true, prewarmLimit: 4, excludeChatJid: 'chat-a' }]);
+  expect(branchOptions).toEqual([{ includeArchived: true, prewarmRecent: true, prewarmLimit: 4, excludeChatJid: 'chat-a', prewarmChatJid: 'chat-a' }]);
 });
