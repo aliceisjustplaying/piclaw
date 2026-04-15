@@ -155,6 +155,8 @@ export interface RefreshActiveChatAgentsOptions {
   getChatBranches: (rootChatJid: string | null, options?: Record<string, unknown>) => Promise<{ chats?: unknown[] }>;
   activeChatJidRef: { current: string };
   setActiveChatAgents: StateSetter<any[]>;
+  prewarmRecent?: boolean;
+  prewarmLimit?: number;
 }
 
 export async function refreshActiveChatAgents(options: RefreshActiveChatAgentsOptions): Promise<any[]> {
@@ -164,6 +166,8 @@ export async function refreshActiveChatAgents(options: RefreshActiveChatAgentsOp
     getChatBranches,
     activeChatJidRef,
     setActiveChatAgents,
+    prewarmRecent = false,
+    prewarmLimit = 3,
   } = options;
 
   const targetChatJid = currentChatJid;
@@ -171,7 +175,10 @@ export async function refreshActiveChatAgents(options: RefreshActiveChatAgentsOp
   try {
     const [activePayload, branchPayload] = await Promise.all([
       getActiveChatAgents().catch(() => ({ chats: [] /* expected: active-agent refresh is best-effort. */ })),
-      getChatBranches(null, { includeArchived: true }).catch(() => ({ chats: [] /* expected: archived-branch refresh is best-effort. */ })),
+      getChatBranches(null, {
+        includeArchived: true,
+        ...(prewarmRecent ? { prewarmRecent: true, prewarmLimit, excludeChatJid: targetChatJid } : {}),
+      }).catch(() => ({ chats: [] /* expected: archived-branch refresh is best-effort. */ })),
     ]);
 
     if (activeChatJidRef.current !== targetChatJid) return [];
