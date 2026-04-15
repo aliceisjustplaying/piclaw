@@ -113,8 +113,8 @@ const AUTO_ACTIVE_TOOL_NAMES = [
 const TOOL_ACTIVATION_HINT = [
   "## Tool Activation",
   "Keep the active tool set small by default.",
-  "If you are unsure which capability is available, call list_internal_tools.",
-  "Use activate_tools to enable only what you need.",
+  "Discover first: if you are unsure which capability is available, call list_internal_tools with a focused query before activating extra tools.",
+  "Use activate_tools to enable only what you need, when you need it.",
   "Newly activated tools become available immediately to subsequent tool/model steps in the same turn.",
   "Use reset_active_tools to return to the default configured tool set.",
 ].join("\n");

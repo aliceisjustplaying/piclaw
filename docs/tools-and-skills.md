@@ -38,6 +38,27 @@ Fixed baseline:
 
 Newly activated tools become available immediately to subsequent tool/model steps in the same turn. For critical actions, keep the needed tool in the default baseline or promote it with config. Read-only tools plus the message/scheduling/attachment helpers listed above are activated automatically as part of the effective default set when they exist in the current tool catalog.
 
+### Preferred staged internal-tool flow
+
+For internal-tool discovery, prefer this order:
+
+1. **Discover / narrow** — call `list_internal_tools` with `query` when you know the rough capability area.
+2. **Read compact summaries** — use the default summary output first instead of requesting full schemas for everything.
+3. **Request detail only when needed** — use `include_parameters=true` only for the specific tool you are about to use or inspect more deeply.
+4. **Activate / use** — call `activate_tools` only for the tool(s) you actually need beyond the effective default set.
+
+That keeps discovery separate from activation and avoids bulky “dump every tool schema first” behavior.
+
+Example:
+
+```text
+1. list_internal_tools(query="sql")
+2. inspect the compact summaries
+3. list_internal_tools(query="introspect_sql", include_parameters=true)
+4. if needed beyond the effective default set, activate_tools(names=["introspect_sql"])
+5. use the tool
+```
+
 You can extend that baseline with `.piclaw/config.json`:
 
 ```json

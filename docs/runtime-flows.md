@@ -264,7 +264,7 @@ Transport semantics match the packaged SSH extension model:
 
 Several runtime choices are intentionally optimized for low-context turns and progressive discovery:
 
-- small fixed tool baseline, plus automatic default activation for safe read-only tools in the current catalog, with explicit same-turn tool activation for everything else
+- small fixed tool baseline, plus automatic default activation for safe read-only tools and message/scheduling/attachment helpers in the current catalog, with explicit same-turn tool activation for everything else
 - session-scoped infra profiles so SSH / Proxmox / Portainer state can be reused without restating connection details every turn
 - compact `capabilities` output and short `recommend` results before full workflow details
 - opt-in examples in `workflow_help` instead of returning bulky example payloads by default
@@ -273,6 +273,10 @@ Several runtime choices are intentionally optimized for low-context turns and pr
 For infrastructure work, the preferred discovery path is:
 
 `discover` → `capabilities` or `recommend` → `workflow_help` → `workflow`
+
+For internal tools, the parallel staged path is:
+
+`list_internal_tools(query)` → compact summaries → on-demand parameters/details → `activate_tools` / use
 
 Only fall back to raw `request` when the curated workflow surface is not the right fit.
 
