@@ -18,6 +18,7 @@ import {
   type ToolResultMessage,
 } from "@mariozechner/pi-ai";
 import {
+  applySessionCorrelationHeaders,
   applyToolCallLimit,
   buildBaseOptions,
   clampReasoning,
@@ -113,6 +114,7 @@ const SKEW_SECONDS = Number(process.env.AOAI_TOKEN_SKEW_SECONDS || "300");
 // This is used when connecting through a proxy that handles MI auth on our behalf.
 const STATIC_API_KEY = process.env.AOAI_API_KEY || "";
 const TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode", PROVIDER, FOUNDRY_PROVIDER]);
+const ENABLE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID = /^(1|true|yes)$/i.test(process.env.AOAI_EXPERIMENT_AZURE_CLIENT_REQUEST_ID || "");
 const DISABLE_TOOLS = /^(1|true|yes)$/i.test(process.env.AOAI_DISABLE_TOOLS || "");
 const DISABLE_REASONING = /^(1|true|yes)$/i.test(process.env.AOAI_DISABLE_REASONING || "");
 const TOOL_CALL_LIMIT = parseInt(process.env.AOAI_MAX_TOOL_CALLS || "96", 10);
@@ -209,6 +211,8 @@ function logExtensionLoaded(): void {
     disableTools: DISABLE_TOOLS,
     disableReasoning: DISABLE_REASONING,
     disableReasoningModels: Array.from(DISABLE_REASONING_MODELS),
+    sessionCorrelationHeaders: true,
+    experimentalAzureClientRequestId: ENABLE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
     bun: process.versions?.bun || null,
     node: process.versions?.node || null,
   };
@@ -1008,6 +1012,9 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           delete headers[key];
         }
       }
+      Object.assign(headers, applySessionCorrelationHeaders(headers, options?.sessionId, {
+        includeAzureClientRequestId: ENABLE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+      }));
 
       // Pull any stored phase metadata from prior assistant messages, then apply it to the
       // reconstructed ResponseInput so gpt-5.3-codex sees the same phases on replay.
@@ -1052,6 +1059,12 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         // Phase replay summary is included only when AOAI_LOG_PHASES=1; omit otherwise.
         phaseReplay: phaseReplaySummary,
         storedPhaseCount: phaseById.size,
+        promptCacheKey: options?.sessionId ?? null,
+        requestHeaders: {
+          session_id: headers.session_id ?? null,
+          x_client_request_id: headers["x-client-request-id"] ?? null,
+          x_ms_client_request_id: headers["x-ms-client-request-id"] ?? null,
+        },
       };
 
       // Post-conversion sanitization for Azure OpenAI compatibility.
@@ -1122,7 +1135,13 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           });
         }
       }
-      const nextParams = await options?.onPayload?.(params, model);
+      const nextParams = await options?.onPayload?.(params, model, {
+        headers: {
+          session_id: headers.session_id ?? null,
+          "x-client-request-id": headers["x-client-request-id"] ?? null,
+          "x-ms-client-request-id": headers["x-ms-client-request-id"] ?? null,
+        },
+      });
       if (nextParams !== undefined) {
         params = nextParams as Record<string, any>;
       }

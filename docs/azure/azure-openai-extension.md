@@ -86,6 +86,7 @@ This includes:
 
 - text-output forcing so the model returns normal text output, not only reasoning items
 - reasoning-effort mapping from piclaw thinking levels
+- `prompt_cache_key` seeding from the active session id
 - tool-call replay cleanup for Azure validation rules
 - request summaries for debugging failed streams
 
@@ -333,6 +334,68 @@ Mitigation:
 - the extension injects a text format block for Azure Responses requests
 
 ---
+
+## Harness and upstream Responses notes (2026-04-15)
+
+### Harness surfaces
+
+Development validation currently uses:
+
+- `runtime/scripts/azure-openai-harness.ts`
+- `runtime/extensions/experimental/azure-openai.harness.ts`
+- `runtime/src/extensions/azure-openai-api.ts`
+
+The harness now bundles under:
+
+- `/workspace/piclaw/.tmp/azure-openai.harness.bundle.mjs`
+
+That avoids Bun resolving dependencies from `/workspace/node_modules` instead of this repo's `node_modules` tree.
+
+### Request/session correlation status
+
+The live Azure extension now mirrors the active session id into:
+
+- `prompt_cache_key`
+- `session_id`
+- `x-client-request-id`
+
+for Azure Responses requests on the supported path.
+
+Focused Azure harness runs on the upgraded `0.67.2` stack were validated for:
+
+- models: `gpt-5-3-codex`, `gpt-5-4`
+- cases: `json`, `tool`, `history`
+
+Representative reports:
+
+- `/workspace/tmp/azure-openai-harness-0672-gpt53.json`
+- `/workspace/tmp/azure-openai-harness-0672-gpt54.json`
+
+The harness now checks these invariants automatically and fails if:
+
+- `prompt_cache_key` drifts from the active session id where required
+- `session_id` / `x-client-request-id` drift from the active session id
+- replayed request payloads still contain leaked `partialJson` scratch buffers
+
+Optional Azure-native request-id mirroring remains available in the harness via:
+
+- `AOAI_EXPERIMENT_AZURE_CLIENT_REQUEST_ID=1`
+
+and also passed focused `json` / `tool` / `history` validation on `gpt-5-3-codex`:
+
+- `/workspace/tmp/azure-openai-harness-0672-gpt53-xms.json`
+
+### Upstream `0.67.2` Responses impact
+
+The `0.67.2` pi-mono update matters for Azure because the shared Responses parser now strips `partialJson` scratch buffers when finalizing tool calls and on error paths.
+
+That matters here because this extension's wrapper imports the shared Responses implementation through `runtime/src/extensions/azure-openai-api.ts`.
+
+Current state:
+
+- the repo is now on the `0.67.2` package set
+- focused Azure `json` / `tool` / `history` validation passed on the upgraded stack
+- the live Azure extension was updated explicitly to match the upstream-style session-correlation behavior rather than relying on the dependency bump alone
 
 ## Troubleshooting checklist
 

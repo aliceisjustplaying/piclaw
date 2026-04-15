@@ -4,7 +4,7 @@ title: Harden Azure / Foundry model routing and stability
 status: done
 priority: high
 created: 2026-03-10
-updated: 2026-04-12
+updated: 2026-04-15
 completed: 2026-04-12
 target_release: next
 estimate: M
@@ -209,6 +209,39 @@ production port hostage to the larger refactor.
 - [ ] Ticket moved to `50-done/`
 
 ## Updates
+
+### 2026-04-15
+- Documentation follow-up completed for the repo-side/public notes.
+- Updated:
+  - `docs/azure/azure-openai-extension.md`
+  - `docs/development.md`
+- Captured the current harness/runtime paths:
+  - `runtime/scripts/azure-openai-harness.ts`
+  - `runtime/extensions/experimental/azure-openai.harness.ts`
+  - `runtime/extensions/integrations/azure-openai.ts`
+  - `runtime/src/extensions/azure-openai-api.ts`
+- Recorded the harness bundling-path fix: the harness now bundles under `/workspace/piclaw/.tmp/azure-openai.harness.bundle.mjs` so Bun resolves this repo's dependency tree instead of `/workspace/node_modules`.
+- Upgraded the pi-mono package set to `0.67.2`:
+  - `@mariozechner/pi-coding-agent`
+  - `@mariozechner/pi-agent-core`
+  - `@mariozechner/pi-ai`
+  - `@mariozechner/pi-tui`
+- Updated the live Azure Responses path to mirror the active session id into:
+  - `prompt_cache_key`
+  - `session_id`
+  - `x-client-request-id`
+- Tightened the harness so it now fails on:
+  - request/session-id drift
+  - leaked `partialJson` scratch buffers in replayed request payloads
+- Validated focused Azure harness runs on the upgraded stack:
+  - models: `gpt-5-3-codex`, `gpt-5-4`
+  - cases: `json`, `tool`, `history`
+  - result: all tested runs passed
+- Optional Azure-native `x-ms-client-request-id` experiment also passed on `gpt-5-3-codex` for `json` / `tool` / `history`.
+- Representative evidence files:
+  - `/workspace/tmp/azure-openai-harness-0672-gpt53.json`
+  - `/workspace/tmp/azure-openai-harness-0672-gpt54.json`
+  - `/workspace/tmp/azure-openai-harness-0672-gpt53-xms.json`
 
 ### 2026-04-11
 - Lane change: `10-next` → `40-review`.
