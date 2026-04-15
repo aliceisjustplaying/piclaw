@@ -90,6 +90,35 @@ Notes:
 - `/flux` still rejects transparent background requests.
 - Successful image runs now format results as workspace-backed inline images plus file listings rather than raw download links.
 
+### Azure OpenAI / Foundry harness
+
+Use the standalone harness when you need provider-level evidence without reloading the running Piclaw process.
+
+Relevant files:
+
+- `runtime/scripts/azure-openai-harness.ts`
+- `runtime/extensions/experimental/azure-openai.harness.ts`
+- `runtime/extensions/integrations/azure-openai.ts`
+- `runtime/src/extensions/azure-openai-api.ts`
+- `docs/azure/azure-openai-extension.md`
+
+Typical commands:
+
+```bash
+bun run scripts/azure-openai-harness.ts --list
+bun run scripts/azure-openai-harness.ts --models gpt-5-3-codex,gpt-5-4 --cases json,tool,history --tool-rounds 2 --history-turns 3
+AOAI_EXPERIMENT_AZURE_CLIENT_REQUEST_ID=1 bun run scripts/azure-openai-harness.ts --providers azure-openai --models gpt-5-3-codex --cases json,tool,history --tool-rounds 2 --history-turns 3
+```
+
+Notes:
+
+- the harness bundles to `/workspace/piclaw/.tmp/azure-openai.harness.bundle.mjs` so Bun resolves this repo's dependencies correctly
+- the live Azure extension now aligns `prompt_cache_key`, `session_id`, and `x-client-request-id` from the active session id on the Azure Responses path
+- the harness now checks those correlation fields automatically and fails if they drift
+- the harness also fails if replayed request payloads still contain leaked `partialJson` scratch buffers
+- the `0.67.2` package set and focused Azure `json` / `tool` / `history` runs were validated locally on `gpt-5-3-codex` and `gpt-5-4`
+- `AOAI_EXPERIMENT_AZURE_CLIENT_REQUEST_ID=1` remains available for the optional `x-ms-client-request-id` experiment
+
 ### Workspace search / reindex UI
 
 Recent workspace explorer changes added an index-status surface and manual reindex control on top of the existing FTS search/indexing pipeline.

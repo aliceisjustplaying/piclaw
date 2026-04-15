@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { processResponsesStream, resolvePiAiResponsesSharedModulePath } from "../../src/extensions/azure-openai-api.js";
+import {
+  applySessionCorrelationHeaders,
+  processResponsesStream,
+  resolvePiAiResponsesSharedModulePath,
+} from "../../src/extensions/azure-openai-api.js";
 
 test("resolvePiAiResponsesSharedModulePath finds the bundled pi-ai helper", () => {
   const resolved = resolvePiAiResponsesSharedModulePath();
@@ -72,6 +76,22 @@ test("processResponsesStream maps reasoning_text events into thinking events", a
   expect(pushed.some((event) => event.type === "thinking_end" && event.content.includes("plan"))).toBe(true);
   expect(output.content[0]?.type).toBe("thinking");
   expect(output.content[0]?.thinking).toContain("plan");
+});
+
+test("applySessionCorrelationHeaders aligns session_id and x-client-request-id", () => {
+  expect(applySessionCorrelationHeaders({}, "sess_123")).toEqual({
+    session_id: "sess_123",
+    "x-client-request-id": "sess_123",
+  });
+});
+
+test("applySessionCorrelationHeaders optionally includes x-ms-client-request-id", () => {
+  expect(applySessionCorrelationHeaders({ existing: "value" }, "sess_456", { includeAzureClientRequestId: true })).toEqual({
+    existing: "value",
+    session_id: "sess_456",
+    "x-client-request-id": "sess_456",
+    "x-ms-client-request-id": "sess_456",
+  });
 });
 
 test("processResponsesStream reroutes commentary-phase output_text into thinking events", async () => {

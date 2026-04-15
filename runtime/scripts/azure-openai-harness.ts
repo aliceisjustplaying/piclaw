@@ -111,6 +111,10 @@ type PayloadCapture = {
   summary?: Record<string, unknown>;
 };
 
+type PayloadMeta = {
+  headers?: Record<string, string | null>;
+};
+
 type HarnessReport = {
   generatedAt: string;
   cwd: string;
@@ -130,8 +134,8 @@ type HarnessReport = {
 
 const SETTINGS_PATH = "/home/agent/.pi/agent/settings.json";
 const HARNESS_EXTENSION_PATH = resolve(import.meta.dir, "../extensions/experimental/azure-openai.harness.ts");
-const BUNDLED_HARNESS_EXTENSION_PATH = resolve("/workspace/tmp/azure-openai.harness.bundle.mjs");
 const DEFAULT_OUT_DIR = "/workspace/tmp";
+const BUNDLED_HARNESS_EXTENSION_PATH = resolve(import.meta.dir, "../../.tmp/azure-openai.harness.bundle.mjs");
 const DEFAULT_CASES: HarnessCaseName[] = ["smoke", "json", "tool", "history"];
 const DEFAULT_TIMEOUT_MS = 90_000;
 const DEFAULT_MAX_TOKENS = 512;
@@ -142,6 +146,7 @@ const DEFAULT_RETRY_429_MAX = 4;
 const DEFAULT_RETRY_429_BASE_MS = 15_000;
 const DEFAULT_COOLDOWN_MS = 3_000;
 const PAYLOAD_CAPTURE_DIR = resolve("/workspace/tmp/azure-openai-harness-payloads");
+const REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID = /^(1|true|yes)$/i.test(process.env.AOAI_EXPERIMENT_AZURE_CLIENT_REQUEST_ID || "");
 
 type HarnessExtensionModule = {
   registerAzureProviders: typeof import("../extensions/experimental/azure-openai.harness.ts").registerAzureProviders;
@@ -307,6 +312,7 @@ function readAgentSettings(): AgentSettings {
 
 async function loadHarnessExtension(): Promise<HarnessExtensionModule> {
   console.log("[build] Bundling current harness copy...");
+  mkdirSync(dirname(BUNDLED_HARNESS_EXTENSION_PATH), { recursive: true });
   await Bun.$`bun build ${HARNESS_EXTENSION_PATH} --target bun --format esm --outfile ${BUNDLED_HARNESS_EXTENSION_PATH}`.cwd(resolve(import.meta.dir, ".."));
   const importUrl = pathToFileURL(BUNDLED_HARNESS_EXTENSION_PATH);
   importUrl.searchParams.set("t", String(Date.now()));
@@ -382,9 +388,24 @@ function textBlocksToString(message: AssistantMessage | undefined): string {
     .trim();
 }
 
-function summarizePayload(payload: unknown): Record<string, unknown> | undefined {
+function collectKeyPaths(value: unknown, keyName: string, path = "$", out: string[] = []): string[] {
+  if (!value || typeof value !== "object") return out;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => collectKeyPaths(entry, keyName, `${path}[${index}]`, out));
+    return out;
+  }
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const nextPath = `${path}.${key}`;
+    if (key === keyName) out.push(nextPath);
+    collectKeyPaths(entry, keyName, nextPath, out);
+  }
+  return out;
+}
+
+function summarizePayload(payload: unknown, meta?: PayloadMeta): Record<string, unknown> | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const obj = payload as Record<string, unknown>;
+  const partialJsonPaths = collectKeyPaths(payload, "partialJson");
   return {
     model: obj.model,
     stream: obj.stream,
@@ -394,6 +415,10 @@ function summarizePayload(payload: unknown): Record<string, unknown> | undefined
     inputItems: Array.isArray(obj.input) ? obj.input.length : undefined,
     reasoning: obj.reasoning,
     text: obj.text,
+    prompt_cache_key: obj.prompt_cache_key,
+    requestHeaders: meta?.headers,
+    hasPartialJson: partialJsonPaths.length > 0,
+    partialJsonPaths,
   };
 }
 
@@ -408,12 +433,55 @@ function prefixEvents(prefix: string, events: Record<string, number>): Record<st
   return Object.fromEntries(Object.entries(events).map(([key, value]) => [`${prefix}:${key}`, value]));
 }
 
+function createHarnessSessionId(model: HarnessModel, caseName: HarnessCaseName): string {
+  const raw = `${String(model.provider)}-${model.id}-${caseName}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return raw.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 96);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function sanitizeFilePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "x";
+}
+
+function findRequestInvariantFailure(
+  captures: PayloadCapture[] | undefined,
+  options: {
+    sessionId?: string;
+    requirePromptCacheKey?: boolean;
+    requireSessionHeaders?: boolean;
+    requireAzureClientRequestId?: boolean;
+  }
+): string | undefined {
+  if (!captures?.length) return undefined;
+  for (const capture of captures) {
+    const summary = capture.summary || {};
+    if (summary.hasPartialJson) {
+      const paths = Array.isArray(summary.partialJsonPaths) ? summary.partialJsonPaths.slice(0, 3).join(", ") : "unknown path";
+      return `${capture.label}: request payload still contains partialJson scratch buffers (${paths}).`;
+    }
+    if (!options.sessionId) continue;
+    if (options.requirePromptCacheKey && summary.prompt_cache_key !== options.sessionId) {
+      return `${capture.label}: prompt_cache_key did not match the active session id.`;
+    }
+    const requestHeaders = (summary.requestHeaders && typeof summary.requestHeaders === "object")
+      ? summary.requestHeaders as Record<string, unknown>
+      : {};
+    if (options.requireSessionHeaders) {
+      if (requestHeaders.session_id !== options.sessionId) {
+        return `${capture.label}: session_id header did not match the active session id.`;
+      }
+      if (requestHeaders["x-client-request-id"] !== options.sessionId) {
+        return `${capture.label}: x-client-request-id header did not match the active session id.`;
+      }
+    }
+    if (options.requireAzureClientRequestId && requestHeaders["x-ms-client-request-id"] !== options.sessionId) {
+      return `${capture.label}: x-ms-client-request-id header did not match the active session id.`;
+    }
+  }
+  return undefined;
 }
 
 function classifyFailure(result: Partial<RunResult>): string | undefined {
@@ -423,6 +491,10 @@ function classifyFailure(result: Partial<RunResult>): string | undefined {
   if (!error && result.ok) return undefined;
   if (is429ErrorMessage(error)) return "rate_limited_429";
   if (/aborted|timeout/i.test(error) || stopReason === "aborted") return "timeout_or_aborted";
+  if (/partialJson scratch buffers/i.test(error)) return "partial_json_leak";
+  if (/session id header did not match|prompt_cache_key did not match|x-client-request-id header did not match|x-ms-client-request-id header did not match/i.test(error)) {
+    return "session_correlation_mismatch";
+  }
   if (/expected a tool call but none was emitted/i.test(error)) return "missing_tool_call";
   if (/tool round-trip did not return the expected final text/i.test(error)) return "tool_followup_mismatch";
   if (/tool history summary did not match expected tokens/i.test(error)) return "tool_history_mismatch";
@@ -492,6 +564,7 @@ async function runSingleStream(
     retry429Max: number;
     retry429BaseMs: number;
     captureLabel?: string;
+    sessionId?: string;
     transformPayload?: (payload: unknown, model: HarnessModel) => unknown | undefined;
   }
 ): Promise<{
@@ -525,21 +598,22 @@ async function runSingleStream(
       const stream = model.providerConfig.streamSimple(model, context, {
         apiKey: model.providerConfig.apiKey,
         headers: model.headers,
+        sessionId: options.sessionId,
         maxTokens: Math.min(model.maxTokens || options.maxTokens || DEFAULT_MAX_TOKENS, options.maxTokens || DEFAULT_MAX_TOKENS),
         reasoning: options.reasoning,
         maxRetryDelayMs: 5_000,
         signal: controller.signal,
-        onPayload: (payload) => {
+        onPayload: ((payload: unknown, _payloadModel?: unknown, meta?: PayloadMeta) => {
           const transformed = options.transformPayload?.(payload, model);
           const effectivePayload = transformed ?? payload;
-          currentPayloadSummary = summarizePayload(effectivePayload);
+          currentPayloadSummary = summarizePayload(effectivePayload, meta);
           payloadCaptures.push({
             label: `${options.captureLabel || "request"}-attempt-${attempt + 1}`,
             payload: effectivePayload,
             summary: currentPayloadSummary,
           });
           return transformed;
-        },
+        }) as any,
       });
 
       for await (const event of stream) {
@@ -605,8 +679,10 @@ async function runSmokeCase(
   retry429BaseMs: number
 ): Promise<RunResult> {
   const prompt = `Reply with exactly: HARNESS_OK ${model.id}`;
+  const sessionId = createHarnessSessionId(model, "smoke");
   const result = await runSingleStream(model, { messages: [userMessage(prompt)] }, {
     reasoning,
+    sessionId,
     timeoutMs,
     maxTokens,
     retry429Max,
@@ -614,7 +690,14 @@ async function runSmokeCase(
     captureLabel: "smoke",
   });
   const text = textBlocksToString(result.message);
-  const ok = (result.message?.stopReason === "stop" || result.message?.stopReason === "length")
+  const requestInvariantFailure = findRequestInvariantFailure(result.payloadCaptures, {
+    sessionId,
+    requirePromptCacheKey: String(model.provider) === "azure-openai" && model.reasoning === true,
+    requireSessionHeaders: String(model.provider) === "azure-openai",
+    requireAzureClientRequestId: String(model.provider) === "azure-openai" && REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+  });
+  const ok = !requestInvariantFailure
+    && (result.message?.stopReason === "stop" || result.message?.stopReason === "length")
     && text.includes(`HARNESS_OK ${model.id}`);
   const out: RunResult = {
     provider: String(model.provider),
@@ -625,7 +708,7 @@ async function runSmokeCase(
     ok,
     durationMs: result.durationMs,
     stopReason: result.message?.stopReason,
-    error: ok ? undefined : result.message?.errorMessage || `Unexpected smoke output: ${text || "<empty>"}`,
+    error: ok ? undefined : requestInvariantFailure || result.message?.errorMessage || `Unexpected smoke output: ${text || "<empty>"}`,
     outputPreview: text.slice(0, 240),
     textLength: text.length,
     usage: result.message?.usage,
@@ -653,8 +736,10 @@ async function runJsonCase(
     "Return exactly one compact JSON object and nothing else.",
     `Use this shape: {\"model\":\"${model.id}\",\"sum\":4,\"ok\":true}`,
   ].join(" ");
+  const sessionId = createHarnessSessionId(model, "json");
   const result = await runSingleStream(model, { messages: [userMessage(prompt)] }, {
     reasoning,
+    sessionId,
     timeoutMs,
     maxTokens,
     retry429Max,
@@ -669,7 +754,13 @@ async function runJsonCase(
   } catch {
     parsed = null;
   }
-  const ok = Boolean(parsed && parsed.model === model.id && parsed.sum === 4 && parsed.ok === true);
+  const requestInvariantFailure = findRequestInvariantFailure(result.payloadCaptures, {
+    sessionId,
+    requirePromptCacheKey: String(model.provider) === "azure-openai" && model.reasoning === true,
+    requireSessionHeaders: String(model.provider) === "azure-openai",
+    requireAzureClientRequestId: String(model.provider) === "azure-openai" && REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+  });
+  const ok = !requestInvariantFailure && Boolean(parsed && parsed.model === model.id && parsed.sum === 4 && parsed.ok === true);
   const out: RunResult = {
     provider: String(model.provider),
     model: model.id,
@@ -679,7 +770,7 @@ async function runJsonCase(
     ok,
     durationMs: result.durationMs,
     stopReason: result.message?.stopReason,
-    error: ok ? undefined : result.message?.errorMessage || `Invalid JSON payload: ${text || "<empty>"}`,
+    error: ok ? undefined : requestInvariantFailure || result.message?.errorMessage || `Invalid JSON payload: ${text || "<empty>"}`,
     outputPreview: text.slice(0, 240),
     textLength: text.length,
     usage: result.message?.usage,
@@ -720,6 +811,7 @@ async function runToolCase(
   };
 
   const history: Message[] = [];
+  const sessionId = createHarnessSessionId(model, "tool");
   const rounds: Array<Record<string, unknown>> = [];
   const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
   let durationMs = 0;
@@ -752,6 +844,7 @@ async function runToolCase(
       { messages: [...history], tools: [tool] },
       {
         reasoning,
+        sessionId,
         timeoutMs,
         maxTokens,
         retry429Max,
@@ -772,9 +865,15 @@ async function runToolCase(
     mergeEvents(`round${round}:tool_request`, first.events);
     if (first.payloadSummary) lastPayloadSummary = first.payloadSummary;
     if (first.message?.usage) lastUsage = first.message.usage;
+    const firstInvariantFailure = findRequestInvariantFailure(first.payloadCaptures, {
+      sessionId,
+      requirePromptCacheKey: String(model.provider) === "azure-openai" && model.reasoning === true,
+      requireSessionHeaders: String(model.provider) === "azure-openai",
+      requireAzureClientRequestId: String(model.provider) === "azure-openai" && REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+    });
 
     const toolCall = first.toolCalls[0];
-    if (!first.message || first.message.stopReason !== "toolUse" || !toolCall) {
+    if (firstInvariantFailure || !first.message || first.message.stopReason !== "toolUse" || !toolCall) {
       const out: RunResult = {
         provider: String(model.provider),
         model: model.id,
@@ -784,7 +883,7 @@ async function runToolCase(
         ok: false,
         durationMs,
         stopReason: first.message?.stopReason,
-        error: first.message?.errorMessage || `Round ${round}: expected a tool call but none was emitted.`,
+        error: firstInvariantFailure || first.message?.errorMessage || `Round ${round}: expected a tool call but none was emitted.`,
         outputPreview: textBlocksToString(first.message).slice(0, 240),
         textLength: textBlocksToString(first.message).length,
         usage: lastUsage,
@@ -820,6 +919,7 @@ async function runToolCase(
       { messages: [...history], tools: [tool] },
       {
         reasoning,
+        sessionId,
         timeoutMs,
         maxTokens,
         retry429Max,
@@ -834,11 +934,18 @@ async function runToolCase(
     mergeEvents(`round${round}:tool_followup`, followUp.events);
     if (followUp.payloadSummary) lastPayloadSummary = followUp.payloadSummary;
     if (followUp.message?.usage) lastUsage = followUp.message.usage;
+    const followUpInvariantFailure = findRequestInvariantFailure(followUp.payloadCaptures, {
+      sessionId,
+      requirePromptCacheKey: String(model.provider) === "azure-openai" && model.reasoning === true,
+      requireSessionHeaders: String(model.provider) === "azure-openai",
+      requireAzureClientRequestId: String(model.provider) === "azure-openai" && REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+    });
 
     const followUpText = textBlocksToString(followUp.message);
     finalPreview = followUpText;
     finalStopReason = followUp.message?.stopReason;
-    const roundOk = (followUp.message?.stopReason === "stop" || followUp.message?.stopReason === "length")
+    const roundOk = !followUpInvariantFailure
+      && (followUp.message?.stopReason === "stop" || followUp.message?.stopReason === "length")
       && followUpText.includes(`TOOL_OK ${token}`)
       && followUpText.includes(model.id)
       && followUpText.includes(`round-${round}`);
@@ -864,7 +971,7 @@ async function runToolCase(
         durationMs,
         stopReason: first.message?.stopReason,
         followUpStopReason: followUp.message?.stopReason,
-        error: followUp.message?.errorMessage || `Round ${round}: tool round-trip did not return the expected final text.`,
+        error: followUpInvariantFailure || followUp.message?.errorMessage || `Round ${round}: tool round-trip did not return the expected final text.`,
         outputPreview: textBlocksToString(first.message).slice(0, 240),
         followUpPreview: followUpText.slice(0, 240),
         textLength: followUpText.length,
@@ -892,6 +999,7 @@ async function runToolCase(
     { messages: [...history], tools: [tool] },
     {
       reasoning,
+      sessionId,
       timeoutMs,
       maxTokens,
       retry429Max,
@@ -906,11 +1014,18 @@ async function runToolCase(
   mergeEvents("summary", summary.events);
   if (summary.payloadSummary) lastPayloadSummary = summary.payloadSummary;
   if (summary.message?.usage) lastUsage = summary.message.usage;
+  const summaryInvariantFailure = findRequestInvariantFailure(summary.payloadCaptures, {
+    sessionId,
+    requirePromptCacheKey: String(model.provider) === "azure-openai" && model.reasoning === true,
+    requireSessionHeaders: String(model.provider) === "azure-openai",
+    requireAzureClientRequestId: String(model.provider) === "azure-openai" && REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+  });
 
   const summaryText = textBlocksToString(summary.message);
   finalPreview = summaryText;
   finalStopReason = summary.message?.stopReason;
-  const ok = (summary.message?.stopReason === "stop" || summary.message?.stopReason === "length")
+  const ok = !summaryInvariantFailure
+    && (summary.message?.stopReason === "stop" || summary.message?.stopReason === "length")
     && summaryText.includes(`TOOL_HISTORY ${expectedHistory}`);
 
   const out: RunResult = {
@@ -922,7 +1037,7 @@ async function runToolCase(
     ok,
     durationMs,
     stopReason: finalStopReason,
-    error: ok ? undefined : summary.message?.errorMessage || "Tool history summary did not match expected tokens.",
+    error: ok ? undefined : summaryInvariantFailure || summary.message?.errorMessage || "Tool history summary did not match expected tokens.",
     outputPreview: finalPreview.slice(0, 240),
     followUpPreview: summaryText.slice(0, 240),
     textLength: summaryText.length,
@@ -951,6 +1066,7 @@ async function runHistoryCase(
   retry429BaseMs: number
 ): Promise<RunResult> {
   const token = `history-${model.id}-${Date.now().toString(36).slice(-6)}`;
+  const sessionId = createHarnessSessionId(model, "history");
   const history: Message[] = [];
   const rounds: Array<Record<string, unknown>> = [];
   const aggregateEvents: Record<string, number> = {};
@@ -973,6 +1089,7 @@ async function runHistoryCase(
     history.push(userMessage(prompt));
     const step = await runSingleStream(model, { messages: [...history] }, {
       reasoning,
+      sessionId,
       timeoutMs,
       maxTokens,
       retry429Max,
@@ -988,10 +1105,17 @@ async function runHistoryCase(
     }
     if (step.payloadSummary) lastPayloadSummary = step.payloadSummary;
     if (step.message?.usage) lastUsage = step.message.usage;
+    const stepInvariantFailure = findRequestInvariantFailure(step.payloadCaptures, {
+      sessionId,
+      requirePromptCacheKey: String(model.provider) === "azure-openai" && model.reasoning === true,
+      requireSessionHeaders: String(model.provider) === "azure-openai",
+      requireAzureClientRequestId: String(model.provider) === "azure-openai" && REQUIRE_EXPERIMENTAL_AZURE_CLIENT_REQUEST_ID,
+    });
     const text = textBlocksToString(step.message);
     finalText = text;
     finalStopReason = step.message?.stopReason;
-    const ok = (step.message?.stopReason === "stop" || step.message?.stopReason === "length")
+    const ok = !stepInvariantFailure
+      && (step.message?.stopReason === "stop" || step.message?.stopReason === "length")
       && text.includes(expected);
     rounds.push({ turn, expected, stopReason: step.message?.stopReason, preview: text.slice(0, 240), ok });
     if (!ok) {
@@ -1004,7 +1128,7 @@ async function runHistoryCase(
         ok: false,
         durationMs,
         stopReason: step.message?.stopReason,
-        error: step.message?.errorMessage || `Turn ${turn}: expected ${expected}`,
+        error: stepInvariantFailure || step.message?.errorMessage || `Turn ${turn}: expected ${expected}`,
         outputPreview: text.slice(0, 240),
         textLength: text.length,
         usage: lastUsage,
