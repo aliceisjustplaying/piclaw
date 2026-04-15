@@ -32,6 +32,9 @@ function summarizeDescription(value: string | undefined): string {
 const HINT = [
   "## Internal Tool Discovery",
   "If you are unsure about available tools, call list_internal_tools.",
+  "Prefer the staged flow: query-filtered discovery → compact summary → on-demand parameters/details → activate/use.",
+  "Use include_parameters only for the specific tool you are about to use or inspect in detail.",
+  "Discovery is separate from activation: use activate_tools only when you actually need additional tools beyond the effective default set.",
   "",
   "## Baseline working principles",
   "These apply even when no AGENTS.md or project instructions are present:",
@@ -53,8 +56,8 @@ export const internalTools: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool({
     name: "list_internal_tools",
     label: "list_internal_tools",
-    description: "List available internal tools with brief descriptions. Each result includes capability metadata (kind: read-only/mutating/mixed, weight: lightweight/standard/heavy, activation: default/on-demand) and toolset groupings. Use the query parameter to filter by name, description, or capability domain.",
-    promptSnippet: "list_internal_tools: Discover available internal tools and their schemas.",
+    description: "List available internal tools with brief descriptions. Each result includes capability metadata (kind: read-only/mutating/mixed, weight: lightweight/standard/heavy, activation: default/on-demand) and toolset groupings. Start with query-filtered compact summaries; request parameter schemas only on demand for the specific tool you need.",
+    promptSnippet: "list_internal_tools: Discover available internal tools with compact summaries first, then request schema details only when needed.",
     parameters: InternalToolsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const query = params.query?.trim().toLowerCase() || "";
