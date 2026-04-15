@@ -95,8 +95,8 @@ function markPerformance(traceId: string, phase: string): void {
   if (typeof performance === 'undefined' || typeof performance.mark !== 'function') return;
   try {
     performance.mark(`piclaw:${traceId}:${phase}`);
-  } catch (error) {
-    console.debug('[app-perf] Ignoring performance.mark failure.', error, { traceId, phase });
+  } catch {
+    // Ignore duplicate/invalid marks in older browsers.
   }
 }
 
