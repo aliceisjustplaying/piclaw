@@ -62,6 +62,23 @@ export async function createSessionFromCompose(options: CreateSessionFromCompose
     currentChatJid,
   });
 
+  if (typeof navigate === 'function') {
+    try {
+      const loaderUrl = buildBranchLoaderUrl(baseHref, currentChatJid, { chatOnly: chatOnlyMode });
+      navigate(loaderUrl);
+      markAppPerfTrace(traceId, 'navigation-dispatched', {
+        mode: 'branch-loader',
+        sourceChatJid: currentChatJid,
+        url: loaderUrl,
+      });
+      return true;
+    } catch (error) {
+      failAppPerfTrace(traceId, error, 'branch-loader-navigation-failed');
+      showIntentToast?.('Could not create branch', describeBranchOpenError(error), 'warning', 5000);
+      return false;
+    }
+  }
+
   try {
     markAppPerfTrace(traceId, 'fork-request-start');
     const response = await forkChatBranch(currentChatJid);
