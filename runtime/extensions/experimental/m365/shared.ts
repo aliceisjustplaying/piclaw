@@ -71,7 +71,7 @@ export function isM365YoloEnabled(value: string | undefined): boolean {
 const M365_YOLO = isM365YoloEnabled(process.env["PICLAW_M365_YOLO"]);
 export const CDP_PORT_START = 9224;
 const TEAMS_CLIENT_ID = "5e3ce6c0-2b1f-4285-8d4b-75ee78787346";
-const TEAMS_START_URL = "https://teams.microsoft.com/v2";
+const TEAMS_START_URL = "https://teams.cloud.microsoft/";
 const TEAMS_REDIRECT_URI = "https://teams.microsoft.com/go";
 const OUTLOOK_CLIENT_ID = "9199bf20-a13f-4107-85dc-02114787ef48";
 const OUTLOOK_REDIRECT_URI = "https://outlook.live.com/mail/";
@@ -1989,6 +1989,8 @@ export async function acquireChatsvcToken(): Promise<{ token: string; baseUrl: s
 	}
 
 	// ── Method 2: CDP network interception (last fallback) ──
+	// Use the current Teams web app entry host so browser reuse and token capture
+	// follow the same route users see today instead of the legacy teams.microsoft.com/v2 entry.
 	const { proc, port, ws: preparedWs } = await prepareFreshAuthBrowserSession(
 		TEAMS_START_URL,
 		"The agent will navigate this tab to the page required to refresh authentication for Teams chat operations and then observe browser requests to capture the token needed for chatsvc calls.",

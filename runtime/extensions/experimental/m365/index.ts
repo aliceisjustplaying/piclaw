@@ -94,7 +94,7 @@ registerToolStatusHintProvider({
 			record?.endpoint,
 		)) || (
 			toolName.startsWith("m365_teams_")
-				? "teams.microsoft.com"
+				? "teams.cloud.microsoft"
 				: (toolName.startsWith("m365_spo_") || toolName.startsWith("m365_onedrive_")
 					? "sharepoint.microsoft.com"
 					: "graph.microsoft.com")
