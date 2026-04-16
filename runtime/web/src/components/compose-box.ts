@@ -69,6 +69,9 @@ export const SLASH_COMMANDS = [
   { name: "/login", description: "Login to an AI model provider (OAuth or API key)" },
   { name: "/logout", description: "Logout from an AI model provider" },
   { name: "/commands", description: "List available commands" },
+  { name: "/update", description: "Update PiClaw to latest git main" },
+  { name: "/rebuild", description: "Rebuild the NixOS host" },
+  { name: "/fast", description: "Show or set Codex Fast mode" },
 ];
 
 const COMPOSE_HISTORY_STORAGE_KEY = 'piclaw_compose_history';
