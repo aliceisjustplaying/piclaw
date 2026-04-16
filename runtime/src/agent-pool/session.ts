@@ -13,7 +13,7 @@
  *   - ensureSessionDir() is also used by agent-control/handlers/session.ts.
  */
 
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, readFileSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import {
@@ -118,6 +118,14 @@ function getBundledExtensionPaths(): string[] {
   return paths;
 }
 
+function getSystemPromptOverride(): string | undefined {
+  const path = join(getAgentDir(), "SYSTEM.md");
+  if (!existsSync(path)) return undefined;
+
+  const content = readFileSync(path, "utf-8").trim();
+  return content.length > 0 ? content : undefined;
+}
+
 /** Ensure the session directory exists for a chat and return its path. */
 export function ensureSessionDir(chatJid: string): string {
   const chatSessionDir = join(SESSIONS_DIR, sanitiseJid(chatJid));
@@ -154,6 +162,7 @@ export async function createSessionInDir(
   );
 
   const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+    const systemPrompt = getSystemPromptOverride();
     const services = await createAgentSessionServices({
       cwd,
       agentDir: getAgentDir(),
@@ -163,6 +172,7 @@ export async function createSessionInDir(
       resourceLoaderOptions: {
         extensionFactories: [...builtinExtensionFactories, ...(options.extensionFactories ?? [])],
         additionalExtensionPaths: getBundledExtensionPaths(),
+        ...(systemPrompt ? { systemPrompt } : {}),
         ...(channelSystemPromptAppendix
           ? {
               appendSystemPromptOverride: (base: string[]) => [...base, channelSystemPromptAppendix],
