@@ -5,6 +5,7 @@
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import {
   handleWebPushPresence,
+  handleWebPushTest,
   handleWebPushSubscriptionDelete,
   handleWebPushSubscriptionUpsert,
   handleWebPushVapidPublicKey,
@@ -226,6 +227,11 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
     method: "POST",
     path: "/agent/push/presence",
     handle: (_channel, req) => handleWebPushPresence(req),
+  },
+  {
+    method: "POST",
+    path: "/agent/push/test",
+    handle: (_channel, req) => handleWebPushTest(req),
   },
   {
     method: "POST",

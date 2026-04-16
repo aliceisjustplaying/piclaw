@@ -54,6 +54,7 @@ export interface SendStoredWebPushNotificationOptions {
   baseDir?: string;
   vapidSubject?: string;
   chatJid?: string;
+  targetDeviceId?: string | null;
   ttl?: number;
   urgency?: "very-low" | "low" | "normal" | "high";
   sendNotification?: (
@@ -435,4 +436,16 @@ export async function sendStoredWebPushNotification(
     removed,
     failed,
   };
+}
+
+export async function sendStoredWebPushTestNotification(
+  options: SendStoredWebPushNotificationOptions & { title?: string; body?: string; url?: string; tag?: string; sourceLabel?: string } = {},
+): Promise<StoredWebPushSendResult> {
+  return await sendStoredWebPushNotification({
+    title: options.title || "PiClaw notifications enabled",
+    body: options.body || "Web Push is configured for this device.",
+    url: options.url || "/",
+    tag: options.tag || "piclaw:test",
+    sourceLabel: options.sourceLabel || "Web Push",
+  }, options);
 }
