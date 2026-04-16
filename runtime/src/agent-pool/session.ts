@@ -477,6 +477,14 @@ function installPersistedToolResultSanitizer(runtime: AgentSessionRuntime): void
   sessionManager.__piclawPersistedToolResultSanitizerInstalled = true;
 }
 
+function getSystemPromptOverride(): string | undefined {
+  const path = join(getAgentDir(), "SYSTEM.md");
+  if (!existsSync(path)) return undefined;
+
+  const content = readFileSync(path, "utf-8").trim();
+  return content.length > 0 ? content : undefined;
+}
+
 /** Ensure the session directory exists for a chat and return its path. */
 export function ensureSessionDir(chatJid: string): string {
   const chatSessionDir = join(SESSIONS_DIR, sanitiseJid(chatJid));
@@ -512,6 +520,7 @@ export async function createSessionInDir(
   const channelSystemPromptAppendix = getChannelSystemPromptAppendix(options.chatJid);
   const appendSystemPromptOverride = getAppendSystemPromptOverride(channelSystemPromptAppendix);
   const additionalExtensionPaths = getBundledExtensionPaths(options.chatJid);
+  const systemPrompt = getSystemPromptOverride();
 
   const workspaceDir = getWorkspaceDir();
   await sanitizePersistedSessionFileBeforeLoad(sessionDir);
@@ -535,6 +544,7 @@ export async function createSessionInDir(
         ? [...builtinExtensionFactories, ...options.extensionFactories]
         : builtinExtensionFactories,
       additionalExtensionPaths,
+      ...(systemPrompt ? { systemPrompt } : {}),
       ...(appendSystemPromptOverride ? { appendSystemPromptOverride } : {}),
     });
     await resourceLoader.reload();
