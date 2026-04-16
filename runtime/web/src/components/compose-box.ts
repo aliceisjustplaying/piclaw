@@ -84,6 +84,9 @@ export const SLASH_COMMANDS = [
   { name: "/help", description: "Open keyboard shortcuts help" },
   { name: "/commands", description: "List available commands" },
   { name: "/skill:", description: "Run a workspace skill (e.g. /skill:visual-artifact-generator, /skill:web-search)" },
+  { name: "/update", description: "Update PiClaw to latest git main" },
+  { name: "/rebuild", description: "Rebuild the NixOS host" },
+  { name: "/fast", description: "Show or set Codex Fast mode" },
 ];
 
 const COMPOSE_HISTORY_STORAGE_KEY = 'piclaw_compose_history';
