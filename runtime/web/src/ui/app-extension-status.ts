@@ -14,6 +14,7 @@ export interface StatusPanelPayloadLike {
 
 export interface ExtensionPanelActionResult {
   refreshAutoresearchStatus: boolean;
+  dismissPanelKey?: string;
   toast?: {
     title: string;
     detail: string | null;
@@ -135,6 +136,26 @@ export async function runExtensionStatusPanelAction(
         kind: 'success',
       },
     };
+  }
+
+  if (actionType.startsWith('codex.stop')) {
+    await fetch('/agent/codex/stop', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: actionType, chat_jid: options.currentChatJid }),
+    });
+    return { refreshAutoresearchStatus: false, dismissPanelKey: typeof options.panel?.key === 'string' ? options.panel.key : undefined };
+  }
+
+  if (actionType.startsWith('codex.dismiss')) {
+    await fetch('/agent/codex/dismiss', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: actionType, chat_jid: options.currentChatJid }),
+    });
+    return { refreshAutoresearchStatus: false, dismissPanelKey: typeof options.panel?.key === 'string' ? options.panel.key : undefined };
   }
 
   throw new Error(`Unsupported panel action: ${actionType || actionKey}`);

@@ -107,6 +107,66 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
     handle: (channel, req) => channel.handleAutoresearchDismiss(req),
   },
   {
+    method: "POST" as const,
+    path: "/agent/codex/dismiss",
+    handle: async (_channel: any, req: Request) => {
+      try {
+        const validTaskId = (value: string) => /^[a-zA-Z0-9_-]+$/.test(value);
+        try {
+          const body = await req.json();
+          if (typeof body?.key === "string" && body.key.startsWith("codex.dismiss.")) {
+            const candidateTaskId = body.key.replace("codex.dismiss.", "").trim();
+            if (!validTaskId(candidateTaskId)) return Response.json({ error: "Invalid task id" }, { status: 400 });
+          }
+        } catch {}
+        return Response.json({ ok: true });
+      } catch (err) {
+        return Response.json({ error: String(err) }, { status: 500 });
+      }
+    },
+  },
+  {
+    method: "POST" as const,
+    path: "/agent/codex/stop",
+    handle: async (_channel: any, req: Request) => {
+      try {
+        let taskId = "";
+        const validTaskId = (value: string) => /^[a-zA-Z0-9_-]+$/.test(value);
+        try {
+          const body = await req.json();
+          if (typeof body?.key === "string" && body.key.startsWith("codex.stop.")) {
+            const candidateTaskId = body.key.replace("codex.stop.", "").trim();
+            taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
+          }
+        } catch {}
+        const { spawnSync } = await import("node:child_process");
+        const { accessSync, constants } = await import("node:fs");
+        const searchPath = [
+          ...(process.env.PATH || "").split(":"),
+          "/run/current-system/sw/bin",
+          "/etc/profiles/per-user/agent/bin",
+          "/home/agent/.nix-profile/bin",
+          "/nix/profile/bin",
+          "/home/agent/.local/bin",
+          "/home/agent/.bun/bin",
+        ].filter(Boolean);
+        let tmuxBin = "tmux";
+        for (const dir of searchPath) {
+          const candidate = `${dir}/tmux`;
+          try { accessSync(candidate, constants.X_OK); tmuxBin = candidate; break; } catch {}
+        }
+        const env = { ...process.env, PATH: Array.from(new Set(searchPath)).join(":") };
+        const tmuxSession = taskId ? `codex-${taskId}` : "codex-delegate";
+        spawnSync(tmuxBin, ["send-keys", "-t", tmuxSession, "C-c", ""], { stdio: "ignore", env });
+        const killTimer = setTimeout(() => spawnSync(tmuxBin, ["kill-session", "-t", tmuxSession], { stdio: "ignore", env }), 2000);
+        killTimer.unref?.();
+        return Response.json({ ok: true });
+      } catch (err) {
+        return Response.json({ error: String(err) }, { status: 500 });
+      }
+    },
+  },
+  {
     method: "POST",
     path: "/agent/oobe/complete",
     handle: (channel, req) => channel.handleAgentOobeComplete(req),
