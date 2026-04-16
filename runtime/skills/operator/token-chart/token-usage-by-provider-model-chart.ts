@@ -1,5 +1,45 @@
 #!/usr/bin/env bun
 /**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Generate by provider model output for a packaged skill.",
+ *   "aliases": [
+ *     "token usage by provider model chart",
+ *     "usage by provider model chart"
+ *   ],
+ *   "domains": [
+ *     "token",
+ *     "usage"
+ *   ],
+ *   "verbs": [
+ *     "generate"
+ *   ],
+ *   "nouns": [
+ *     "by",
+ *     "provider",
+ *     "model"
+ *   ],
+ *   "keywords": [
+ *     "token",
+ *     "chart",
+ *     "usage",
+ *     "by",
+ *     "provider",
+ *     "model"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "generate by provider model"
+ *   ],
+ *   "kind": "mixed",
+ *   "weight": "standard",
+ *   "role": "entrypoint"
+ * }
+ */
+/**
  * token-usage-by-provider-model-chart.ts
  *
  * Generates a stacked SVG chart of token usage grouped by provider + model.

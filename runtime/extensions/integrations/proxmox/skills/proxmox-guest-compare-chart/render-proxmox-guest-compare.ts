@@ -1,5 +1,39 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Compare guest for a packaged skill.",
+ *   "aliases": [
+ *     "render proxmox guest compare"
+ *   ],
+ *   "domains": [
+ *     "proxmox"
+ *   ],
+ *   "verbs": [
+ *     "compare"
+ *   ],
+ *   "nouns": [
+ *     "guest"
+ *   ],
+ *   "keywords": [
+ *     "proxmox",
+ *     "guest",
+ *     "compare",
+ *     "chart",
+ *     "render"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "compare guest"
+ *   ],
+ *   "kind": "mixed",
+ *   "weight": "standard",
+ *   "role": "entrypoint"
+ * }
+ */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 

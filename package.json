@@ -8,6 +8,13 @@
   "bin": {
     "piclaw": "runtime/src/index.ts"
   },
+  "pi": {
+    "skills": [
+      "./runtime/skills",
+      "./runtime/extensions/**/skills",
+      "./runtime/vendor/**/skills"
+    ]
+  },
   "files": [
     "scripts/postinstall.ts",
     "runtime/src",

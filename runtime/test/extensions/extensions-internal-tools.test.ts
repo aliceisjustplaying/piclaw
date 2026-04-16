@@ -64,6 +64,126 @@ describe("internal-tools extension", () => {
     expect(result.details.tools[0].active).toBe(false);
   });
 
+  test("intent mode recommends built-in tools with compact reasons", async () => {
+    const { internalTools } = await import("../../src/extensions/internal-tools.js");
+    const fake = createFakeExtensionApi({
+      allTools: [
+        { name: "messages", description: "Search, retrieve, add, or delete messages.", promptSnippet: "Inspect recent chat history and retrieve timeline messages" },
+        { name: "introspect_sql", description: "Run read-only SQL queries against the messages database.", promptSnippet: "Inspect SQL tables and run read-only database queries" },
+        { name: "search_workspace", description: "Search indexed workspace content.", promptSnippet: "Search notes and workspace files" },
+      ],
+      activeTools: ["messages"],
+    });
+    internalTools(fake.api);
+
+    const tool = fake.tools.get("list_internal_tools");
+    const result = await tool.execute("t6", { intent: "inspect recent messages" });
+    expect(result.content[0].text).toContain('Recommended tools for "inspect recent messages"');
+    expect(result.content[0].text).toContain('messages');
+    expect(result.details.intent).toBe('inspect recent messages');
+    expect(result.details.recommendations[0].name).toBe('messages');
+    expect(result.details.recommendations[0].matched_terms).toContain('messages');
+    expect(result.details.recommendations[0].matched_sources.length).toBeGreaterThan(0);
+    expect(result.details.recommendations[0].reason_summary).toContain('active');
+  });
+
+  test("intent mode can discover extension tools from description and promptSnippet", async () => {
+    const { internalTools } = await import("../../src/extensions/internal-tools.js");
+    const fake = createFakeExtensionApi({
+      allTools: [
+        {
+          name: "m365_teams_messages",
+          description: "Read messages from a Microsoft Teams chat.",
+          promptSnippet: "Read Teams chat messages and inspect recent conversation history",
+          parameters: { type: "object", properties: { chat_id: { type: "string" } } },
+        },
+        {
+          name: "search_workspace",
+          description: "Search indexed workspace content.",
+          promptSnippet: "Search notes and workspace files",
+        },
+      ],
+    });
+    internalTools(fake.api);
+
+    const tool = fake.tools.get("list_internal_tools");
+    const result = await tool.execute("t7", { intent: "inspect recent Teams messages", include_parameters: true });
+    expect(result.details.recommendations[0].name).toBe("m365_teams_messages");
+    expect(result.details.recommendations[0].matched_sources).toContain("promptSnippet");
+    expect(result.details.recommendations[0].parameters).toBeDefined();
+  });
+
+  test("intent mode falls back cleanly when no strong recommendation exists", async () => {
+    const { internalTools } = await import("../../src/extensions/internal-tools.js");
+    const fake = createFakeExtensionApi({
+      allTools: [
+        { name: "messages", description: "Search, retrieve, add, or delete messages." },
+        { name: "search_workspace", description: "Search indexed workspace content." },
+      ],
+    });
+    internalTools(fake.api);
+
+    const tool = fake.tools.get("list_internal_tools");
+    const result = await tool.execute("t8", { intent: "solder gpio pins" });
+    expect(result.content[0].text).toContain('No strong recommendation');
+    expect(result.details.recommendations).toEqual([]);
+  });
+
+  test("intent mode can use structured discovery docs as supplemental signals", async () => {
+    const { internalTools } = await import("../../src/extensions/internal-tools.js");
+    const fake = createFakeExtensionApi({
+      allTools: [
+        {
+          name: "repo_validate",
+          description: "Workspace helper.",
+          promptSnippet: "General helper.",
+          jdoc: {
+            summary: "Packaged repo validation helper.",
+            keywords: ["repo hygiene", "stale dist", "import boundaries"],
+            verbs: ["check", "validate", "audit"],
+            nouns: ["repo", "dist", "imports"],
+            aliases: ["repo audit"],
+            examples: [{ description: "check stale dist files in the repo" }],
+          },
+        },
+        {
+          name: "search_workspace",
+          description: "Search indexed workspace content.",
+          promptSnippet: "Search notes and workspace files",
+        },
+      ],
+    });
+    internalTools(fake.api);
+
+    const tool = fake.tools.get("list_internal_tools");
+    const result = await tool.execute("t8b", { intent: "check stale dist in the repo" });
+    expect(result.details.recommendations[0].name).toBe("repo_validate");
+    expect(result.details.recommendations[0].matched_sources.some((source: string) => source.startsWith("jdoc."))).toBe(true);
+  });
+
+  test("query mode can match structured discovery doc terms", async () => {
+    const { internalTools } = await import("../../src/extensions/internal-tools.js");
+    const fake = createFakeExtensionApi({
+      allTools: [
+        {
+          name: "repo_validate",
+          description: "Workspace helper.",
+          promptSnippet: "General helper.",
+          discoveryDoc: {
+            aliases: ["repo audit"],
+            keywords: ["stale dist", "repo hygiene"],
+          },
+        },
+      ],
+    });
+    internalTools(fake.api);
+
+    const tool = fake.tools.get("list_internal_tools");
+    const result = await tool.execute("t8c", { query: "repo audit" });
+    expect(result.details.count).toBe(1);
+    expect(result.details.tools[0].name).toBe("repo_validate");
+  });
+
   test("details include capability metadata fields", async () => {
     const { internalTools } = await import("../../src/extensions/internal-tools.js");
     const fake = createFakeExtensionApi({

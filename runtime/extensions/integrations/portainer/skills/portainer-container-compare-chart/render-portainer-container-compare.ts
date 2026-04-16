@@ -1,5 +1,41 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Compare portainer container for a packaged skill.",
+ *   "aliases": [
+ *     "render portainer container compare"
+ *   ],
+ *   "domains": [
+ *     "portainer",
+ *     "container"
+ *   ],
+ *   "verbs": [
+ *     "compare"
+ *   ],
+ *   "nouns": [
+ *     "portainer",
+ *     "container"
+ *   ],
+ *   "keywords": [
+ *     "portainer",
+ *     "container",
+ *     "compare",
+ *     "chart",
+ *     "render"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "compare portainer container"
+ *   ],
+ *   "kind": "mixed",
+ *   "weight": "standard",
+ *   "role": "entrypoint"
+ * }
+ */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 

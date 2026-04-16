@@ -1,5 +1,41 @@
 #!/usr/bin/env bun
 /**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Generate power output for a packaged skill.",
+ *   "aliases": [
+ *     "graphite power chart",
+ *     "power chart"
+ *   ],
+ *   "domains": [
+ *     "graphite",
+ *     "metrics"
+ *   ],
+ *   "verbs": [
+ *     "generate"
+ *   ],
+ *   "nouns": [
+ *     "power"
+ *   ],
+ *   "keywords": [
+ *     "graphite",
+ *     "power",
+ *     "chart",
+ *     "metrics"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "generate power"
+ *   ],
+ *   "kind": "mixed",
+ *   "weight": "standard",
+ *   "role": "entrypoint"
+ * }
+ */
+/**
  * skills/graphite-power-chart/graphite-power-chart.ts – Generates a Graphite metric chart.
  *
  * Standalone script invoked by the graphite-power-chart skill. Fetches time-

@@ -16,6 +16,7 @@ describe("built-in extension hook determinism", () => {
       "messagesCrud",
       "modelControl",
       "internalTools",
+      "runtimeScripts",
       "toolActivation",
       "sqlIntrospect",
       "workspaceSearch",
@@ -28,6 +29,7 @@ describe("built-in extension hook determinism", () => {
     ]);
     expect(audit.context_hook_order).toEqual(["fileAttachments"]);
     expect(audit.final_system_prompt).toContain("## File Attachments");
+    expect(audit.final_system_prompt).toContain("## Script discovery");
     expect(audit.final_system_prompt).toContain("## Database Introspection");
     expect(audit.final_system_prompt).toContain("## Workspace search");
     expect(audit.final_system_prompt).toContain("## Workspace memory bootstrap");

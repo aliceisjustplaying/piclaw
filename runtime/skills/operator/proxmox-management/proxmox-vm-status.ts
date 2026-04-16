@@ -1,5 +1,42 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Inspect management for a packaged skill.",
+ *   "aliases": [
+ *     "proxmox vm status",
+ *     "vm status"
+ *   ],
+ *   "domains": [
+ *     "proxmox",
+ *     "vm",
+ *     "virtualization"
+ *   ],
+ *   "verbs": [
+ *     "inspect"
+ *   ],
+ *   "nouns": [
+ *     "management"
+ *   ],
+ *   "keywords": [
+ *     "proxmox",
+ *     "management",
+ *     "vm",
+ *     "status",
+ *     "virtualization"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "inspect management"
+ *   ],
+ *   "kind": "read-only",
+ *   "weight": "lightweight",
+ *   "role": "entrypoint"
+ * }
+ */
 /**
  * Wrapper around the packaged Proxmox helper for VM inspect/status output.
  *

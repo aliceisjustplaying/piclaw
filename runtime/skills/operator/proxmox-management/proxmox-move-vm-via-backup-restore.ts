@@ -1,5 +1,48 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Move management via backup restore for a packaged skill.",
+ *   "aliases": [
+ *     "proxmox move vm via backup restore",
+ *     "move vm via backup restore"
+ *   ],
+ *   "domains": [
+ *     "proxmox",
+ *     "vm",
+ *     "virtualization"
+ *   ],
+ *   "verbs": [
+ *     "move"
+ *   ],
+ *   "nouns": [
+ *     "management",
+ *     "via",
+ *     "backup",
+ *     "restore"
+ *   ],
+ *   "keywords": [
+ *     "proxmox",
+ *     "management",
+ *     "move",
+ *     "vm",
+ *     "via",
+ *     "backup",
+ *     "restore",
+ *     "virtualization"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "move management via backup restore"
+ *   ],
+ *   "kind": "mutating",
+ *   "weight": "lightweight",
+ *   "role": "entrypoint"
+ * }
+ */
 /**
  * Move a QEMU VM across nodes/storage via vzdump backup + restore.
  * Useful when direct migrate is blocked by storage-type constraints.

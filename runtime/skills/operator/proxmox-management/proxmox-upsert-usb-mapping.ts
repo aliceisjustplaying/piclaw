@@ -1,5 +1,44 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Upsert management mapping for a packaged skill.",
+ *   "aliases": [
+ *     "proxmox upsert usb mapping",
+ *     "upsert usb mapping"
+ *   ],
+ *   "domains": [
+ *     "proxmox",
+ *     "usb",
+ *     "virtualization"
+ *   ],
+ *   "verbs": [
+ *     "upsert"
+ *   ],
+ *   "nouns": [
+ *     "management",
+ *     "mapping"
+ *   ],
+ *   "keywords": [
+ *     "proxmox",
+ *     "management",
+ *     "upsert",
+ *     "usb",
+ *     "mapping",
+ *     "virtualization"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "upsert management mapping"
+ *   ],
+ *   "kind": "mutating",
+ *   "weight": "lightweight",
+ *   "role": "entrypoint"
+ * }
+ */
 /**
  * Create or update a Proxmox USB mapping.
  *

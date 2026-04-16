@@ -7,12 +7,14 @@ import type {
   ExtensionFactory,
 } from "@mariozechner/pi-coding-agent";
 import { getToolsetsForTool, getEffectiveDefaultActiveToolNames } from "./tool-activation.js";
-import { getToolCapability, type ToolActivation } from "./tool-capabilities.js";
+import { getToolCapability, type ToolActivation, type ToolCapability } from "./tool-capabilities.js";
+import type { ToolJDoc } from "./discovery-jdoc.js";
 
 const InternalToolsSchema = Type.Object({
   query: Type.Optional(Type.String({ description: "Filter by tool name/description substring." })),
+  intent: Type.Optional(Type.String({ description: "Short natural-language goal for compact tool recommendations." })),
   limit: Type.Optional(Type.Integer({ description: "Max tools to return (1-200).", minimum: 1, maximum: 200 })),
-  include_parameters: Type.Optional(Type.Boolean({ description: "Include JSON schema parameters in details." })),
+  include_parameters: Type.Optional(Type.Boolean({ description: "Include JSON schema parameters in details; in recommendation mode this only applies to shortlisted tools." })),
 });
 
 function clampLimit(value: number | undefined, fallback = 100): number {
@@ -29,10 +31,382 @@ function summarizeDescription(value: string | undefined): string {
   return `${text.slice(0, 139)}…`;
 }
 
+function normalizeText(value: string | undefined): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9+.#/\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const SHORT_TOKEN_ALLOWLIST = new Set(["ai", "db", "fs", "id", "ip", "mcp", "sql", "ssh", "ui", "vm", "vnc"]);
+const STOP_TOKENS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "get", "help", "how", "i", "if", "in", "into", "is", "it", "me", "my", "of", "on", "or", "our", "show", "something", "task", "that", "the", "this", "to", "tool", "tools", "use", "using", "want", "what", "with", "you",
+]);
+
+function tokenizeText(value: string | undefined): string[] {
+  const text = normalizeText(value);
+  if (!text) return [];
+  return [...new Set(text.split(/\s+/).filter((token) => {
+    if (!token) return false;
+    if (SHORT_TOKEN_ALLOWLIST.has(token)) return true;
+    if (token.length < 3) return false;
+    if (STOP_TOKENS.has(token)) return false;
+    return true;
+  }))];
+}
+
+function uniqueStrings(values: Iterable<string>): string[] {
+  return [...new Set(Array.from(values).map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function joinReasonList(values: string[]): string {
+  return uniqueStrings(values).join(", ");
+}
+
+type StructuredDiscoveryDoc = Omit<ToolJDoc, "aliases" | "domains" | "verbs" | "nouns" | "keywords" | "guidance" | "examples"> & {
+  keywords: string[];
+  domains: string[];
+  verbs: string[];
+  nouns: string[];
+  aliases: string[];
+  guidance: string[];
+  examples: string[];
+};
+
+type ToolCatalogEntry = {
+  name: string;
+  description: string;
+  promptSnippet?: string;
+  parameters?: unknown;
+  active: boolean;
+  activation: ToolActivation;
+  kind: string;
+  weight: string;
+  summary: string;
+  toolsets: string[];
+  capability: ToolCapability;
+  discoveryDoc?: StructuredDiscoveryDoc;
+};
+
+type RecommendationMatch = {
+  tool: ToolCatalogEntry;
+  score: number;
+  matchedTerms: string[];
+  matchedSources: string[];
+  reasons: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function stringArrayFromUnknown(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueStrings(value.map((entry) => typeof entry === "string" ? entry : ""));
+}
+
+function exampleStringsFromUnknown(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const values: string[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      values.push(entry);
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    const text = firstNonEmptyString(
+      entry.text,
+      entry.description,
+      entry.summary,
+      entry.title,
+      entry.name,
+      entry.input,
+      entry.prompt,
+      entry.intent,
+      entry.query,
+    );
+    if (text) values.push(text);
+  }
+  return uniqueStrings(values);
+}
+
+function readStructuredDiscoveryDoc(value: unknown): Partial<StructuredDiscoveryDoc> | undefined {
+  if (!isRecord(value)) return undefined;
+  const summary = firstNonEmptyString(value.summary, value.description, value.overview);
+  const guidance = uniqueStrings([
+    ...stringArrayFromUnknown(value.guidance),
+    ...stringArrayFromUnknown(value.promptGuidelines),
+    ...stringArrayFromUnknown(value.instructions),
+  ]);
+  const doc: Partial<StructuredDiscoveryDoc> = {
+    ...(summary ? { summary } : {}),
+    keywords: uniqueStrings([
+      ...stringArrayFromUnknown(value.keywords),
+      ...stringArrayFromUnknown(value.tags),
+      ...stringArrayFromUnknown(value.searchTerms),
+    ]),
+    domains: stringArrayFromUnknown(value.domains),
+    verbs: stringArrayFromUnknown(value.verbs),
+    nouns: stringArrayFromUnknown(value.nouns),
+    aliases: uniqueStrings([
+      ...stringArrayFromUnknown(value.aliases),
+      ...stringArrayFromUnknown(value.names),
+    ]),
+    guidance,
+    examples: uniqueStrings([
+      ...exampleStringsFromUnknown(value.examples),
+      ...stringArrayFromUnknown(value.examplePhrases),
+    ]),
+  };
+  const hasContent = Boolean(
+    doc.summary
+    || doc.keywords?.length
+    || doc.domains?.length
+    || doc.verbs?.length
+    || doc.nouns?.length
+    || doc.aliases?.length
+    || doc.guidance?.length
+    || doc.examples?.length,
+  );
+  return hasContent ? doc : undefined;
+}
+
+function getStructuredDiscoveryDoc(tool: unknown): StructuredDiscoveryDoc | undefined {
+  if (!isRecord(tool)) return undefined;
+  const metadata = isRecord(tool.metadata) ? tool.metadata : undefined;
+  const candidates = [
+    tool.jdoc,
+    tool.jdocs,
+    tool.discoveryDoc,
+    tool.structuredDoc,
+    metadata?.jdoc,
+    metadata?.jdocs,
+    metadata?.discoveryDoc,
+    metadata?.structuredDoc,
+    metadata?.discovery,
+  ];
+  const docs = candidates
+    .map((candidate) => readStructuredDiscoveryDoc(candidate))
+    .filter((candidate): candidate is Partial<StructuredDiscoveryDoc> => Boolean(candidate));
+
+  const summary = firstNonEmptyString(
+    ...docs.map((doc) => doc.summary),
+    metadata?.summary,
+  );
+  const merged: StructuredDiscoveryDoc = {
+    ...(summary ? { summary } : {}),
+    keywords: uniqueStrings([
+      ...docs.flatMap((doc) => doc.keywords ?? []),
+    ]),
+    domains: uniqueStrings([
+      ...docs.flatMap((doc) => doc.domains ?? []),
+    ]),
+    verbs: uniqueStrings([
+      ...docs.flatMap((doc) => doc.verbs ?? []),
+    ]),
+    nouns: uniqueStrings([
+      ...docs.flatMap((doc) => doc.nouns ?? []),
+    ]),
+    aliases: uniqueStrings([
+      ...docs.flatMap((doc) => doc.aliases ?? []),
+      ...stringArrayFromUnknown(tool.aliases),
+    ]),
+    guidance: uniqueStrings([
+      ...docs.flatMap((doc) => doc.guidance ?? []),
+      ...stringArrayFromUnknown(tool.promptGuidelines),
+    ]),
+    examples: uniqueStrings([
+      ...docs.flatMap((doc) => doc.examples ?? []),
+      ...exampleStringsFromUnknown(tool.examples),
+    ]),
+  };
+
+  return merged.summary || merged.keywords.length || merged.domains.length || merged.verbs.length || merged.nouns.length || merged.aliases.length || merged.guidance.length || merged.examples.length
+    ? merged
+    : undefined;
+}
+
+function buildCatalog(api: ExtensionAPI, includeParameters: boolean): ToolCatalogEntry[] {
+  const activeSet = new Set(api.getActiveTools());
+  const visibleTools = process.platform === "win32" && api.getAllTools().some((tool) => tool.name === "powershell")
+    ? api.getAllTools().filter((tool) => tool.name !== "bash")
+    : api.getAllTools();
+  const defaultSet = new Set(getEffectiveDefaultActiveToolNames(visibleTools));
+  return visibleTools
+    .map((tool) => {
+      const capability = getToolCapability(tool.name);
+      const activation: ToolActivation = defaultSet.has(tool.name) ? "default" : "on-demand";
+      return {
+        name: tool.name,
+        description: summarizeDescription(tool.description),
+        promptSnippet: typeof (tool as { promptSnippet?: unknown }).promptSnippet === "string"
+          ? String((tool as { promptSnippet?: string }).promptSnippet).trim()
+          : undefined,
+        parameters: includeParameters ? tool.parameters : undefined,
+        active: activeSet.has(tool.name),
+        activation,
+        kind: capability.kind,
+        weight: capability.weight,
+        summary: capability.summary || summarizeDescription(tool.description),
+        toolsets: getToolsetsForTool(tool.name),
+        capability,
+        discoveryDoc: getStructuredDiscoveryDoc(tool),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function filterCatalog(tools: ToolCatalogEntry[], query: string): ToolCatalogEntry[] {
+  if (!query) return tools;
+  return tools.filter((tool) =>
+    tool.name.toLowerCase().includes(query)
+    || tool.description.toLowerCase().includes(query)
+    || tool.summary.toLowerCase().includes(query)
+    || tool.promptSnippet?.toLowerCase().includes(query)
+    || tool.toolsets.some((toolset) => toolset.toLowerCase().includes(query))
+    || tool.discoveryDoc?.summary?.toLowerCase().includes(query)
+    || tool.discoveryDoc?.aliases.some((entry) => entry.toLowerCase().includes(query))
+    || tool.discoveryDoc?.keywords.some((entry) => entry.toLowerCase().includes(query))
+    || tool.discoveryDoc?.examples.some((entry) => entry.toLowerCase().includes(query))
+    || tool.discoveryDoc?.guidance.some((entry) => entry.toLowerCase().includes(query)),
+  );
+}
+
+function addExactPhraseMatches(
+  haystack: string,
+  phrases: string[] | undefined,
+  source: string,
+  points: number,
+  match: RecommendationMatch,
+): void {
+  if (!phrases?.length) return;
+  for (const phrase of uniqueStrings(phrases.map((value) => normalizeText(value)))) {
+    if (!phrase || phrase.includes(" ") === false) continue;
+    if (!haystack.includes(phrase)) continue;
+    match.score += points;
+    match.matchedTerms.push(phrase);
+    match.matchedSources.push(source);
+  }
+}
+
+function addTokenMatches(
+  intentTokens: Set<string>,
+  terms: string[] | undefined,
+  source: string,
+  points: number,
+  match: RecommendationMatch,
+): void {
+  if (!terms?.length) return;
+  for (const term of uniqueStrings(terms.map((value) => normalizeText(value)))) {
+    if (!term) continue;
+    for (const token of tokenizeText(term)) {
+      if (!intentTokens.has(token)) continue;
+      match.score += points;
+      match.matchedTerms.push(token);
+      match.matchedSources.push(source);
+    }
+  }
+}
+
+function scoreIntent(tool: ToolCatalogEntry, intent: string): RecommendationMatch | null {
+  const normalizedIntent = normalizeText(intent);
+  const intentTokens = new Set(tokenizeText(normalizedIntent));
+  if (intentTokens.size === 0) return null;
+
+  const match: RecommendationMatch = {
+    tool,
+    score: 0,
+    matchedTerms: [],
+    matchedSources: [],
+    reasons: [],
+  };
+
+  addTokenMatches(intentTokens, [tool.name], "name", 4, match);
+  addTokenMatches(intentTokens, tool.toolsets, "toolset", 2, match);
+  addTokenMatches(intentTokens, tokenizeText(tool.promptSnippet), "promptSnippet", 3, match);
+  addTokenMatches(intentTokens, tokenizeText(tool.summary), "summary", 2, match);
+  addTokenMatches(intentTokens, tokenizeText(tool.description), "description", 1, match);
+
+  if (tool.discoveryDoc) {
+    addTokenMatches(intentTokens, tokenizeText(tool.discoveryDoc.summary), "jdoc.summary", 1, match);
+    addExactPhraseMatches(normalizedIntent, tool.discoveryDoc.domains, "jdoc.domains", 2, match);
+    addExactPhraseMatches(normalizedIntent, tool.discoveryDoc.verbs, "jdoc.verbs", 2, match);
+    addExactPhraseMatches(normalizedIntent, tool.discoveryDoc.nouns, "jdoc.nouns", 2, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.domains, "jdoc.domains", 2, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.verbs, "jdoc.verbs", 1, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.nouns, "jdoc.nouns", 1, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.aliases, "jdoc.aliases", 2, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.keywords, "jdoc.keywords", 1, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.guidance, "jdoc.guidance", 1, match);
+    addTokenMatches(intentTokens, tool.discoveryDoc.examples, "jdoc.examples", 1, match);
+  }
+
+  const recommend = tool.capability.recommend;
+  if (recommend) {
+    addExactPhraseMatches(normalizedIntent, recommend.domains, "recommend.domains", 4, match);
+    addExactPhraseMatches(normalizedIntent, recommend.verbs, "recommend.verbs", 3, match);
+    addExactPhraseMatches(normalizedIntent, recommend.nouns, "recommend.nouns", 3, match);
+    addTokenMatches(intentTokens, recommend.domains, "recommend.domains", 3, match);
+    addTokenMatches(intentTokens, recommend.verbs, "recommend.verbs", 2, match);
+    addTokenMatches(intentTokens, recommend.nouns, "recommend.nouns", 2, match);
+    addTokenMatches(intentTokens, recommend.keywords, "recommend.keywords", 2, match);
+    const negativeTerms = uniqueStrings(recommend.negativeTerms ?? []);
+    for (const negative of negativeTerms) {
+      const normalizedNegative = normalizeText(negative);
+      if (!normalizedNegative) continue;
+      if (normalizedIntent.includes(normalizedNegative)) {
+        match.score -= 3;
+        match.reasons.push(`negative match: ${normalizedNegative}`);
+      }
+    }
+  }
+
+  match.matchedTerms = uniqueStrings(match.matchedTerms);
+  match.matchedSources = uniqueStrings(match.matchedSources);
+  const baseScore = match.score;
+  if (baseScore <= 0 || match.matchedTerms.length === 0) return null;
+
+  const readIntent = /(inspect|search|find|review|list|show|read|check|look up|browse|view)/i.test(intent);
+  if (tool.active) {
+    match.score += 2;
+    match.reasons.push("already active");
+  } else if (tool.activation === "default") {
+    match.score += 1;
+    match.reasons.push("default active");
+  }
+  if (tool.kind === "read-only" && readIntent) {
+    match.score += 1;
+    match.reasons.push("read-only fit");
+  }
+  if (tool.kind === "mutating" && readIntent) {
+    match.score -= 2;
+    match.reasons.push("mutating penalty for read-style intent");
+  }
+  if (tool.weight === "heavy") {
+    match.score -= 1;
+    match.reasons.push("heavy-tool penalty");
+  }
+
+  match.reasons = uniqueStrings(match.reasons);
+  if (match.score <= 0) return null;
+  return match;
+}
+
 const HINT = [
   "## Internal Tool Discovery",
   "If you are unsure about available tools, call list_internal_tools.",
   "Prefer the staged flow: query-filtered discovery → compact summary → on-demand parameters/details → activate/use.",
+  "Use intent when you know the goal but not the tool name; use query when you already know the capability area.",
   "Use include_parameters only for the specific tool you are about to use or inspect in detail.",
   "Discovery is separate from activation: use activate_tools only when you actually need additional tools beyond the effective default set.",
   "",
@@ -56,44 +430,76 @@ export const internalTools: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool({
     name: "list_internal_tools",
     label: "list_internal_tools",
-    description: "List available internal tools with brief descriptions. Each result includes capability metadata (kind: read-only/mutating/mixed, weight: lightweight/standard/heavy, activation: default/on-demand) and toolset groupings. Start with query-filtered compact summaries; request parameter schemas only on demand for the specific tool you need.",
-    promptSnippet: "list_internal_tools: Discover available internal tools with compact summaries first, then request schema details only when needed.",
+    description: "List available internal tools with brief descriptions. Each result includes capability metadata (kind: read-only/mutating/mixed, weight: lightweight/standard/heavy, activation: default/on-demand) and toolset groupings. Start with query-filtered compact summaries; use intent for compact recommendations when you know the goal but not the tool name.",
+    promptSnippet: "list_internal_tools: Discover available internal tools with compact summaries first, or use intent for a compact recommendation shortlist before requesting schema details.",
     parameters: InternalToolsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const query = params.query?.trim().toLowerCase() || "";
+      const intent = params.intent?.trim() || "";
       const limit = clampLimit(params.limit, 100);
       const includeParameters = Boolean(params.include_parameters);
+      const catalog = buildCatalog(pi, includeParameters);
+      const filtered = filterCatalog(catalog, query);
 
-      const activeSet = new Set(pi.getActiveTools());
-      const visibleTools = process.platform === "win32" && pi.getAllTools().some((tool) => tool.name === "powershell")
-        ? pi.getAllTools().filter((tool) => tool.name !== "bash")
-        : pi.getAllTools();
-      const defaultSet = new Set(getEffectiveDefaultActiveToolNames(visibleTools));
-      const all = visibleTools
-        .map((tool) => {
-          const cap = getToolCapability(tool.name);
-          const activation: ToolActivation = defaultSet.has(tool.name) ? "default" : "on-demand";
+      if (intent) {
+        const recommendations = filtered
+          .map((tool) => scoreIntent(tool, intent))
+          .filter((entry): entry is RecommendationMatch => Boolean(entry))
+          .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+          .slice(0, Math.min(limit, 5));
+
+        if (recommendations.length === 0) {
+          const queryHint = intent.split(/\s+/).slice(0, 4).join(" ").trim();
+          const fallbackText = queryHint
+            ? `No strong recommendation for "${intent}". Try list_internal_tools(query="${queryHint}") to narrow the catalog first.`
+            : `No strong recommendation for "${intent}".`;
           return {
-            name: tool.name,
-            description: summarizeDescription(tool.description),
-            parameters: includeParameters ? tool.parameters : undefined,
-            active: activeSet.has(tool.name),
-            activation,
-            kind: cap.kind,
-            weight: cap.weight,
-            summary: cap.summary || summarizeDescription(tool.description),
-            toolsets: getToolsetsForTool(tool.name),
+            content: [{ type: "text", text: fallbackText }],
+            details: {
+              total: filtered.length,
+              count: 0,
+              intent,
+              ...(query ? { query: params.query?.trim() } : {}),
+              recommendations: [],
+            },
           };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
+        }
 
-      const filtered = query
-        ? all.filter((tool) =>
-            tool.name.toLowerCase().includes(query)
-            || tool.description.toLowerCase().includes(query)
-            || tool.summary.toLowerCase().includes(query),
-          )
-        : all;
+        const header = `Recommended tools for "${intent}": ${recommendations.length}.`;
+        const lines = recommendations.map(({ tool, reasons }) => {
+          const active = tool.active ? " [active]" : "";
+          const toolsets = tool.toolsets.length > 0 ? ` {${tool.toolsets.join(", ")}}` : "";
+          const meta = `[${tool.kind}, ${tool.weight}, ${tool.activation}]`;
+          const reasonText = reasons.length > 0 ? ` — ${joinReasonList(reasons)}` : "";
+          return `• ${tool.name} — ${tool.summary}${reasonText}${active}${toolsets} ${meta}`;
+        });
+
+        return {
+          content: [{ type: "text", text: `${header}\n${lines.join("\n")}` }],
+          details: {
+            total: filtered.length,
+            count: recommendations.length,
+            intent,
+            ...(query ? { query: params.query?.trim() } : {}),
+            recommendations: recommendations.map(({ tool, score, matchedTerms, matchedSources, reasons }) => ({
+              name: tool.name,
+              summary: tool.summary,
+              score,
+              matched_terms: matchedTerms,
+              matched_sources: matchedSources,
+              reason_summary: joinReasonList(reasons),
+              active: tool.active,
+              activation: tool.activation,
+              kind: tool.kind,
+              weight: tool.weight,
+              toolsets: tool.toolsets,
+              ...(tool.promptSnippet ? { promptSnippet: tool.promptSnippet } : {}),
+              ...(tool.parameters !== undefined ? { parameters: tool.parameters } : {}),
+              ...(tool.capability.recommend ? { recommendation_profile: tool.capability.recommend } : {}),
+            })),
+          },
+        };
+      }
 
       const tools = filtered.slice(0, limit);
       if (tools.length === 0) {
@@ -120,7 +526,19 @@ export const internalTools: ExtensionFactory = (pi: ExtensionAPI) => {
           total: filtered.length,
           count: tools.length,
           query: params.query?.trim() || undefined,
-          tools,
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            ...(tool.parameters !== undefined ? { parameters: tool.parameters } : {}),
+            active: tool.active,
+            activation: tool.activation,
+            kind: tool.kind,
+            weight: tool.weight,
+            summary: tool.summary,
+            toolsets: tool.toolsets,
+            ...(tool.promptSnippet ? { promptSnippet: tool.promptSnippet } : {}),
+            ...(tool.capability.recommend ? { recommendation_profile: tool.capability.recommend } : {}),
+          })),
         },
       };
     },

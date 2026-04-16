@@ -2,6 +2,7 @@ import { fileAttachments } from "./file-attachments.js";
 import { messagesCrud } from "./messages-crud.js";
 import { modelControl } from "./model-control.js";
 import { internalTools } from "./internal-tools.js";
+import { runtimeScripts } from "./runtime-scripts.js";
 import { toolActivation } from "./tool-activation.js";
 import { sqlIntrospect } from "./sql-introspect.js";
 import { scheduledTasks } from "./scheduled-tasks.js";
@@ -21,6 +22,7 @@ export const builtinExtensionFactories = [
     messagesCrud,
     modelControl,
     internalTools,
+    runtimeScripts,
     toolActivation,
     sqlIntrospect,
     scheduledTasks,

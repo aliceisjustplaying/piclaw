@@ -1,5 +1,41 @@
 #!/usr/bin/env bun
 /**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Generate token usage output for a packaged skill.",
+ *   "aliases": [
+ *     "token chart",
+ *     "chart"
+ *   ],
+ *   "domains": [
+ *     "token",
+ *     "usage"
+ *   ],
+ *   "verbs": [
+ *     "generate"
+ *   ],
+ *   "nouns": [
+ *     "token",
+ *     "usage"
+ *   ],
+ *   "keywords": [
+ *     "token",
+ *     "chart",
+ *     "usage"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "generate token usage"
+ *   ],
+ *   "kind": "mixed",
+ *   "weight": "standard",
+ *   "role": "entrypoint"
+ * }
+ */
+/**
  * skills/token-chart/token-chart.ts – Generates a 7-day token usage chart.
  *
  * Standalone script invoked by the token-chart skill (via IPC or scheduler).

@@ -22,7 +22,7 @@ export const TOOLSETS: ToolsetDefinition[] = [
   {
     name: "discovery",
     description: "Tool discovery and lazy activation controls.",
-    toolNames: ["list_internal_tools", "activate_tools", "reset_active_tools"],
+    toolNames: ["list_internal_tools", "list_scripts", "activate_tools", "reset_active_tools"],
   },
   {
     name: "attachments",

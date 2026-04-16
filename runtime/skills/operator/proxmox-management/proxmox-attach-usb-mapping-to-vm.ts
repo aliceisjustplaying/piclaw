@@ -1,5 +1,48 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "Attach management mapping to for a packaged skill.",
+ *   "aliases": [
+ *     "proxmox attach usb mapping to vm",
+ *     "attach usb mapping to vm"
+ *   ],
+ *   "domains": [
+ *     "proxmox",
+ *     "vm",
+ *     "usb",
+ *     "virtualization"
+ *   ],
+ *   "verbs": [
+ *     "attach"
+ *   ],
+ *   "nouns": [
+ *     "management",
+ *     "mapping",
+ *     "to"
+ *   ],
+ *   "keywords": [
+ *     "proxmox",
+ *     "management",
+ *     "attach",
+ *     "usb",
+ *     "mapping",
+ *     "to",
+ *     "vm",
+ *     "virtualization"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "attach management mapping to"
+ *   ],
+ *   "kind": "mutating",
+ *   "weight": "lightweight",
+ *   "role": "entrypoint"
+ * }
+ */
 /**
  * Attach a Proxmox USB mapping to a QEMU VM slot (usb0 by default).
  *

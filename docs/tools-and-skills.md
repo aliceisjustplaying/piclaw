@@ -42,20 +42,135 @@ Newly activated tools become available immediately to subsequent tool/model step
 
 For internal-tool discovery, prefer this order:
 
-1. **Discover / narrow** — call `list_internal_tools` with `query` when you know the rough capability area.
-2. **Read compact summaries** — use the default summary output first instead of requesting full schemas for everything.
-3. **Request detail only when needed** — use `include_parameters=true` only for the specific tool you are about to use or inspect more deeply.
+1. **Recommend / narrow** — call `list_internal_tools` with `intent` when you know the goal but not the tool name, or use `query` when you already know the rough capability area.
+2. **Read compact summaries** — use the default summary/recommendation output first instead of requesting full schemas for everything.
+3. **Request detail only when needed** — use `include_parameters=true` only for the specific shortlisted tool you are about to use or inspect more deeply.
 4. **Activate / use** — call `activate_tools` only for the tool(s) you actually need beyond the effective default set.
 
 That keeps discovery separate from activation and avoids bulky “dump every tool schema first” behavior.
 
+`list_internal_tools(intent=...)` scores explicit tool metadata first (`name`, `description`, `promptSnippet`, toolsets, and capability profiles). When a tool also exposes structured discovery docs/JDocs (for example aliases, domains, verbs, nouns, keywords, guidance, or examples), those are treated as supplemental low-weight hints rather than overrides.
+
+### ToolJDoc: supplemental discovery metadata
+
+Use `ToolJDoc` when a tool needs richer discovery hints than `name`, `description`, and `promptSnippet` alone can provide. This is discovery metadata, not a replacement for the tool's real runtime contract.
+
+#### Design rules
+
+- Primary metadata still wins: `name`, `description`, and `promptSnippet` should stand on their own.
+- `ToolJDoc` only supplements discovery; it should not override the tool's actual purpose.
+- Prefer short, literal phrases that humans would really type.
+- Keep examples compact and task-shaped.
+- Put safety or workflow notes under `guidance`, not in `keywords`.
+
+#### Canonical shape
+
+```ts
+export interface ToolJDoc {
+  /** Optional one-line discovery summary. */
+  summary?: string;
+  /** Alternate names humans may search for. */
+  aliases?: string[];
+  /** Higher-level capability areas. */
+  domains?: string[];
+  /** Action phrases for intent matching. */
+  verbs?: string[];
+  /** Target objects/entities for intent matching. */
+  nouns?: string[];
+  /** Supplemental search terms that do not fit cleanly elsewhere. */
+  keywords?: string[];
+  /** Usage notes and safety guidance; low-weight for discovery. */
+  guidance?: string[];
+  /** Example intents, prompts, or short task phrases. */
+  examples?: Array<string | {
+    text?: string;
+    description?: string;
+    summary?: string;
+    title?: string;
+    name?: string;
+    input?: string;
+    prompt?: string;
+    intent?: string;
+    query?: string;
+  }>;
+}
+```
+
+#### Example table
+
+| Tool | Primary metadata | ToolJDoc hints | Example intent |
+|---|---|---|---|
+| `messages` | `Search, retrieve, add, or delete messages.` | `domains: ["messages", "chat", "timeline"]`<br>`verbs: ["inspect", "search", "review"]`<br>`nouns: ["messages", "history", "recent"]` | `inspect recent messages` |
+| `search_workspace` | `Search indexed workspace content.` | `aliases: ["note search"]`<br>`keywords: ["notes", "skills", "docs"]`<br>`examples: ["find notes about azure"]` | `find notes about azure` |
+| `office_read` | `Read a Microsoft Office document...` | `aliases: ["read spreadsheet", "read docx"]`<br>`nouns: ["docx", "xlsx", "pptx", "spreadsheet"]` | `read this spreadsheet` |
+
+#### Example: simple helper tool
+
+```ts
+pi.registerTool({
+  name: "repo_validate",
+  description: "Workspace helper.",
+  promptSnippet: "General helper.",
+  jdoc: {
+    summary: "Packaged repo validation helper.",
+    aliases: ["repo audit"],
+    domains: ["repo", "workspace", "validation"],
+    verbs: ["check", "validate", "audit"],
+    nouns: ["repo", "dist", "imports"],
+    keywords: ["repo hygiene", "stale dist", "import boundaries"],
+    examples: [
+      { description: "check stale dist files in the repo" },
+    ],
+    guidance: [
+      "Use for packaged repo/runtime validation helpers.",
+    ],
+  },
+});
+```
+
+#### Example: communication tool
+
+```ts
+pi.registerTool({
+  name: "m365_teams_messages",
+  description: "Read messages from a Teams chat thread.",
+  promptSnippet: "Read Teams chat messages and inspect recent conversation history",
+  jdoc: {
+    aliases: ["teams chat read"],
+    domains: ["m365", "teams"],
+    verbs: ["read", "inspect"],
+    nouns: ["teams", "chat", "thread", "messages"],
+    examples: ["inspect recent Teams messages"],
+  },
+});
+```
+
+#### Example: desktop UI tool
+
+```ts
+pi.registerTool({
+  name: "win_click",
+  description: "Click at screen coordinates, or find a UI element by name in a window and click its center.",
+  promptSnippet: "Click a Windows desktop UI element by name or at explicit screen coordinates.",
+  jdoc: {
+    aliases: ["desktop click"],
+    domains: ["windows", "desktop", "ui"],
+    verbs: ["click", "press", "select"],
+    nouns: ["button", "tab", "element", "window"],
+    examples: ["click the Close button in Edge"],
+  },
+});
+```
+
+The same vocabulary is intentionally suitable for script discovery too. For scripts, use the parallel `ScriptJDoc` shape with the same fields plus script-specific hints such as `kind`, `weight`, and `role` (`entrypoint` vs `module`). Keep the semantics consistent so tools and scripts can share one recommendation model.
+
 Example:
 
 ```text
-1. list_internal_tools(query="sql")
-2. inspect the compact summaries
-3. list_internal_tools(query="introspect_sql", include_parameters=true)
-4. if needed beyond the effective default set, activate_tools(names=["introspect_sql"])
+1. list_internal_tools(intent="inspect recent messages")
+2. inspect the compact recommendations
+3. list_internal_tools(query="messages", include_parameters=true)
+4. if needed beyond the effective default set, activate_tools(names=["messages"])
 5. use the tool
 ```
 
@@ -86,7 +201,8 @@ You can extend that baseline with `.piclaw/config.json`:
 - `keychain` — list, get, set, and delete encrypted keychain entries
 - `schedule_task` — schedule agent prompts or shell commands (cron, interval, or one-shot)
 - `introspect_sql` — run read-only SQL queries against the messages database
-- `list_internal_tools` — list available tools with descriptions, active-state markers, and toolset membership
+- `list_internal_tools` — list available tools with descriptions, active-state markers, and toolset membership; also supports compact intent-based recommendations via `intent`
+- `list_scripts` — discover packaged skill scripts plus workspace skill/note scripts with compact summaries, role markers (`entrypoint` vs `module`), and Bun invocation hints
 - `activate_tools` — activate one or more available tools for the current session
 - `reset_active_tools` — restore the configured default active-tool set for the current session
 - `open_office_viewer` — open an Office document (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`) in the built-in JS Office viewer (`/office-viewer/*`)

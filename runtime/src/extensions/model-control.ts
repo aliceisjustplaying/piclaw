@@ -64,6 +64,7 @@ export const modelControl: ExtensionFactory = (pi: ExtensionAPI) => {
     name: "get_model_state",
     label: "get_model_state",
     description: "Get the current model and thinking level.",
+    promptSnippet: "get_model_state: inspect the current provider/model, thinking level, and context usage.",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _update, ctx) {
       const model = ctx.model;
@@ -102,6 +103,7 @@ export const modelControl: ExtensionFactory = (pi: ExtensionAPI) => {
     name: "list_models",
     label: "list_models",
     description: "List available models in the registry.",
+    promptSnippet: "list_models: discover available provider/model options before switching.",
     parameters: Type.Object({
       query: Type.Optional(Type.String({ description: "Filter by provider/modelId substring (case-insensitive)." })),
       limit: Type.Optional(Type.Integer({ description: "Max results (1-200).", minimum: 1, maximum: 200 })),
@@ -206,6 +208,7 @@ export const modelControl: ExtensionFactory = (pi: ExtensionAPI) => {
     name: "switch_thinking",
     label: "switch_thinking",
     description: "Switch the thinking level for the current session.",
+    promptSnippet: "switch_thinking: change the current reasoning/thinking effort level.",
     parameters: Type.Object({
       level: Type.Optional(
         Type.String({ description: "Thinking level (off/minimal/low/medium/high/xhigh). Omit to see current." }),

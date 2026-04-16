@@ -3,7 +3,16 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 interface ListedTool {
   name: string;
   description?: string;
+  promptSnippet?: string;
   parameters?: unknown;
+  aliases?: string[];
+  promptGuidelines?: string[];
+  examples?: unknown[];
+  jdoc?: Record<string, unknown>;
+  jdocs?: Record<string, unknown>;
+  discoveryDoc?: Record<string, unknown>;
+  structuredDoc?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 interface CreateFakeExtensionApiOptions {

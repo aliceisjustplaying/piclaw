@@ -1,5 +1,42 @@
 #!/usr/bin/env bun
-
+/**
+ * SCRIPT_JDOC:
+ * {
+ *   "summary": "List management for a packaged skill.",
+ *   "aliases": [
+ *     "proxmox list usb",
+ *     "list usb"
+ *   ],
+ *   "domains": [
+ *     "proxmox",
+ *     "usb",
+ *     "virtualization"
+ *   ],
+ *   "verbs": [
+ *     "list"
+ *   ],
+ *   "nouns": [
+ *     "management"
+ *   ],
+ *   "keywords": [
+ *     "proxmox",
+ *     "management",
+ *     "list",
+ *     "usb",
+ *     "virtualization"
+ *   ],
+ *   "guidance": [
+ *     "Runnable script entrypoint.",
+ *     "Packaged script surface."
+ *   ],
+ *   "examples": [
+ *     "list management"
+ *   ],
+ *   "kind": "read-only",
+ *   "weight": "lightweight",
+ *   "role": "entrypoint"
+ * }
+ */
 /**
  * List USB devices visible on a Proxmox node.
  *
