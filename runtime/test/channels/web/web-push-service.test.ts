@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { upsertStoredWebPushSubscription, listStoredWebPushSubscriptions } from "../../../src/channels/web/push/web-push-store.js";
 import {
   buildStoredAgentReplyWebPushNotification,
+  resetStoredWebPushDeliveryForTests,
   sendStoredAgentReplyWebPushNotification,
   sendStoredWebPushNotification,
 } from "../../../src/channels/web/push/web-push-service.js";
@@ -20,6 +21,7 @@ function createTempPushDir(): string {
 }
 
 afterEach(() => {
+  resetStoredWebPushDeliveryForTests();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
@@ -81,7 +83,7 @@ describe("web push service", () => {
     expect(String((deliveries[0]?.options.vapidDetails as any)?.privateKey)).not.toContain("BEGIN");
   });
 
-  test("defaults to the production VAPID subject when one is not supplied", async () => {
+  test("defaults to a local-safe VAPID subject when one is not supplied", async () => {
     const baseDir = createTempPushDir();
     upsertStoredWebPushSubscription(createSubscription(11), { baseDir });
 
@@ -98,7 +100,7 @@ describe("web push service", () => {
 
     expect(result).toEqual({ attempted: 1, sent: 1, removed: 0, failed: 0 });
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]?.subject).toBe("https://pix.mosphere.at");
+    expect(deliveries[0]?.subject).toBe("mailto:notifications@localhost.invalid");
   });
 
   test("removes expired subscriptions and keeps non-expired failures", async () => {
@@ -237,5 +239,36 @@ describe("web push service", () => {
       tag: "piclaw:reply:web:default",
       sourceLabel: "Web Push",
     }]);
+  });
+
+  test("disables stored Web Push after a fatal setup failure", async () => {
+    const baseDir = createTempPushDir();
+    upsertStoredWebPushSubscription(createSubscription(21), { baseDir });
+    writeFileSync(join(baseDir, "vapid-keys.json"), JSON.stringify({
+      createdAt: "2026-04-14T22:05:00.000Z",
+      publicKey: "public",
+      publicKeyPem: "-----BEGIN PUBLIC KEY-----\ninvalid\n-----END PUBLIC KEY-----\n",
+      privateKeyPem: "-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----\n",
+    }), "utf8");
+
+    const first = await sendStoredWebPushNotification({
+      title: "Broken",
+      body: "Setup failure",
+    }, { baseDir });
+    expect(first).toEqual({ attempted: 0, sent: 0, removed: 0, failed: 1 });
+
+    rmSync(join(baseDir, "vapid-keys.json"), { force: true });
+    let sendCalls = 0;
+    const second = await sendStoredWebPushNotification({
+      title: "Still disabled",
+      body: "No retry until restart",
+    }, {
+      baseDir,
+      sendNotification: async () => {
+        sendCalls += 1;
+      },
+    });
+    expect(second).toEqual({ attempted: 0, sent: 0, removed: 0, failed: 1 });
+    expect(sendCalls).toBe(0);
   });
 });

@@ -3,7 +3,6 @@
  */
 
 import { createPrivateKey } from "node:crypto";
-
 import type { InteractionRow } from "../../../db.js";
 import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 import {
@@ -20,7 +19,8 @@ import {
 const log = createLogger("web.push.service");
 const DEFAULT_VAPID_SUBJECT = typeof process.env.PICLAW_WEB_PUSH_VAPID_SUBJECT === "string" && process.env.PICLAW_WEB_PUSH_VAPID_SUBJECT.trim()
   ? process.env.PICLAW_WEB_PUSH_VAPID_SUBJECT.trim()
-  : "https://pix.mosphere.at";
+  : "mailto:notifications@localhost.invalid";
+let disabledStoredWebPushReason: Error | null = null;
 
 export interface WebPushNotificationPayload {
   title: string;
@@ -127,6 +127,20 @@ function getStoredVapidDetails(baseDir?: string, vapidSubject?: string): {
     publicKey: keys.publicKey,
     privateKey,
   };
+}
+
+function disableStoredWebPushDelivery(error: unknown): void {
+  const reason = error instanceof Error ? error : new Error(String(error || "Unknown web push setup failure"));
+  if (disabledStoredWebPushReason) return;
+  disabledStoredWebPushReason = reason;
+  log.warn("Disabled stored web push delivery after a fatal setup failure.", {
+    errorMessage: reason.message,
+    err: reason,
+  });
+}
+
+export function resetStoredWebPushDeliveryForTests(): void {
+  disabledStoredWebPushReason = null;
 }
 
 async function loadGenerateRequestDetailsImpl(): Promise<NonNullable<SendStoredWebPushNotificationOptions["generateRequestDetails"]>> {
@@ -241,18 +255,36 @@ export async function sendStoredWebPushNotification(
   if (subscriptions.length === 0) {
     return { attempted: 0, sent: 0, removed: 0, failed: 0 };
   }
+  if (disabledStoredWebPushReason) {
+    return { attempted: 0, sent: 0, removed: 0, failed: subscriptions.length };
+  }
 
   const normalizedPayload = normalizePayload(payload);
   const serializedPayload = JSON.stringify(normalizedPayload);
-  const vapidDetails = getStoredVapidDetails(options.baseDir, options.vapidSubject);
-  const requestOptions = {
-    TTL: Number.isFinite(options.ttl) ? Number(options.ttl) : 60,
-    urgency: options.urgency || "normal",
-    vapidDetails,
-  } as const;
-  const generateRequestDetails = options.sendNotification
-    ? null
-    : (options.generateRequestDetails || await loadGenerateRequestDetailsImpl());
+  let requestOptions: {
+    TTL: number;
+    urgency: "very-low" | "low" | "normal" | "high";
+    vapidDetails: {
+      subject: string;
+      publicKey: string;
+      privateKey: string;
+    };
+  };
+  let generateRequestDetails: NonNullable<SendStoredWebPushNotificationOptions["generateRequestDetails"]> | null;
+  try {
+    const vapidDetails = getStoredVapidDetails(options.baseDir, options.vapidSubject);
+    requestOptions = {
+      TTL: Number.isFinite(options.ttl) ? Number(options.ttl) : 60,
+      urgency: options.urgency || "normal",
+      vapidDetails,
+    };
+    generateRequestDetails = options.sendNotification
+      ? null
+      : (options.generateRequestDetails || await loadGenerateRequestDetailsImpl());
+  } catch (error) {
+    disableStoredWebPushDelivery(error);
+    return { attempted: 0, sent: 0, removed: 0, failed: subscriptions.length };
+  }
   const presenceService = options.presenceService || webNotificationPresenceService;
 
   let attempted = 0;
