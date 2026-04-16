@@ -262,6 +262,7 @@ function MainApp({ locationParams, navigate }) {
             lastNotifiedIdRef: surface.lastNotifiedIdRef,
             agentsRef: surface.agentsRef,
             notify: surface.notify,
+            shouldNotifyLocallyForChat: surface.shouldNotifyLocallyForChat,
         },
         recovery: {
             isAgentRunningRef,
