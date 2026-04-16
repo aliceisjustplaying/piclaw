@@ -544,10 +544,20 @@
     margin-right: 6px;
 }
 
+.post-content li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1.5em;
+}
+
 .post-content li input[type="checkbox"] ~ *,
 .post-content li input[type="checkbox"] ~ * *,
 .post-content li input[type="checkbox"] + * {
     text-decoration: none !important;
+}
+
+.post-content li input[type="checkbox"]:checked ~ *,
+.post-content li input[type="checkbox"]:checked + * {
+    opacity: 0.65;
 }
 .post-content table {
     border-collapse: collapse;
