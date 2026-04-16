@@ -762,6 +762,9 @@ export function ComposeBox({
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
     const modelUsageLabel = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
+    const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
+        ? modelUsage.extra_usage.reset_description.trim()
+        : '';
     const modelUsageSectionLabel = [
         modelThinkingLabel || null,
         modelUsageLabel || null,
@@ -772,6 +775,7 @@ export function ComposeBox({
         modelUsageLabel || null,
         modelUsage?.primary?.reset_description || null,
         modelUsage?.secondary?.reset_description || null,
+        modelExtraUsageResetLabel || null,
     ].filter(Boolean);
     const modelHintTitle = switchingModel
         ? 'Switching model…'
