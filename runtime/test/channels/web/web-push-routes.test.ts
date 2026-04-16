@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { WebNotificationPresenceService } from "../../../src/channels/web/push/web-notification-presence-service.js";
 import {
-  handleWebPushSubscriptionDelete,
+  handleWebPushPresence,
   handleWebPushSubscriptionUpsert,
-  handleWebPushVapidPublicKey,
 } from "../../../src/channels/web/push/web-push-routes.js";
 
 const tempDirs: string[] = [];
@@ -26,17 +26,7 @@ afterEach(() => {
 });
 
 describe("web push routes", () => {
-  test("returns a stored VAPID public key", async () => {
-    const baseDir = createTempPushDir();
-    const response = await handleWebPushVapidPublicKey({ baseDir });
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(typeof payload.publicKey).toBe("string");
-    expect(payload.publicKey.length).toBeGreaterThan(0);
-  });
-
-  test("stores and removes subscription device ids", async () => {
+  test("stores subscription device ids and tracks live presence updates", async () => {
     const baseDir = createTempPushDir();
     const upsertReq = new Request("https://example.com/agent/push/subscription", {
       method: "POST",
@@ -58,13 +48,29 @@ describe("web push routes", () => {
     expect(upsertResponse.status).toBe(200);
     expect(await upsertResponse.json()).toEqual({ ok: true, endpoint: "https://push.example.test/device/1", device_id: "device-1" });
 
-    const deleteReq = new Request("https://example.com/agent/push/subscription", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint: "https://push.example.test/device/1" }),
+    const presenceService = new WebNotificationPresenceService({ now: () => 1000 });
+    const presenceReq = new Request("https://example.com/agent/push/presence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "user-agent": "PiClaw Test" },
+      body: JSON.stringify({
+        device_id: "device-1",
+        client_id: "client-1",
+        chat_jid: "web:default",
+        visibility_state: "hidden",
+        has_focus: false,
+      }),
     });
-    const deleteResponse = await handleWebPushSubscriptionDelete(deleteReq, { baseDir });
-    expect(deleteResponse.status).toBe(200);
-    expect(await deleteResponse.json()).toEqual({ ok: true, removed: true });
+
+    const presenceResponse = await handleWebPushPresence(presenceReq, { presenceService });
+    expect(presenceResponse.status).toBe(200);
+    expect(await presenceResponse.json()).toEqual({
+      ok: true,
+      active: true,
+      device_id: "device-1",
+      client_id: "client-1",
+      chat_jid: "web:default",
+      visibility_state: "hidden",
+    });
+    expect(presenceService.getDeviceChatState("device-1", "web:default").hasLiveClient).toBe(true);
   });
 });

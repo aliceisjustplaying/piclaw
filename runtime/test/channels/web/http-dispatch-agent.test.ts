@@ -131,6 +131,19 @@ describe("web http agent dispatch", () => {
     const vapidReq = new Request("https://example.com/agent/push/vapid-public-key", { method: "GET" });
     expect((await handleAgentRoutes(channel, vapidReq, "/agent/push/vapid-public-key", new URL(vapidReq.url)))?.status).toBe(200);
 
+    const presenceReq = new Request("https://example.com/agent/push/presence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: "device-1",
+        client_id: "client-1",
+        chat_jid: "web:default",
+        visibility_state: "hidden",
+        has_focus: false,
+      }),
+    });
+    expect((await handleAgentRoutes(channel, presenceReq, "/agent/push/presence", new URL(presenceReq.url)))?.status).toBe(200);
+
     const sidePromptReq = new Request("https://example.com/agent/side-prompt", { method: "POST" });
     expect((await handleAgentRoutes(channel, sidePromptReq, "/agent/side-prompt", new URL(sidePromptReq.url)))?.status).toBe(206);
 
