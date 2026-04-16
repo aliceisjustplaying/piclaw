@@ -11,12 +11,16 @@ export function bindSseWakeLifecycle({ sse, onWake }, runtime = {}) {
     return () => {};
   }
 
-  const stopWatchingReturn = watchReturnToApp(() => {
+  const reconnectAfterReturn = () => {
     if (typeof sse.forceReconnect === 'function') {
       sse.forceReconnect();
       return;
     }
     sse.reconnectIfNeeded();
+  };
+
+  const stopWatchingReturn = watchReturnToApp(() => {
+    reconnectAfterReturn();
     onWake?.();
   }, {
     window: win,
