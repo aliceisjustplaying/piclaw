@@ -2,6 +2,7 @@ import { useCallback, useEffect } from '../vendor/preact-htm.js';
 import { parseBtwCommand, buildBtwInjectionText, resolveBtwChatJid } from './btw.js';
 import {
   addPendingPanelAction,
+  applyStatusPanelWidgetEvent,
   createPendingPanelActionKey,
   removePendingPanelAction,
   runExtensionStatusPanelAction,
@@ -81,6 +82,7 @@ interface UseSidepanelOrchestrationOptions {
   showIntentToast: (title: string, detail?: string | null, kind?: string, durationMs?: number) => void;
 
   // Extension status panel actions
+  setExtensionStatusPanels: StateSetter<Map<string, unknown>>;
   setPendingExtensionPanelActions: StateSetter<Set<string>>;
   refreshAutoresearchStatus: () => Promise<void>;
   stopAutoresearch: (chatJid: string) => Promise<any>;
@@ -129,6 +131,7 @@ export function useSidepanelOrchestration(options: UseSidepanelOrchestrationOpti
     isComposeBoxAgentActive,
     showIntentToast,
 
+    setExtensionStatusPanels,
     setPendingExtensionPanelActions,
     refreshAutoresearchStatus,
     stopAutoresearch,
@@ -183,6 +186,9 @@ export function useSidepanelOrchestration(options: UseSidepanelOrchestrationOpti
       if (result.refreshAutoresearchStatus) {
         void refreshAutoresearchStatus();
       }
+      if (result.dismissPanelKey) {
+        setExtensionStatusPanels((prev) => applyStatusPanelWidgetEvent(prev, { key: result.dismissPanelKey, content: [], options: { remove: true, surface: 'status-panel' } }));
+      }
       if (result.toast) {
         showIntentToast(result.toast.title, result.toast.detail, result.toast.kind, result.toast.durationMs);
       }
@@ -191,7 +197,7 @@ export function useSidepanelOrchestration(options: UseSidepanelOrchestrationOpti
     } finally {
       setPendingExtensionPanelActions((prev) => removePendingPanelAction(prev, pendingKey));
     }
-  }, [currentChatJid, dismissAutoresearch, refreshAutoresearchStatus, setPendingExtensionPanelActions, showIntentToast, stopAutoresearch]);
+  }, [currentChatJid, dismissAutoresearch, refreshAutoresearchStatus, setExtensionStatusPanels, setPendingExtensionPanelActions, showIntentToast, stopAutoresearch]);
 
   const closeBtwPanel = useCallback(() => {
     closeBtwPanelSession({

@@ -58,6 +58,7 @@ interface ComposeSidepanelActionOptionsInput {
   currentChatJid: string;
   currentRootChatJid: string;
   isComposeBoxAgentActive: boolean;
+  setExtensionStatusPanels: StateSetter<Map<string, unknown>>;
   setPendingExtensionPanelActions: StateSetter<Set<string>>;
   refreshAutoresearchStatus: () => Promise<void>;
   stopAutoresearch: (chatJid: string) => Promise<any>;
@@ -95,6 +96,7 @@ export function composeSidepanelActionOptions(input: ComposeSidepanelActionOptio
     currentRootChatJid: input.currentRootChatJid,
     isComposeBoxAgentActive: input.isComposeBoxAgentActive,
     showIntentToast: input.showIntentToast,
+    setExtensionStatusPanels: input.setExtensionStatusPanels,
     setPendingExtensionPanelActions: input.setPendingExtensionPanelActions,
     refreshAutoresearchStatus: input.refreshAutoresearchStatus,
     stopAutoresearch: input.stopAutoresearch,
