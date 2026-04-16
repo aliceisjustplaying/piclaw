@@ -767,6 +767,36 @@
     outline: none;
 }
 
+.compose-queue-stack-move-btn {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 999px;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: none;
+    border: none;
+    opacity: 0.5;
+    transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.compose-queue-stack-move-btn:hover,
+.compose-queue-stack-move-btn:focus-visible {
+    opacity: 1;
+    color: var(--accent-color);
+    background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+    outline: none;
+}
+
+.compose-queue-stack-move-btn:disabled {
+    opacity: 0.15;
+    cursor: default;
+    pointer-events: none;
+}
+
 @media (hover: none) and (pointer: coarse) {
     .compose-queue-stack-close-btn {
         opacity: 0.4;

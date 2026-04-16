@@ -60,6 +60,11 @@
         height: var(--chat-surface-control-height);
     }
 
+    .compose-queue-stack-move-btn {
+        width: 20px;
+        height: 20px;
+    }
+
     .agent-thinking {
         margin: 0 var(--spacing-md);
     }

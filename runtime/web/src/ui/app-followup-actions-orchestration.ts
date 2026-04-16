@@ -125,6 +125,16 @@ export function useFollowupActionsOrchestration(options: UseFollowupActionsOrche
     });
   }, [clearQueuedSteerStateIfStale, currentChatJid, dismissedQueueRowIdsRef, followupQueueItemsRef, refreshQueueState, removeAgentQueueItem, setFollowupQueueItems, showIntentToast, steerAgentQueueItem]);
 
+  const handleMoveQueuedFollowup = useCallback((fromIndex: number, toIndex: number) => {
+    setFollowupQueueItems((prev: any[]) => {
+      if (!Array.isArray(prev) || fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, [setFollowupQueueItems]);
+
   const handleMessageResponse = useCallback((response: any) => {
     runMessageResponseRefresh(response, {
       refreshActiveChatAgents,
@@ -138,6 +148,7 @@ export function useFollowupActionsOrchestration(options: UseFollowupActionsOrche
   return {
     handleInjectQueuedFollowup,
     handleRemoveQueuedFollowup,
+    handleMoveQueuedFollowup,
     handleMessageResponse,
   };
 }

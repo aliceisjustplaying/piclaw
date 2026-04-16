@@ -159,6 +159,7 @@ export function composeRenderedMainAppOptions(input: {
       pendingRequestRef: input.agentState.pendingRequestRef,
       handleInjectQueuedFollowup: input.orchestration.followupActions.handleInjectQueuedFollowup,
       handleRemoveQueuedFollowup: input.orchestration.followupActions.handleRemoveQueuedFollowup,
+      handleMoveQueuedFollowup: input.orchestration.followupActions.handleMoveQueuedFollowup,
     },
     composeState: {
       btwSession: input.surface.btwSession,

@@ -211,6 +211,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     followupQueueItems,
     handleInjectQueuedFollowup,
     handleRemoveQueuedFollowup,
+    handleMoveQueuedFollowup,
     viewStateRef,
     loadPosts,
     scrollToBottom,
@@ -563,6 +564,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           items=${searchOpen ? [] : followupQueueItems}
           onInjectQueuedFollowup=${handleInjectQueuedFollowup}
           onRemoveQueuedFollowup=${handleRemoveQueuedFollowup}
+          onMoveQueuedFollowup=${handleMoveQueuedFollowup}
           onOpenFilePill=${openFileFromPill}
         />
         <${ComposeBox}
@@ -602,6 +604,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           showQueueStack=${false}
           onInjectQueuedFollowup=${handleInjectQueuedFollowup}
           onRemoveQueuedFollowup=${handleRemoveQueuedFollowup}
+          onMoveQueuedFollowup=${handleMoveQueuedFollowup}
           onSubmitIntercept=${handleBtwIntercept}
           onMessageResponse=${handleMessageResponse}
           onSubmitError=${handleComposeSubmitError}
