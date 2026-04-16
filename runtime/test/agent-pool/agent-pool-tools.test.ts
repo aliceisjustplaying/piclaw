@@ -63,6 +63,7 @@ describe("builtin extension factories", () => {
     expect(fake.tools.has("switch_model")).toBe(true);
     expect(fake.tools.has("switch_thinking")).toBe(true);
     expect(fake.tools.has("list_internal_tools")).toBe(true);
+    expect(fake.tools.has("list_scripts")).toBe(true);
     expect(fake.tools.has("activate_tools")).toBe(true);
     expect(fake.tools.has("reset_active_tools")).toBe(true);
     expect(fake.tools.has("introspect_sql")).toBe(true);
@@ -83,6 +84,6 @@ describe("builtin extension factories", () => {
   });
 
   test("factories array has expected length", () => {
-    expect(builtinExtensionFactories.length).toBe(17);
+    expect(builtinExtensionFactories.length).toBe(18);
   });
 });
