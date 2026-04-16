@@ -8,6 +8,10 @@ import {
   upsertStoredWebPushSubscription,
 } from "./web-push-store.js";
 import {
+  sendStoredWebPushTestNotification,
+  type SendStoredWebPushNotificationOptions,
+} from "./web-push-service.js";
+import {
   webNotificationPresenceService,
   type WebNotificationPresenceService,
 } from "./web-notification-presence-service.js";
@@ -20,6 +24,33 @@ function resolveUserAgent(req: Request): string | null {
 function resolveDeviceId(value: unknown): string | null {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized || null;
+}
+
+function isWebPushTestEnabled(explicit: boolean | undefined): boolean {
+  if (typeof explicit === "boolean") return explicit;
+  return String(process.env.PICLAW_ENABLE_PUSH_TEST || "").trim() === "1";
+}
+
+function normalizeSafePushTestUrl(value: unknown): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) return "/";
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized.startsWith("/") ? normalized : `/${normalized}`, "https://piclaw.invalid");
+  } catch {
+    return null;
+  }
+  if (parsed.origin !== "https://piclaw.invalid" || parsed.pathname !== "/") {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+  const chatJid = parsed.searchParams.get("chat_jid")?.trim();
+  if (chatJid) {
+    params.set("chat_jid", chatJid);
+  }
+  const hash = /^#msg-\d+$/.test(parsed.hash) ? parsed.hash : "";
+  return `/${params.toString() ? `?${params.toString()}` : ""}${hash}`;
 }
 
 export async function handleWebPushVapidPublicKey(options: { baseDir?: string } = {}): Promise<Response> {
@@ -86,5 +117,40 @@ export async function handleWebPushPresence(
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Invalid web notification presence payload." }, { status: 400 });
+  }
+}
+
+export async function handleWebPushTest(
+  req: Request,
+  options: SendStoredWebPushNotificationOptions & { enabled?: boolean } = {},
+): Promise<Response> {
+  try {
+    if (!isWebPushTestEnabled(options.enabled)) {
+      return Response.json({ error: "Web push test endpoint is disabled." }, { status: 404 });
+    }
+    const body = await req.json().catch(() => null);
+    const payload = body && typeof body === "object" ? body : {};
+    const targetDeviceId = resolveDeviceId((payload as Record<string, unknown>).device_id ?? (payload as Record<string, unknown>).deviceId);
+    if (!targetDeviceId) {
+      return Response.json({ error: "Missing device_id." }, { status: 400 });
+    }
+    const normalizedUrl = normalizeSafePushTestUrl((payload as Record<string, unknown>).url);
+    if (normalizedUrl === null) {
+      return Response.json({ error: "Invalid push test URL." }, { status: 400 });
+    }
+    const result = await sendStoredWebPushTestNotification({
+      ...options,
+      targetDeviceId,
+      title: typeof payload.title === "string" ? payload.title : undefined,
+      body: typeof payload.body === "string" ? payload.body : undefined,
+      url: normalizedUrl,
+      tag: typeof payload.tag === "string" ? payload.tag : undefined,
+      sourceLabel: typeof payload.sourceLabel === "string" ? payload.sourceLabel : undefined,
+      urgency: options.urgency || "high",
+      ttl: options.ttl ?? 120,
+    });
+    return Response.json({ ok: true, ...result });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Failed to send test push notification." }, { status: 500 });
   }
 }

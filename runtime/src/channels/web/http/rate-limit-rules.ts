@@ -30,6 +30,8 @@ const DATA_AGENT_BRANCH_LIMIT = 20;
 const DATA_AGENT_PEER_LIMIT = 30;
 const DATA_AGENT_UI_LIMIT = 30;
 const DATA_AGENT_SIDE_PROMPT_LIMIT = 20;
+const DATA_AGENT_PUSH_TEST_LIMIT = 5;
+const DATA_AGENT_PUSH_SUBSCRIPTION_LIMIT = 20;
 
 /** Rate-limit rule returned for a specific method/path endpoint. */
 export type DataRateLimitRule = {
@@ -103,6 +105,27 @@ export function getDataRateLimitRule(method: string, pathname: string): DataRate
       bucket: "data/agent_side_prompt",
       limit: DATA_AGENT_SIDE_PROMPT_LIMIT,
       message: "Too many side-prompt requests. Slow down.",
+    };
+  }
+  if (method === "POST" && pathname === "/agent/push/test") {
+    return {
+      bucket: "data/agent_push_test",
+      limit: DATA_AGENT_PUSH_TEST_LIMIT,
+      message: "Too many notification test requests. Slow down.",
+    };
+  }
+  if (method === "POST" && pathname === "/agent/push/subscription") {
+    return {
+      bucket: "data/agent_push_subscription",
+      limit: DATA_AGENT_PUSH_SUBSCRIPTION_LIMIT,
+      message: "Too many notification subscription updates. Slow down.",
+    };
+  }
+  if (method === "DELETE" && pathname === "/agent/push/subscription") {
+    return {
+      bucket: "data/agent_push_subscription",
+      limit: DATA_AGENT_PUSH_SUBSCRIPTION_LIMIT,
+      message: "Too many notification subscription updates. Slow down.",
     };
   }
   if (method === "POST" && pathname === "/workspace/upload") {
