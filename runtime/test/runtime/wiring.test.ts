@@ -91,9 +91,18 @@ describe("runtime wiring", () => {
     expect(wiringFresh.workspaceNeedsDreamBootstrap()).toBe(false);
 
     mkdirSync(join(ws.workspace, "notes", "daily"), { recursive: true });
+    const recentDay = new Date();
+    recentDay.setUTCDate(recentDay.getUTCDate() - 1);
+    const year = recentDay.getUTCFullYear();
+    const month = String(recentDay.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(recentDay.getUTCDate()).padStart(2, "0");
+    const dayKey = `${year}-${month}-${day}`;
+    const firstIso = `${dayKey}T10:00:00.000Z`;
+    const lastIso = `${dayKey}T10:05:00.000Z`;
+    const dayPath = join(ws.workspace, "notes", "daily", `${dayKey}.md`);
     writeFileSync(
-      join(ws.workspace, "notes", "daily", "2026-04-08.md"),
-      "---\ndate: 2026-04-08\nsummarised_until:\nmessages_total: 2\nmessages_user: 1\nmessages_assistant: 1\nsession_trees: 1\nsession_chats: 1\nfirst_message: 2026-04-08T10:00:00.000Z\nlast_message: 2026-04-08T10:05:00.000Z\nscope_mode: all-chats\nscope_anchor: *\n---\n# 2026-04-08\n\n## Summary\n\n<!-- NEEDS_SUMMARY -->\n",
+      dayPath,
+      `---\ndate: ${dayKey}\nsummarised_until:\nmessages_total: 2\nmessages_user: 1\nmessages_assistant: 1\nsession_trees: 1\nsession_chats: 1\nfirst_message: ${firstIso}\nlast_message: ${lastIso}\nscope_mode: all-chats\nscope_anchor: *\n---\n# ${dayKey}\n\n## Summary\n\n<!-- NEEDS_SUMMARY -->\n`,
       "utf8",
     );
 
@@ -101,8 +110,8 @@ describe("runtime wiring", () => {
     expect(wiringFresh.workspaceNeedsDreamBootstrap()).toBe(true);
 
     writeFileSync(
-      join(ws.workspace, "notes", "daily", "2026-04-08.md"),
-      "---\ndate: 2026-04-08\nsummarised_until: 2026-04-08T10:05:00.000Z\nmessages_total: 2\nmessages_user: 1\nmessages_assistant: 1\nsession_trees: 1\nsession_chats: 1\nfirst_message: 2026-04-08T10:00:00.000Z\nlast_message: 2026-04-08T10:05:00.000Z\nscope_mode: all-chats\nscope_anchor: *\n---\n# 2026-04-08\n\n## Summary\n\nA complete daily summary.\n",
+      dayPath,
+      `---\ndate: ${dayKey}\nsummarised_until: ${lastIso}\nmessages_total: 2\nmessages_user: 1\nmessages_assistant: 1\nsession_trees: 1\nsession_chats: 1\nfirst_message: ${firstIso}\nlast_message: ${lastIso}\nscope_mode: all-chats\nscope_anchor: *\n---\n# ${dayKey}\n\n## Summary\n\nA complete daily summary.\n`,
       "utf8",
     );
 
