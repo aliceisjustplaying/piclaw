@@ -135,6 +135,7 @@ export async function createSessionInDir(sessionDir, options) {
                 sessionManager,
                 sessionStartEvent,
                 tools: options.tools,
+                customTools: options.customTools,
             })),
             services,
             diagnostics: services.diagnostics,

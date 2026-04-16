@@ -187,10 +187,14 @@ You can extend that baseline with `.piclaw/config.json`:
 `piclaw` extensions:
 
 - `attach_file` — attach a workspace file for download in the web UI (cards appear automatically; use `attachment:<filename>` only for inline embeds)
-- `messages` — unified message CRUD tool with `action`:
-  - `search` (FTS + hashtag + optional time filtering)
-  - `get` (lookup by `row_ids` with context)
+- `messages` — unified message/timeline CRUD and inspection tool with `action`:
+  - `search` (FTS + hashtag + optional time, sender, role, and row filters)
+  - `get` (lookup by `row_ids` with context, line slicing, and optional content grep)
+  - `grep` (substring or regex matching within message content, with bounded context lines)
+  - `extract` (capture repeated structured values from message content, optionally deduped/sorted)
+  - `diff` (checkpoint-style summary of message activity after a row boundary)
   - `add` (insert a row, optionally attaching media)
+  - `post` (store + broadcast a message with structured `content_blocks` such as Adaptive Cards)
   - `delete` (thread-cascade delete, optional `dry_run`, optional `force`)
 - `search_workspace` — full‑text search across configured workspace FTS roots (notes + skills by default, with aggressive cleanup and size limits)
 - `refresh_workspace_index` — rebuild workspace FTS indexing for the configured roots (the same index state surfaced in the workspace explorer status chip)
@@ -200,9 +204,10 @@ You can extend that baseline with `.piclaw/config.json`:
 - `switch_thinking` — change thinking level (off → xhigh)
 - `keychain` — list, get, set, and delete encrypted keychain entries
 - `schedule_task` — schedule agent prompts or shell commands (cron, interval, or one-shot)
+- `scheduled_tasks` — inspect scheduled-task records via a shared query surface (`list` / `get`, optional latest-run summaries)
 - `introspect_sql` — run read-only SQL queries against the messages database
-- `list_tools` — list available tools with descriptions, active-state markers, and toolset membership; also supports compact intent-based recommendations via `intent` (`list_internal_tools` remains as a deprecated compatibility alias during migration)
-- `list_scripts` — discover packaged skill scripts plus workspace skill/note scripts with compact summaries, role markers (`entrypoint` vs `module`), and Bun invocation hints
+- `list_tools` — list available tools with compact summaries, active-state markers, toolset membership, capability metadata, and intent-based recommendations via `intent` (`list_internal_tools` remains as a deprecated compatibility alias during migration)
+- `list_scripts` — discover packaged skill scripts plus workspace skill/note scripts with compact summaries, role markers (`entrypoint` vs `module`), Bun invocation hints, and the same kind of query/intent shortlisting used for tool discovery
 - `activate_tools` — activate one or more available tools for the current session
 - `reset_active_tools` — restore the configured default active-tool set for the current session
 - `open_office_viewer` — open an Office document (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`) in the built-in JS Office viewer (`/office-viewer/*`)
@@ -212,6 +217,7 @@ You can extend that baseline with `.piclaw/config.json`:
 
   ![ECharts treemap widget example](echarts-treemap-widget.png)
 - `open_workspace_file` — ask the active web UI to open a workspace file in an editor tab or popout window; popout requests are blocked on small viewports so the agent does not force unusable layouts
+- `image_process` — comprehensive workspace image manipulation via sharp, including resize/crop/convert/optimise, colour and geometry transforms, text/SVG/composite operations, metadata/info inspection, frame extraction, and spritesheet-to-GIF assembly
 - `exec_batch` — run multiple shell commands and return concise summaries for each
 - `powershell` — Windows-only replacement for the default shell tool; active instead of `bash` on Windows hosts
 - `bun_run` — run a workspace Bun script directly; kept in the default active baseline on Windows so there is still a first-party script runner alongside PowerShell
@@ -221,9 +227,13 @@ You can extend that baseline with `.piclaw/config.json`:
 - `portainer` — get, set, or clear the session-scoped Portainer API profile, perform ad-hoc Portainer API requests, or run common endpoint/stack/container workflows with keychain-backed token auth
 - `mcp` — token-efficient proxy for external MCP servers via the bundled `pi-mcp-adapter`; supports search, describe, connect, tool calls, and MCP UI message retrieval using `.pi/mcp.json` or the Pi home config
 
-`messages` `search` accepts `query`, `chat_jid` (or `*`/`all`), `role`, `after`, `before`, `since`, `limit`, `offset`, and `details_max_chars` for controlling detail payloads.
-`messages` `get` accepts `row_ids`, optional `chat_jid`, `role`, `context_before`, `context_after`, and `details_max_chars`.
+`messages` `search` accepts `query`, `chat_jid` (or `*`/`all`), `role`, `sender`, `after`, `before`, `since`, `after_row`, `before_row`, `limit`, `offset`, `excerpt_chars`, and `details_max_chars` for controlling detail payloads.
+`messages` `get` accepts `row_ids`, optional `chat_jid`, `role`, `context_before`, `context_after`, `details_max_chars`, `content_lines`, and `content_grep`.
+`messages` `grep` accepts `pattern`, optional `chat_jid`, `role`, `sender`, `after`, `before`, `after_row`, `before_row`, `regex`, `context_lines`, `max_matches`, and `details_max_chars`.
+`messages` `extract` accepts `pattern`, optional `chat_jid`, `role`, `sender`, `after`, `before`, `after_row`, `before_row`, `regex`, `capture_group`, `dedupe`, `sort`, and `max_matches`.
+`messages` `diff` accepts row/time/chat filters and returns a bounded summary of activity after the chosen checkpoint.
 `messages` `add` accepts `content`, optional `chat_jid`, `type` (`user` or `agent`), and `media_ids`.
+`messages` `post` accepts `content`, optional `chat_jid`, `type`, and structured `content_blocks` for direct timeline/web posting.
 `messages` `delete` accepts `row_ids` and optional `chat_jid`, `force`, and `dry_run`.
 
 Infrastructure tools follow one shared pattern:

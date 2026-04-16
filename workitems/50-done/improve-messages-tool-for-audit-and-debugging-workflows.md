@@ -1,10 +1,11 @@
 ---
 id: improve-messages-tool-for-audit-and-debugging-workflows
 title: Improve messages tool for audit and debugging workflows
-status: review
+status: done
 priority: high
 created: 2026-04-14
-updated: 2026-04-14
+updated: 2026-04-16
+completed: 2026-04-16
 target_release: later
 estimate: M
 risk: medium
@@ -158,6 +159,10 @@ portable and less agent-friendly.
 - [x] Ticket front matter updated
 
 ## Updates
+
+### 2026-04-16
+- Lane change: `40-review` → `50-done` during patch-release board cleanup.
+- The expanded `messages` tool surface (`grep`, `extract`, `diff`, richer `get/search`, and direct `post`) is already shipped, documented, and actively featured in release-prep notes, so leaving the ticket in review would understate how much of the intended audit/debug contract is now normal product surface.
 
 ### 2026-04-14
 - Moved to `40-review` after landing the full planned audit/debug surface and revalidating focused tests + typecheck.

@@ -83,6 +83,7 @@ Important behavior:
 - `PICLAW_M365_YOLO=1` skips the explicit consent interstitial and was the main Windows validation mode
 - auth/token/cookie caching is RAM-only in this redistributed copy
 - destructive/send actions are guarded with `confirm` and generally support `dryRun`
+- Teams token refresh/browser reuse now follows the current Teams web-app entry host instead of the old `teams.microsoft.com/v2` route, so browser reuse and token capture match the path normal users actually see today
 
 ## Audit summary
 

@@ -125,7 +125,7 @@ function formatBytes(bytes: number): string {
 async function executeImageProcess(
   _toolCallId: string,
   params: ImageProcessParams,
-): Promise<AgentToolResult> {
+): Promise<AgentToolResult<Record<string, unknown>>> {
   const sharp = (await import("sharp")).default;
 
   const action = (params.action || "").toLowerCase().trim();
@@ -374,7 +374,8 @@ async function executeImageProcess(
     }
 
     case "extract_channel": {
-      pipeline = pipeline.extractChannel(params.channel ?? 0);
+      const channelIndex = (params.channel ?? 0) as 0 | 1 | 2 | 3;
+      pipeline = pipeline.extractChannel(channelIndex);
       break;
     }
 

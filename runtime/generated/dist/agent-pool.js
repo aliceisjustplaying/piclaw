@@ -28,7 +28,7 @@ import { createTrackedBashOperations } from "./tools/tracked-bash.js";
 import { runSidePrompt as runSidePromptInternal } from "./agent-pool/side-prompt-runner.js";
 import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
 import { createAgentPoolServices } from "./agent-pool/service-factory.js";
-import { deleteSshConfig, getSshConfig, upsertSshConfig, } from "./db.js";
+import { deleteSshConfig, getSshConfig, listRecentChatJids, upsertSshConfig, } from "./db.js";
 import { setSshToolHandlers } from "./extensions/ssh.js";
 import { setProxmoxToolHandlers } from "./extensions/proxmox.js";
 import { setPortainerToolHandlers } from "./extensions/portainer.js";
@@ -60,6 +60,7 @@ export class AgentPool {
     sidePool = new Map();
     activeForkBaseLeafByChat = new Map();
     cleanupTimer = null;
+    shuttingDown = false;
     // Shared across all sessions (expensive to create, safe to reuse)
     authStorage;
     modelRegistry;
@@ -187,6 +188,63 @@ export class AgentPool {
     async getContextUsageForChat(chatJid) {
         return this.runtimeFacade.getContextUsageForChat(chatJid);
     }
+    scheduleRecentChatWarmup(options = {}) {
+        if (this.shuttingDown)
+            return [];
+        const targetCount = Math.max(1, Math.min(8, Math.trunc(options.limit ?? 3) || 3));
+        const excluded = new Set(Array.isArray(options.excludeChatJids)
+            ? options.excludeChatJids.map((jid) => String(jid || "").trim()).filter(Boolean)
+            : []);
+        const cooldownByChat = (this.__piclawRecentWarmupCooldownByChat ||= new Map());
+        const now = Date.now();
+        for (const [chatJid, lastQueuedAt] of cooldownByChat) {
+            if (now - lastQueuedAt >= 30_000) {
+                cooldownByChat.delete(chatJid);
+            }
+        }
+        const scheduled = [];
+        const seen = new Set();
+        let fetchLimit = Math.min(100, Math.max(targetCount * 4, targetCount));
+        while (scheduled.length < targetCount) {
+            const candidates = listRecentChatJids(fetchLimit, {
+                excludeChatJids: [...excluded, ...seen],
+            });
+            for (const chatJid of candidates) {
+                if (seen.has(chatJid))
+                    continue;
+                seen.add(chatJid);
+                if (excluded.has(chatJid))
+                    continue;
+                if (this.pool.has(chatJid))
+                    continue;
+                if (now - (cooldownByChat.get(chatJid) ?? 0) < 30_000)
+                    continue;
+                scheduled.push(chatJid);
+                if (scheduled.length >= targetCount)
+                    break;
+            }
+            if (scheduled.length >= targetCount || fetchLimit >= 100 || candidates.length < fetchLimit) {
+                break;
+            }
+            const nextFetchLimit = Math.min(100, fetchLimit * 2);
+            if (nextFetchLimit === fetchLimit) {
+                break;
+            }
+            fetchLimit = nextFetchLimit;
+        }
+        // Only record a cooldown / return chats that actually entered the prewarm
+        // queue. prewarm() may reject a candidate (already queued, in flight, or
+        // within its per-chat cooldown) and we must not consume a slot or suppress
+        // backfill for those.
+        const actuallyScheduled = [];
+        for (const chatJid of scheduled) {
+            if (this.sessionManager.prewarm(chatJid)) {
+                cooldownByChat.set(chatJid, now);
+                actuallyScheduled.push(chatJid);
+            }
+        }
+        return actuallyScheduled;
+    }
     scheduleChatWarmup(chatJid, options = {}) {
         return this.sessionManager.prewarm(chatJid, options);
     }
@@ -287,6 +345,7 @@ export class AgentPool {
     }
     /** Gracefully shut down all sessions. */
     async shutdown() {
+        this.shuttingDown = true;
         if (this.cleanupTimer) {
             clearInterval(this.cleanupTimer);
             this.cleanupTimer = null;

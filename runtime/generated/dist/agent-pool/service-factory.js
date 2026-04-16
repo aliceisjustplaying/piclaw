@@ -68,6 +68,8 @@ export function createAgentPoolServices(options) {
         getOrCreateRuntime: (chatJid) => sessionManager.getOrCreate(chatJid),
         refreshRuntime: (chatJid, runtime) => sessionManager.refreshRuntime(chatJid, runtime),
         isActive: (chatJid) => runtimeFacade.isActive(chatJid),
+        scheduleSessionWarmup: (chatJid) => sessionManager.prewarm(chatJid),
+        cancelSessionWarmup: (chatJid) => sessionManager.cancelPrewarm(chatJid),
         onWarn: options.onWarn,
     });
     sessionManager = new AgentSessionManager({
@@ -79,6 +81,7 @@ export function createAgentPoolServices(options) {
         modelRegistry: options.modelRegistry,
         settingsManager: options.settingsManager,
         createDefaultTools: () => toolFactory.createDefaultTools(),
+        createCustomToolOverrides: () => toolFactory.createCustomToolOverrides(),
         getSessionExtensionFactories: (chatJid) => resolveSessionExtensionFactories(chatJid),
         bindSession: (runtime, chatJid) => sessionBinder.bindSession(runtime, chatJid),
         ensureBranchRegistration: (chatJid, session) => {

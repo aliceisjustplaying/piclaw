@@ -152,11 +152,12 @@ These are compiled into the package and registered via `extensionFactories` on t
 | `fileAttachments` | `attach_file` |
 | `messagesCrud` | `messages` |
 | `modelControl` | `get_model_state`, `list_models`, `switch_model`, `switch_thinking` |
-| `internalTools` | `list_tools` (`list_internal_tools` deprecated alias) |
+| `internalTools` | `list_tools` (`list_internal_tools` deprecated alias) with capability metadata + intent-based shortlisting |
+| `runtimeScripts` | `list_scripts` for packaged/workspace script discovery and script-JDoc-powered recommendations |
 | `toolActivation` | `activate_tools`, `reset_active_tools` |
 | `sqlIntrospect` | `introspect_sql` (read-only SQLite queries) |
-| `scheduledTasks` | `schedule_task`, `/tasks`, `/scheduled` slash commands |
-| `workspaceSearch` | `search_workspace` |
+| `scheduledTasks` | `schedule_task`, `scheduled_tasks`, `/tasks`, `/scheduled` |
+| `workspaceSearch` | `search_workspace`, `refresh_workspace_index` |
 | `workspaceMemoryBootstrap` | startup memory bootstrap hook (`before_agent_start`) |
 | `dreamMaintenance` | `/dream` memory-consolidation slash command |
 | `uiThemeExtension` | `/theme`, `/tint` web UI theme controls |
@@ -166,6 +167,7 @@ These are compiled into the package and registered via `extensionFactories` on t
 | `openWorkspaceFile` | `open_workspace_file` |
 | `exitProcess` | `exit_process` |
 | `autoresearchSupervisor` | `start_autoresearch`, `stop_autoresearch`, `autoresearch_status` |
+| `imageProcessing` | `image_process` for sharp-backed image manipulation and animated GIF/frame workflows |
 
 Each factory receives an `ExtensionAPI` and registers tools or commands via `pi.registerTool()` and `pi.registerCommand()`. System prompt hints are injected via `pi.on("before_agent_start")`.
 
@@ -177,6 +179,7 @@ In addition to the inline factories, piclaw ships **packaged runtime extensions*
 |-----------|------|---------|
 | `integrations/azure-openai.ts` | `AOAI_BASE_URL` must be set | Azure OpenAI + Foundry provider with managed-identity or API-key auth |
 | `integrations/context-mode.ts` | Always loaded | Tool-output storage, search handles, and `exec_batch` tool |
+| `integrations/mcp-status-hints/` | Always loaded | Status-hint providers for MCP/proxy and prefixed-tool surfaces when registry metadata is incomplete |
 | `integrations/keychain/` | Always loaded | `keychain` tool for list/get/set/delete of secure entries |
 | `integrations/ssh/` | Always loaded | `ssh` agent-only tool for session-scoped SSH profile `get`/`set`/`clear` |
 | `integrations/proxmox/` | Always loaded | `proxmox` agent-only tool for session-scoped Proxmox profile actions plus `discover`, `capabilities`, `workflow_help`, `recommend`, raw `request`, named `workflow` actions, and colocated packaged skill discovery for Proxmox comparison/reporting flows |

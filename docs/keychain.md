@@ -134,11 +134,12 @@ $env:STRIPE_KEY
 
 Notes:
 
-- Only entry names that already match shell env syntax are auto-injected: `^[A-Za-z_][A-Za-z0-9_]*$`
-- Entries like `ssh/prod` are not auto-exported
-- Explicit env maps using `keychain:...` still work for arbitrary entry names
-- For `vm.agent.exec` and `container.exec`, use `shell_family=posix` for Linux/Unix targets and `shell_family=powershell` for Windows targets
-- Tool output is redacted against known keychain secret values for normal tool execution paths (bash, read, request results, SSH exec output, guest/container exec output)
+- Keychain entry names are sanitized into shell env names before auto-injection: `/`, `-`, and `.` become `_`, then the result is uppercased.
+- Examples: `ssh/prod` → `$SSH_PROD`, `github/piclaw-bot-pat` → `$GITHUB_PICLAW_BOT_PAT`, `restic/azure-account-key` → `$RESTIC_AZURE_ACCOUNT_KEY`.
+- Entries whose sanitized form is empty or begins with a digit are skipped.
+- Explicit env maps using `keychain:...` still work for arbitrary entry names, including cases where you want a different env name than the auto-generated one.
+- For `vm.agent.exec` and `container.exec`, use `shell_family=posix` for Linux/Unix targets and `shell_family=powershell` for Windows targets.
+- Tool output is redacted against known keychain secret values for normal tool execution paths (bash, read, request results, SSH exec output, guest/container exec output).
 
 ## Using keychain placeholders in bash commands
 
@@ -181,7 +182,7 @@ The runtime writes these values to temporary files with restrictive permissions 
 
 When the keychain extension is active, the agent also gets prompt hints for:
 
-- auto-injected env-style secret names
+- sanitized auto-injected env-style secret names
 - likely SSH profiles from `ssh/*`
 - likely Proxmox profiles from `proxmox/*`
 - likely Portainer profiles from `portainer/*`

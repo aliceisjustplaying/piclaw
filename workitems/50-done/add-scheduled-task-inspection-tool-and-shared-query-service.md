@@ -1,10 +1,11 @@
 ---
 id: add-scheduled-task-inspection-tool-and-shared-query-service
 title: Add scheduled-task inspection tool and shared query service
-status: review
+status: done
 priority: high
 created: 2026-04-13
-updated: 2026-04-14
+updated: 2026-04-16
+completed: 2026-04-16
 target_release: later
 estimate: M
 risk: medium
@@ -111,6 +112,10 @@ This is the first implementation slice from
 - [x] Ticket front matter updated
 
 ## Updates
+
+### 2026-04-16
+- Lane change: `40-review` → `50-done` during patch-release board cleanup.
+- The scheduled-task inspection surface is already shipped, documented, and reflected in the active release-prep notes; keeping it in review would imply there is still substantive product uncertainty when the remaining work is really just later mutation/reschedule follow-ups.
 
 ### 2026-04-14
 - Moved to `40-review` after landing the shared service/tool tranche and revalidating focused tests + typecheck.

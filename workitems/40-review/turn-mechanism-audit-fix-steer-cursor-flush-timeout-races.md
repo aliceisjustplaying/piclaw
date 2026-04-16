@@ -1,9 +1,9 @@
 ---
 id: turn-mechanism-audit-2026-04-16
 title: "Turn mechanism audit — fix steer drops, cursor skips, flush races, timeout races, and add instrumentation"
-status: doing
+status: review
 created: 2026-04-16
-updated: 2026-04-16T19:00
+updated: 2026-04-16T20:48
 tags:
   - work-item
   - kanban
@@ -189,6 +189,11 @@ Full audit: `notes/audits/turn-mechanism-audit-2026-04-16.md`
 - [ ] Ticket front matter updated
 
 ## Updates
+
+### 2026-04-16T20:48
+- Lane change: `20-doing` → `40-review` during patch-release board cleanup.
+- The runtime fix tranche has landed on `main` (`b8979096`) and the remaining work is now review/validation/evidence-oriented rather than active exploratory implementation.
+- Keeping it in doing after the bug-fix tranche shipped would blur the distinction between “still coding the fix” and “now confirming the tranche behaves well enough to close”.
 
 ### 2026-04-16
 - Audit completed — 16 suspects investigated across turn selection, streaming aggregation, cursor movement, steering, timeout, and resume paths

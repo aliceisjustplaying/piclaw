@@ -173,6 +173,22 @@ That helper installs the latest GitHub CLI release into `/workspace/.local/bin/g
 
 `/workspace/.env.sh` is user-controlled. If you put incompatible shell logic, exports, or PATH overrides in that file and PiClaw stops working correctly, that breakage is considered the user's responsibility rather than a PiClaw bug.
 
+## Provider setup via `/login`
+
+PiClaw reuses the upstream Pi provider/auth model rather than inventing a second provider-config system.
+
+Practical consequences:
+
+- hosted providers are usually configured through `/login` in the web UI or `pi /login` in the terminal
+- custom providers that speak the common OpenAI-style API can now be configured directly from the `/login` card flow
+- the built-in custom-card variants cover at least:
+  - Azure OpenAI (`openai-responses` style endpoint)
+  - Ollama (`openai-completions` style local endpoint)
+  - generic OpenAI-compatible endpoints (base URL + API key + model id)
+- provider credentials and configured models live in Pi-managed auth/config storage rather than a separate piclaw-only env-var matrix
+
+That means most users should prefer `/login` over setting raw provider env vars by hand unless they are deliberately operating one of the packaged integration-specific paths.
+
 ## Runtime and agent
 
 | Variable | Default | Purpose |

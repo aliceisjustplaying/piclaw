@@ -7,7 +7,7 @@
 import { getIdentityConfig } from "../core/config.js";
 import { archiveChatBranch, ensureChatBranch, getChatBranchByAgentName, getChatBranchByChatJid, listChatBranches, renameChatBranchIdentity, restoreChatBranchIdentity, storeChatMetadata, } from "../db.js";
 import { createUuid } from "../utils/ids.js";
-import { forcePersistSessionFile, seedRotatedSession } from "../session-rotation.js";
+import { createDeferredBranchSeed, writeDeferredBranchSeed } from "./branch-seeding.js";
 function normalizeAgentHandlePart(value) {
     return value
         .trim()
@@ -47,85 +47,6 @@ function createVolatileBranchRecord(chatJid, session) {
         updated_at: new Date(0).toISOString(),
         archived_at: null,
     };
-}
-function normalizeThinkingLevel(value) {
-    return value === "off" || value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh"
-        ? value
-        : null;
-}
-function isAppendableAgentMessage(message) {
-    if (!message || typeof message !== "object")
-        return false;
-    const role = message.role;
-    return role === "user"
-        || role === "assistant"
-        || role === "system"
-        || role === "tool"
-        || role === "bashExecution"
-        || role === "custom";
-}
-function getStableForkSeed(sourceSession, stableLeafId) {
-    const branchEntries = stableLeafId === null
-        ? []
-        : (typeof sourceSession.sessionManager?.getBranch === "function"
-            ? sourceSession.sessionManager.getBranch(stableLeafId)
-            : []);
-    let model = null;
-    let thinkingLevel = null;
-    for (const entry of branchEntries) {
-        if (entry?.type === "model_change" && typeof entry.provider === "string" && typeof entry.modelId === "string") {
-            model = { provider: entry.provider, modelId: entry.modelId };
-        }
-        else if (entry?.type === "thinking_level_change" && typeof entry.thinkingLevel === "string") {
-            thinkingLevel = normalizeThinkingLevel(entry.thinkingLevel);
-        }
-        else if (entry?.type === "message" && entry.message?.role === "assistant" && typeof entry.message?.provider === "string" && typeof entry.message?.model === "string") {
-            model = { provider: entry.message.provider, modelId: entry.message.model };
-        }
-    }
-    return { branchEntries, model, thinkingLevel };
-}
-function seedSessionManagerFromBranchEntries(sessionManager, branchEntries, fallback) {
-    if (!Array.isArray(branchEntries) || branchEntries.length === 0) {
-        if (fallback.sessionName?.trim()) {
-            sessionManager.appendSessionInfo(fallback.sessionName.trim());
-        }
-        if (fallback.model) {
-            sessionManager.appendModelChange(fallback.model.provider, fallback.model.modelId);
-        }
-        return;
-    }
-    const sourceToNewId = new Map();
-    for (const entry of branchEntries) {
-        let newId = null;
-        if (entry?.type === "message" && isAppendableAgentMessage(entry.message)) {
-            newId = sessionManager.appendMessage(entry.message);
-        }
-        else if (entry?.type === "thinking_level_change" && typeof entry.thinkingLevel === "string") {
-            newId = sessionManager.appendThinkingLevelChange(entry.thinkingLevel);
-        }
-        else if (entry?.type === "model_change" && typeof entry.provider === "string" && typeof entry.modelId === "string") {
-            newId = sessionManager.appendModelChange(entry.provider, entry.modelId);
-        }
-        else if (entry?.type === "compaction" && typeof entry.summary === "string") {
-            const firstKeptEntryId = sourceToNewId.get(entry.firstKeptEntryId)
-                ?? sourceToNewId.get(branchEntries[0]?.id ?? "")
-                ?? "rotated-context";
-            newId = sessionManager.appendCompaction(entry.summary, firstKeptEntryId, entry.tokensBefore ?? 0, entry.details, entry.fromHook);
-        }
-        else if (entry?.type === "session_info" && typeof entry.name === "string" && entry.name.trim()) {
-            newId = sessionManager.appendSessionInfo(entry.name.trim());
-        }
-        else if (entry?.type === "custom_message" && typeof entry.customType === "string") {
-            newId = sessionManager.appendCustomMessageEntry(entry.customType, entry.content, entry.display, entry.details);
-        }
-        else if (entry?.type === "custom_entry" && typeof entry.customType === "string") {
-            newId = sessionManager.appendCustomEntry(entry.customType, entry.data);
-        }
-        if (entry?.id && newId) {
-            sourceToNewId.set(entry.id, newId);
-        }
-    }
 }
 function isSessionActive(session) {
     return Boolean(session.isStreaming || session.isCompacting || session.isRetrying || session.isBashRunning);
@@ -220,6 +141,13 @@ export class AgentBranchManager {
             this.options.sidePool.delete(chatJid);
         }
         this.options.activeForkBaseLeafByChat.delete(chatJid);
+        // Cancel any queued prewarm so a background realization does not
+        // materialize a blank runtime (or realize the deferred seed) for an
+        // archived chat between prune and restore.
+        this.options.cancelSessionWarmup?.(chatJid);
+        // NOTE: do not clearDeferredBranchSeed here — .branch-seed.json is the
+        // only persisted copy of the forked context until the session is realized,
+        // and a subsequent restoreChatBranch() must be able to pick it back up.
         return archived;
     }
     async restoreChatBranch(chatJid, options = {}) {
@@ -260,73 +188,12 @@ export class AgentBranchManager {
             parent_branch_id: sourceBranch.branch_id,
             agent_name: requestedAgentName,
         });
-        const targetRuntime = await this.options.getOrCreateRuntime(nextChatJid);
-        const stableSeed = sourceIsActive
-            ? getStableForkSeed(sourceSession, stableForkLeafId)
-            : null;
-        const sourceContext = sourceSession.sessionManager.buildSessionContext();
-        const parentSession = sourceSession.sessionFile?.trim() || undefined;
-        const setupName = nextBranch.agent_name;
-        const sourceModel = stableSeed?.model || sourceContext.model || (sourceSession.model
-            ? { provider: sourceSession.model.provider, modelId: sourceSession.model.id }
-            : null);
-        const result = await targetRuntime.newSession({
-            ...(parentSession ? { parentSession } : {}),
-            setup: async (sessionManager) => {
-                if (stableSeed) {
-                    seedSessionManagerFromBranchEntries(sessionManager, stableSeed.branchEntries, {
-                        sessionName: setupName,
-                        model: sourceModel,
-                    });
-                    return;
-                }
-                seedRotatedSession(sessionManager, sourceContext, {
-                    sessionName: setupName,
-                    model: sourceModel,
-                });
-            },
-        });
-        if (result.cancelled) {
-            throw new Error("Branch fork was cancelled.");
-        }
-        await this.options.refreshRuntime(nextChatJid, targetRuntime);
-        const activeTargetSession = targetRuntime.session;
-        if (sourceSession.model) {
-            try {
-                await activeTargetSession.setModel(sourceSession.model);
-            }
-            catch (err) {
-                this.options.onWarn?.("Failed to copy model to forked branch", {
-                    operation: "create_forked_chat_branch.copy_model",
-                    chatJid: nextChatJid,
-                    err,
-                });
-            }
-        }
-        try {
-            const nextThinkingLevel = normalizeThinkingLevel(stableSeed?.thinkingLevel || sourceContext.thinkingLevel || sourceSession.thinkingLevel);
-            if (nextThinkingLevel) {
-                activeTargetSession.setThinkingLevel(nextThinkingLevel);
-            }
-        }
-        catch (err) {
-            this.options.onWarn?.("Failed to copy thinking level to forked branch", {
-                operation: "create_forked_chat_branch.copy_thinking_level",
-                chatJid: nextChatJid,
-                err,
-            });
-        }
-        try {
-            activeTargetSession.setSessionName(setupName);
-        }
-        catch (err) {
-            this.options.onWarn?.("Failed to copy session name to forked branch", {
-                operation: "create_forked_chat_branch.copy_session_name",
-                chatJid: nextChatJid,
-                err,
-            });
-        }
-        forcePersistSessionFile(activeTargetSession);
+        writeDeferredBranchSeed(nextChatJid, createDeferredBranchSeed(sourceSession, {
+            stableLeafId: stableForkLeafId,
+            sessionName: nextBranch.agent_name,
+            sourceIsActive,
+        }));
+        this.options.scheduleSessionWarmup?.(nextChatJid);
         return ensureChatBranch({
             chat_jid: nextChatJid,
             root_chat_jid: nextBranch.root_chat_jid,

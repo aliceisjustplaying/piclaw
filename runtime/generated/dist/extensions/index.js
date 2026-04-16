@@ -16,6 +16,7 @@ import { sendDashboardWidget } from "./send-dashboard-widget.js";
 import { openWorkspaceFile } from "./open-workspace-file.js";
 import { exitProcess } from "./exit-process.js";
 import { autoresearchSupervisor } from "./autoresearch-supervisor.js";
+import { imageProcessing } from "./image-processing.js";
 /** Array of all built-in extension factories to register on session creation. */
 export const builtinExtensionFactories = [
     fileAttachments,
@@ -36,4 +37,5 @@ export const builtinExtensionFactories = [
     openWorkspaceFile,
     exitProcess,
     autoresearchSupervisor,
+    imageProcessing,
 ];
