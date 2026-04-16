@@ -202,6 +202,10 @@ export async function getChatBranches(rootChatJid = null, options = {}) {
     const params = new URLSearchParams();
     if (rootChatJid) params.set('root_chat_jid', String(rootChatJid));
     if (options?.includeArchived) params.set('include_archived', '1');
+    if (options?.prewarmRecent) params.set('prewarm_recent', '1');
+    if (Number.isFinite(options?.prewarmLimit)) params.set('prewarm_limit', String(options.prewarmLimit));
+    if (options?.excludeChatJid) params.set('exclude_chat_jid', String(options.excludeChatJid));
+    if (options?.prewarmChatJid) params.set('prewarm_chat_jid', String(options.prewarmChatJid));
     const query = params.toString() ? `?${params.toString()}` : '';
     return request(`/agent/branches${query}`);
 }
@@ -297,6 +301,13 @@ export async function deleteWebPushSubscription(subscription, options = {}) {
     return request('/agent/push/subscription', {
         method: 'DELETE',
         body: JSON.stringify(payload),
+    });
+}
+
+export async function sendWebPushTestNotification(payload = {}) {
+    return request('/agent/push/test', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
     });
 }
 
