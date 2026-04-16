@@ -27,6 +27,7 @@ export interface AgentSessionManagerOptions {
   modelRegistry: ModelRegistry;
   settingsManager: SettingsManager;
   createDefaultTools: () => NonNullable<Parameters<typeof createDefaultSession>[1]["tools"]>;
+  createCustomToolOverrides?: () => unknown[];
   getSessionExtensionFactories?: (chatJid: string) => Promise<ExtensionFactory[]>;
   bindSession: (runtime: AgentSessionRuntime, chatJid: string) => Promise<void>;
   ensureBranchRegistration: (chatJid: string, session?: AgentSession | null) => void;
@@ -84,6 +85,7 @@ export class AgentSessionManager {
             modelRegistry: this.options.modelRegistry,
             settingsManager: this.options.settingsManager,
             tools: this.options.createDefaultTools(),
+            customTools: this.options.createCustomToolOverrides?.() ?? [],
             extensionFactories,
           });
 
@@ -130,6 +132,7 @@ export class AgentSessionManager {
           modelRegistry: this.options.modelRegistry,
           settingsManager: this.options.settingsManager,
           tools: this.options.createDefaultTools(),
+          customTools: this.options.createCustomToolOverrides?.() ?? [],
           extensionFactories,
         });
 

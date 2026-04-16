@@ -5,7 +5,8 @@
  * compose a focused factory instead of owning direct SDK tool wiring.
  */
 
-import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
+import { createBashTool, createBashToolDefinition, createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
+import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 
 /** The tracked bash operations injected into the built-in bash tool. */
 export type AgentBashOperations = NonNullable<Parameters<typeof createBashTool>[1]>["operations"];
@@ -34,5 +35,15 @@ export class AgentToolFactory {
       createEditTool(workspaceDir),
       createWriteTool(workspaceDir),
     ];
+  }
+
+  /**
+   * Returns custom ToolDefinitions that override the built-in tools.
+   * The bash tool definition uses tracked operations for keychain env injection.
+   */
+  createCustomToolOverrides(): ToolDefinition[] {
+    const { workspaceDir, bashOperations, platform = process.platform } = this.options;
+    if (platform === "win32" || !bashOperations) return [];
+    return [createBashToolDefinition(workspaceDir, { operations: bashOperations })];
   }
 }
