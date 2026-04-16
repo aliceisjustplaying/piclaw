@@ -8,6 +8,9 @@ export const DISPLAY_MODE_MEDIA_QUERIES = [
   '(display-mode: fullscreen)',
 ];
 
+export const RETURN_TO_APP_MIN_HIDDEN_MS = 150;
+export const RETURN_TO_APP_DEDUPE_MS = 1000;
+
 /**
  * Watch standalone webapp mode changes and call back immediately plus on relevant resume/window events.
  */
@@ -57,27 +60,72 @@ export function watchStandaloneWebAppMode(onChange, runtime = {}) {
 }
 
 /**
- * Watch for return-to-app events and invoke the callback only when the document is visible.
+ * Watch for return-to-app events and invoke the callback only after a real hidden→visible transition.
+ *
+ * iOS Safari's share sheet can emit focus/pageshow churn while the tab never truly backgrounds.
+ * Requiring a prior hidden interval and deduping the visible burst avoids spurious full-view refreshes.
  */
 export function watchReturnToApp(onReturn, runtime = {}) {
   const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
   const doc = runtime.document ?? (typeof document !== 'undefined' ? document : null);
+  const now = typeof runtime.now === 'function' ? runtime.now : () => Date.now();
+  const minHiddenMs = Number.isFinite(runtime.minHiddenMs)
+    ? Math.max(0, Number(runtime.minHiddenMs))
+    : RETURN_TO_APP_MIN_HIDDEN_MS;
+  const dedupeMs = Number.isFinite(runtime.dedupeMs)
+    ? Math.max(0, Number(runtime.dedupeMs))
+    : RETURN_TO_APP_DEDUPE_MS;
   if (!win || !doc || typeof onReturn !== 'function') {
     return () => {};
   }
 
-  const handleReturnToApp = () => {
-    if (doc.visibilityState && doc.visibilityState !== 'visible') return;
+  let hiddenSince = doc.visibilityState && doc.visibilityState !== 'visible'
+    ? now()
+    : null;
+  let pendingReturn = hiddenSince !== null;
+  let lastReturnAt = -Infinity;
+
+  const markHidden = () => {
+    pendingReturn = true;
+    if (hiddenSince === null) {
+      hiddenSince = now();
+    }
+  };
+
+  const maybeReturnToApp = () => {
+    if (doc.visibilityState && doc.visibilityState !== 'visible') {
+      markHidden();
+      return;
+    }
+    if (!pendingReturn) return;
+
+    const currentTime = now();
+    const hiddenDuration = hiddenSince === null ? minHiddenMs : Math.max(0, currentTime - hiddenSince);
+    hiddenSince = null;
+    pendingReturn = false;
+
+    if (hiddenDuration < minHiddenMs) return;
+    if (currentTime - lastReturnAt < dedupeMs) return;
+
+    lastReturnAt = currentTime;
     onReturn();
   };
 
-  win.addEventListener?.('focus', handleReturnToApp);
-  win.addEventListener?.('pageshow', handleReturnToApp);
-  doc.addEventListener?.('visibilitychange', handleReturnToApp);
+  const handleVisibilityChange = () => {
+    if (doc.visibilityState && doc.visibilityState !== 'visible') {
+      markHidden();
+      return;
+    }
+    maybeReturnToApp();
+  };
+
+  win.addEventListener?.('focus', maybeReturnToApp);
+  win.addEventListener?.('pageshow', maybeReturnToApp);
+  doc.addEventListener?.('visibilitychange', handleVisibilityChange);
 
   return () => {
-    win.removeEventListener?.('focus', handleReturnToApp);
-    win.removeEventListener?.('pageshow', handleReturnToApp);
-    doc.removeEventListener?.('visibilitychange', handleReturnToApp);
+    win.removeEventListener?.('focus', maybeReturnToApp);
+    win.removeEventListener?.('pageshow', maybeReturnToApp);
+    doc.removeEventListener?.('visibilitychange', handleVisibilityChange);
   };
 }

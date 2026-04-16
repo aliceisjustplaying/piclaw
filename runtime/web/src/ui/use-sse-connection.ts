@@ -1,6 +1,47 @@
 // @ts-nocheck
 import { useEffect, useRef } from '../vendor/preact-htm.js';
 import { SSEClient } from '../api.js';
+import { isIOSDevice } from './app-helpers.js';
+import { watchReturnToApp } from './app-resume.js';
+
+export function bindSseWakeLifecycle({ sse, onWake }, runtime = {}) {
+  const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
+  const doc = runtime.document ?? (typeof document !== 'undefined' ? document : null);
+  if (!win || !doc || !sse) {
+    return () => {};
+  }
+
+  const stopWatchingReturn = watchReturnToApp(() => {
+    sse.reconnectIfNeeded();
+    onWake?.();
+  }, {
+    window: win,
+    document: doc,
+    ...(typeof runtime.now === 'function' ? { now: runtime.now } : {}),
+    ...(Number.isFinite(runtime.minHiddenMs) ? { minHiddenMs: runtime.minHiddenMs } : {}),
+    ...(Number.isFinite(runtime.dedupeMs) ? { dedupeMs: runtime.dedupeMs } : {}),
+  });
+
+  const shouldUseFocusReconnect = typeof runtime.useFocusReconnect === 'boolean'
+    ? runtime.useFocusReconnect
+    : !isIOSDevice();
+
+  const handleWindowFocus = () => {
+    if (!shouldUseFocusReconnect) return;
+    sse.reconnectIfNeeded();
+  };
+
+  if (shouldUseFocusReconnect) {
+    win.addEventListener('focus', handleWindowFocus);
+  }
+
+  return () => {
+    if (shouldUseFocusReconnect) {
+      win.removeEventListener('focus', handleWindowFocus);
+    }
+    stopWatchingReturn();
+  };
+}
 
 /**
  * Manages the SSE connection lifecycle.
@@ -31,19 +72,13 @@ export function useSseConnection({ handleSseEvent, handleConnectionStatusChange,
     );
     sse.connect();
 
-    const handleWindowFocus = () => {
-      sse.reconnectIfNeeded();
-      const doc = typeof document !== 'undefined' ? document : null;
-      if (!doc || doc.visibilityState === 'visible') {
-        onWakeRef.current?.();
-      }
-    };
-    window.addEventListener('focus', handleWindowFocus);
-    document.addEventListener('visibilitychange', handleWindowFocus);
+    const disposeWakeLifecycle = bindSseWakeLifecycle({
+      sse,
+      onWake: () => onWakeRef.current?.(),
+    });
 
     return () => {
-      window.removeEventListener('focus', handleWindowFocus);
-      document.removeEventListener('visibilitychange', handleWindowFocus);
+      disposeWakeLifecycle();
       sse.disconnect();
     };
   }, [chatJid]);
