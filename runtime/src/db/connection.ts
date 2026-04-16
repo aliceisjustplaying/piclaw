@@ -955,14 +955,18 @@ function dropChatBranchDisplayName(database: Database): void {
 
 /**
  * Return the singleton Database instance.
- * Throws if called before initDatabase().
+ * Lazily initializes the database if this module graph has not done so yet.
  *
  * Used by every db/* module to obtain the shared connection.
  */
 export function getDb(): Database {
   if (!db) {
-    throw new Error("Database not initialized");
+    initDatabase();
   }
+  if (!db) {
+    throw new Error("Database initialization failed");
+  }
+
   return db;
 }
 
