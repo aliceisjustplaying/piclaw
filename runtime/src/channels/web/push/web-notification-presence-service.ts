@@ -7,7 +7,7 @@
  * - no live client for that chat on a device → Web Push allowed for that device
  */
 
-export const DEFAULT_WEB_NOTIFICATION_PRESENCE_TTL_MS = 45000;
+export const DEFAULT_WEB_NOTIFICATION_PRESENCE_TTL_MS = 120000;
 
 export interface WebNotificationPresenceRecord {
   deviceId: string;
@@ -43,8 +43,7 @@ export function normalizeWebNotificationPresence(
   const rawVisibility = normalizeTrimmedString(input.visibility_state ?? input.visibilityState).toLowerCase();
   const visibilityState = rawVisibility === "hidden" ? "hidden" : "visible";
   const hasFocus = Boolean(input.has_focus ?? input.hasFocus);
-  const rawUpdatedAtMs = Number(input.updated_at_ms ?? input.updatedAtMs);
-  const updatedAtMs = Number.isFinite(rawUpdatedAtMs) ? rawUpdatedAtMs : (options.nowMs ?? Date.now());
+  const updatedAtMs = options.nowMs ?? Date.now();
 
   return {
     deviceId,
@@ -83,14 +82,15 @@ export class WebNotificationPresenceService {
   }
 
   upsert(value: unknown, options: { nowMs?: number; userAgent?: string | null } = {}): WebNotificationPresenceRecord {
+    const nowMs = options.nowMs ?? this.now();
     const normalized = normalizeWebNotificationPresence(value, {
-      nowMs: options.nowMs ?? this.now(),
+      nowMs,
       userAgent: options.userAgent,
     });
     if (!normalized) {
       throw new Error("Invalid web notification presence payload.");
     }
-    this.prune(normalized.updatedAtMs);
+    this.prune(nowMs);
     this.records.set(this.buildKey(normalized.deviceId, normalized.clientId), normalized);
     return normalized;
   }

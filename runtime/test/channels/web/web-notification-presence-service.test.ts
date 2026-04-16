@@ -13,6 +13,7 @@ describe("web notification presence service", () => {
       chat_jid: "web:default",
       visibility_state: "hidden",
       has_focus: false,
+      updated_at_ms: 9999999999999,
     }, { nowMs: 1234, userAgent: "PiClaw Test" });
 
     expect(normalized).toEqual({
@@ -87,5 +88,34 @@ describe("web notification presence service", () => {
         },
       ],
     });
+  });
+
+  test("uses server time for pruning instead of trusting client-provided timestamps", () => {
+    let now = 1000;
+    const service = new WebNotificationPresenceService({ now: () => now, ttlMs: 5000 });
+    service.upsert({
+      device_id: "device-1",
+      client_id: "client-1",
+      chat_jid: "web:default",
+      visibility_state: "hidden",
+      has_focus: false,
+    });
+
+    now = 7001;
+    service.upsert({
+      device_id: "device-2",
+      client_id: "client-2",
+      chat_jid: "web:other",
+      visibility_state: "visible",
+      has_focus: true,
+      updated_at_ms: 9999999999999,
+    });
+
+    expect(service.getDeviceChatState("device-1", "web:default", now)).toEqual({
+      hasLiveClient: false,
+      hasVisibleClient: false,
+      clients: [],
+    });
+    expect(service.getDeviceChatState("device-2", "web:other", now).clients[0]?.updatedAtMs).toBe(now);
   });
 });
