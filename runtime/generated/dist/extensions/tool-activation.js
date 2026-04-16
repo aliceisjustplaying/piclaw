@@ -29,13 +29,14 @@ export const TOOLSETS = [
     },
     {
         name: "workspace",
-        description: "Workspace search and document/diagram viewing or generation.",
+        description: "Workspace search, document/diagram viewing, and image processing.",
         toolNames: [
             "search_workspace",
             "open_drawio_editor",
             "open_office_viewer",
             "office_read",
             "office_write",
+            "image_process",
         ],
     },
     {

@@ -83,6 +83,13 @@ The user can interact with queued items in the compose area:
 
 - **Cancel (×)** — calls `removeAgentQueueItem(rowId)`, which splices the item from the server‑side queue array and broadcasts `agent_followup_removed`.
 - **Steer (→)** — calls `steerAgentQueueItem(rowId)`, which injects the item's content as steering into the active agent session. The agent sees it as mid‑turn user input.
+- **Move up / move down** — calls `POST /agent/queue-reorder` with `from_index` / `to_index`, which reorders the deferred queue in `queued_followups_json` and persists the new order on the backend instead of leaving the stack at the mercy of timestamp sorting.
+
+Queue reorder now preserves deliberate user ordering all the way through execution:
+
+- the backend control-plane surface exposes `handleAgentQueueReorder()`
+- the queued-followup lifecycle service mutates the persisted deferred queue order in place
+- the old timestamp-based re-sort that used to quietly undo user moves has been removed
 
 The client tracks a `dismissedQueueRowIdsRef` (Set) to prevent `refreshQueueState` from re‑adding items that were just cancelled or steered. The set is cleared when the agent turn completes or when the server queue empties.
 
@@ -172,6 +179,33 @@ The SSE reconnect handler also refreshes queue state (`refreshQueueState()`) so 
 The persistence model is intentionally split:
 - backend truth decides whether the compaction-related affordance is currently warranted
 - browser-local state is reserved for lightweight local UI memory such as dismissal/seen state
+
+## Request timing / perf tracing
+
+Hot web paths now emit correlated backend timing and browser-visible request traces.
+
+Backend side:
+- request-router and selected web surfaces append `Server-Timing` headers using the `appendServerTiming()` helpers
+- the main router also emits an `x-request-id` header so a browser-visible request can be correlated with backend logs or server-side timing spans
+- instrumentation is intentionally lightweight: bounded timing metrics attached to normal HTTP responses rather than a full tracing stack
+
+Browser side:
+- `runtime/web/src/api.ts` records `x-request-id`, `Server-Timing`, duration, method, URL, and success/failure into `window.__PICLAW_PERF__`
+- `runtime/web/src/ui/app-perf-tracing.ts` keeps bounded in-memory trace/request buffers for live inspection in the browser
+- failed requests that never receive a response are still recorded as failed-before-response entries so the client-side picture does not quietly omit them
+
+This gives piclaw a cheap request-correlation surface now, while leaving room for a fuller observability/export story later.
+
+## Recent-thread timeline cache / nearby-thread prewarm
+
+The web UI now keeps a bounded cache of recent timeline snapshots and uses nearby-thread prewarming to make thread switches feel less abrupt.
+
+- `app-timeline-cache.ts` stores recent chat timeline payloads with an age limit and a small LRU-style cache cap
+- the active chat is excluded from prewarm selection, and recent nearby chats are deduped before background fetches begin
+- background prewarm is best-effort: failed fetches are logged at debug level and dropped rather than surfacing as user-facing errors
+- the cache is used together with the newer refresh-coalescing/warm-session work so thread switches can often render from something fresher than a cold network round-trip
+
+This is not backend truth — it is browser-local performance state intended purely to reduce visible latency around timeline revisits and nearby-thread navigation.
 
 ## Scheduled tasks / IPC
 

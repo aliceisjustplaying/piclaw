@@ -74,7 +74,20 @@ export class MediaService {
         const contentType = normalizeContentType(file.type, inferContentTypeFromPath(file.name || "upload"));
         const arrayBuffer = await file.arrayBuffer();
         const data = new Uint8Array(arrayBuffer);
-        const mediaId = createMedia(file.name || "upload", contentType, data, null, { size: file.size });
+        // Generate a thumbnail for image uploads
+        let thumbnail = null;
+        if (contentType.startsWith("image/") && !contentType.includes("svg")) {
+            try {
+                const { generateThumbnail } = await import("../../../utils/image-processing.js");
+                const thumb = await generateThumbnail(Buffer.from(data));
+                if (thumb)
+                    thumbnail = new Uint8Array(thumb.data);
+            }
+            catch {
+                // sharp unavailable or processing failed — skip thumbnail
+            }
+        }
+        const mediaId = createMedia(file.name || "upload", contentType, data, thumbnail, { size: file.size });
         return { status: 200, body: { id: mediaId, filename: file.name, size: file.size, contentType } };
     }
     /**
@@ -107,7 +120,20 @@ export class MediaService {
         catch {
             return { status: 500, body: { error: `Unable to read media file: ${filePath}` } };
         }
-        const mediaId = createMedia(filenameOverride || basename(filePath), contentType, data, null, { size: stats.size });
+        // Generate a thumbnail for image uploads
+        let thumbnail = null;
+        if (contentType.startsWith("image/") && !contentType.includes("svg")) {
+            try {
+                const { generateThumbnail } = await import("../../../utils/image-processing.js");
+                const thumb = await generateThumbnail(Buffer.from(data));
+                if (thumb)
+                    thumbnail = new Uint8Array(thumb.data);
+            }
+            catch {
+                // sharp unavailable or processing failed — skip thumbnail
+            }
+        }
+        const mediaId = createMedia(filenameOverride || basename(filePath), contentType, data, thumbnail, { size: stats.size });
         return {
             status: 200,
             body: {

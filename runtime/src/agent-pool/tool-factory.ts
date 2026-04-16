@@ -44,6 +44,6 @@ export class AgentToolFactory {
   createCustomToolOverrides(): ToolDefinition[] {
     const { workspaceDir, bashOperations, platform = process.platform } = this.options;
     if (platform === "win32" || !bashOperations) return [];
-    return [createBashToolDefinition(workspaceDir, { operations: bashOperations })];
+    return [createBashToolDefinition(workspaceDir, { operations: bashOperations }) as unknown as ToolDefinition];
   }
 }

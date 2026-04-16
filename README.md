@@ -13,9 +13,9 @@ It is built for people who want a practical, stateful agent they can run locally
 - **Streaming web UI** — real-time chat with Markdown, KaTeX, Mermaid, and Adaptive Cards
 - **Persistent agent state** — SQLite-backed messages, media, tasks, token usage, encrypted keychain, and session-scoped SSH / Proxmox / Portainer profiles
 - **Workspace-native workflow** — browse files, preview documents, upload attachments, drag files into the workspace explorer with progress feedback and a client-side size guard, edit code, reference files in prompts, and optionally flip core tools to a remote SSH host for the current session
-- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, browser automation, bundled MCP access via `pi-mcp-adapter`, and agent-only infrastructure tools for SSH, Proxmox, and Portainer
+- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, browser automation, sharp-backed image processing, bundled MCP access via `pi-mcp-adapter`, and agent-only infrastructure tools for SSH, Proxmox, and Portainer
 - **Agent control features** — steering, queued follow-ups, threading, side prompts, autoresearch experiment loops, and scheduled tasks
-- **Context conservation by default** — small always-active tool baseline, staged tool discovery via `list_tools` (filtered discovery → compact summary → on-demand detail → activate/use), lazy activation for non-default tools, and opt-in examples for higher-detail workflow help
+- **Context conservation by default** — small always-active tool baseline, staged tool/script discovery via `list_tools` / `list_scripts` (filtered or intent-guided discovery → compact summary → on-demand detail → activate/use), lazy activation for non-default tools, and opt-in examples for higher-detail workflow help
 - **Optional auth and channels** — passkeys/TOTP for the web UI, plus optional WhatsApp integration
 
 ## Quick start
@@ -33,7 +33,7 @@ docker run -d \
   ghcr.io/rcarmo/piclaw:latest
 ```
 
-Open `http://localhost:8080` and type `/login` to configure your LLM provider.
+Open `http://localhost:8080` and type `/login` to configure your LLM provider, including custom OpenAI-compatible endpoints when you are not using one of the built-in hosted providers.
 
 | Mount | Container path | Contents |
 |---|---|---|
@@ -98,9 +98,10 @@ PiClaw is single-user, mobile-friendly, and streams updates over SSE.
 ### Automation
 
 - **`/image` and `/flux`** — workspace-backed image generation commands for Azure OpenAI / Foundry; `/image` now supports `--transparent` for transparent PNG output when the Azure OpenAI model supports it
+- **`image_process`** — sharp-backed workspace image manipulation for resize/crop/convert/optimise, metadata inspection, text/SVG/composite operations, and animated GIF frame/spritesheet workflows
 - **`cdp_browser`** — Chromium/Edge/Chrome automation via CDP for navigation, JS evaluation, DOM clicking, and screenshots
 - **`mcp` via `pi-mcp-adapter`** — token-efficient access to external MCP servers configured through `.pi/mcp.json`
-- **Experimental `m365` extension** — opt-in Microsoft 365 automation bundle for Teams, Graph, OneDrive, SharePoint, and calendar flows; enable with `PICLAW_ENABLE_M365_EXPERIMENTAL=1` (primarily validated on Windows with YOLO mode, with Edge → Chrome → Chromium browser lookup across Windows/macOS/Linux). Graph-backed consumer-account support now exists; Teams chat flows still require a work/school tenant.
+- **Experimental `m365` extension** — opt-in Microsoft 365 automation bundle for Teams, Graph, OneDrive, SharePoint, and calendar flows; enable with `PICLAW_ENABLE_M365_EXPERIMENTAL=1` (primarily validated on Windows with YOLO mode, with Edge → Chrome → Chromium browser lookup across Windows/macOS/Linux). Graph-backed consumer-account support now exists; Teams chat flows still require a work/school tenant, and the auth/browser reuse path now follows the current Teams web-app entry instead of the stale legacy route.
 - **`win_*` tools** — Windows-only desktop automation via Win32 FFI for window enumeration, screenshots, element inspection, clicking, typing, and process management. No-ops on non-Windows platforms.
 
 ## Configuration

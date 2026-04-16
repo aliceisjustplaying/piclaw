@@ -229,8 +229,8 @@ export async function ensureAvatarCache(kind: AvatarKind, source: string): Promi
       contentType = processed.mimeType;
       effectiveExtension = contentType === "image/webp" ? ".webp" : extension;
     }
-  } catch {
-    // sharp unavailable or processing failed — use original
+  } catch (error) {
+    debugSuppressedError(log, "Avatar image processing failed; using original.", error);
   }
 
   const filePath = resolve(AVATAR_DIR, `${kind}${effectiveExtension}`);

@@ -23,7 +23,7 @@ import {
 import { lookup } from "dns/promises";
 import { extname } from "path";
 import { isIP } from "net";
-import { createLogger } from "../../../utils/logger.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 
 /** OpenGraph metadata for a URL: title, description, image, site name. */
 export interface LinkPreview {
@@ -284,8 +284,8 @@ async function cachePreviewImage(imageUrl: string): Promise<string | undefined> 
         bytes = new Uint8Array(optimized.data);
         effectiveContentType = optimized.mimeType;
       }
-    } catch {
-      // sharp unavailable or processing failed — use original
+    } catch (error) {
+      debugSuppressedError(log, "Link preview image optimisation failed; using original.", error);
     }
 
     const mediaId = createMedia(

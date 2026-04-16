@@ -11,6 +11,9 @@
 import { readFileSync, statSync } from "fs";
 import { basename, extname } from "path";
 import { createMedia, getMediaById, getMediaInfoById } from "../../../db.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+
+const log = createLogger("web.media");
 
 /**
  * Max upload size: 10 MB.
@@ -90,8 +93,8 @@ export class MediaService {
         const { generateThumbnail } = await import("../../../utils/image-processing.js");
         const thumb = await generateThumbnail(Buffer.from(data));
         if (thumb) thumbnail = new Uint8Array(thumb.data);
-      } catch {
-        // sharp unavailable or processing failed — skip thumbnail
+      } catch (error) {
+        debugSuppressedError(log, "Thumbnail generation failed; skipping.", error);
       }
     }
 
@@ -146,8 +149,8 @@ export class MediaService {
         const { generateThumbnail } = await import("../../../utils/image-processing.js");
         const thumb = await generateThumbnail(Buffer.from(data));
         if (thumb) thumbnail = new Uint8Array(thumb.data);
-      } catch {
-        // sharp unavailable or processing failed — skip thumbnail
+      } catch (error) {
+        debugSuppressedError(log, "Thumbnail generation failed; skipping.", error);
       }
     }
 

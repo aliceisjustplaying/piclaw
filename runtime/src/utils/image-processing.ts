@@ -6,6 +6,7 @@
  */
 
 import { createLogger, debugSuppressedError } from "./logger.js";
+import type sharp from "sharp";
 
 const log = createLogger("utils.image-processing");
 
@@ -23,12 +24,14 @@ export interface ProcessedImage {
   height: number;
 }
 
-let _sharp: typeof import("sharp") | null = null;
+let _sharp: typeof sharp | null = null;
 
-async function getSharp() {
-  if (_sharp) return _sharp.default;
-  _sharp = await import("sharp");
-  return _sharp.default;
+async function getSharp(): Promise<typeof sharp> {
+  if (_sharp) return _sharp;
+  const mod = await import("sharp");
+  // sharp uses `export = sharp` (CJS), so Bun/ESM interop puts it on .default
+  _sharp = (mod as unknown as { default: typeof sharp }).default ?? (mod as unknown as typeof sharp);
+  return _sharp;
 }
 
 /**

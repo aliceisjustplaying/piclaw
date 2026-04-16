@@ -38,7 +38,6 @@ export class WebChannelRuntimeStateService {
             defaultAgentId: this.options.defaultAgentId,
             enqueue: (task, key, laneKey) => this.callbacks.enqueue(task, key, laneKey),
             processChat: (chatJid, agentId, threadRootId) => this.callbacks.processChat(chatJid, agentId, threadRootId),
-            getChatCursor: (chatJid) => this.callbacks.getChatCursor(chatJid),
         };
     }
     getRecoveryContext() {

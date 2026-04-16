@@ -100,6 +100,25 @@ export function storeChatMetadata(chatJid, timestamp, name) {
         chat_jid: chatJid,
     });
 }
+export function listRecentChatJids(limit = 10, options) {
+    const maxRows = Math.max(1, Math.min(100, Math.trunc(limit) || 10));
+    const excluded = Array.isArray(options?.excludeChatJids)
+        ? options.excludeChatJids.map((jid) => String(jid || "").trim()).filter(Boolean).slice(0, 900)
+        : [];
+    const db = getDb();
+    const exclusionSql = excluded.length > 0
+        ? ` AND c.jid NOT IN (${excluded.map(() => "?").join(", ")})`
+        : "";
+    const rows = db.prepare(`SELECT c.jid AS chat_jid
+       FROM chats c
+       LEFT JOIN chat_branches b ON b.chat_jid = c.jid
+      WHERE (b.chat_jid IS NULL OR b.archived_at IS NULL)${exclusionSql}
+      ORDER BY c.last_message_time DESC, c.jid ASC
+      LIMIT ?`).all(...excluded, maxRows);
+    return rows
+        .map((row) => (typeof row.chat_jid === "string" ? row.chat_jid.trim() : ""))
+        .filter(Boolean);
+}
 /**
  * Persist a message into the `messages` table (INSERT OR REPLACE).
  * Returns the SQLite rowid of the inserted row (used as the interaction id
