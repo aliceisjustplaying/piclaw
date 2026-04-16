@@ -1,4 +1,4 @@
-import { deleteWebPushSubscription, getWebPushPublicKey, saveWebPushSubscription } from '../api.js';
+import { deleteWebPushSubscription, getWebPushPublicKey, saveWebPushSubscription, sendWebPushTestNotification } from '../api.js';
 import { useCallback, useEffect, useRef, useState } from '../vendor/preact-htm.js';
 import { getLocalStorageBoolean, setLocalStorageItem } from '../utils/storage.js';
 import { focusWindowBestEffort } from './notification-focus.js';
@@ -259,6 +259,18 @@ export function useNotifications(options = {}) {
       try {
         if (next) {
           await syncWebPushSubscription(window, deviceId);
+          try {
+            await sendWebPushTestNotification({
+              title: 'PiClaw notifications enabled',
+              body: 'Web Push is configured for this device.',
+              url: window.location.pathname + window.location.search,
+              deviceId,
+              tag: 'piclaw:test',
+              sourceLabel: WEB_PUSH_NOTIFICATION_SOURCE_LABEL,
+            });
+          } catch (error) {
+            console.warn('Failed to send a test web push notification:', error);
+          }
         } else {
           await disableWebPushSubscription(window, deviceId);
         }
