@@ -144,6 +144,7 @@ export async function createSessionInDir(
     modelRegistry: ModelRegistry;
     settingsManager: SettingsManager;
     tools: NonNullable<AgentSessionCreateOptions["tools"]>;
+    customTools?: unknown[];
     extensionFactories?: ExtensionFactory[];
     chatJid?: string;
   }
@@ -176,6 +177,7 @@ export async function createSessionInDir(
         sessionManager,
         sessionStartEvent,
         tools: options.tools,
+        customTools: options.customTools as any,
       })),
       services,
       diagnostics: services.diagnostics,
@@ -199,6 +201,7 @@ export async function createDefaultSession(
     modelRegistry: ModelRegistry;
     settingsManager: SettingsManager;
     tools: NonNullable<AgentSessionCreateOptions["tools"]>;
+    customTools?: unknown[];
     extensionFactories?: ExtensionFactory[];
   }
 ): Promise<AgentSessionRuntime> {

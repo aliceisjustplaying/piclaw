@@ -119,6 +119,7 @@ export function createAgentPoolServices(options: AgentPoolServiceFactoryOptions)
     modelRegistry: options.modelRegistry,
     settingsManager: options.settingsManager,
     createDefaultTools: () => toolFactory.createDefaultTools(),
+    createCustomToolOverrides: () => toolFactory.createCustomToolOverrides(),
     getSessionExtensionFactories: (chatJid) => resolveSessionExtensionFactories(chatJid),
     bindSession: (runtime, chatJid) => sessionBinder.bindSession(runtime, chatJid),
     ensureBranchRegistration: (chatJid, session) => {
