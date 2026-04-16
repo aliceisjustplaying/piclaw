@@ -271,3 +271,78 @@ test("export_attachment tool writes to workspace tmp", async () => {
   const outputPath = result.details?.output_path;
   expect(typeof outputPath).toBe("string");
 });
+
+test("read_attachment validates image data with sharp and rejects corrupt images", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  const garbageData = new TextEncoder().encode("this is not an image at all");
+  const mediaId = db.createMedia("corrupt.png", "image/png", garbageData, null, { size: garbageData.length });
+
+  const { fileAttachments } = await import("../../src/extensions/file-attachments.js");
+  const fake = makeFakeApi();
+  fileAttachments(fake.api);
+
+  const tool = fake.tools.get("read_attachment");
+  const result = await tool.execute("call", { id: mediaId, mode: "image" });
+
+  expect(result.content[0].text).toContain("failed image validation");
+  expect(result.details.image_validation_failed).toBe(true);
+});
+
+test("read_attachment accepts valid PNG images through sharp validation", async () => {
+  const sharp = (await import("sharp")).default;
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  const pngData = await sharp({
+    create: { width: 2, height: 2, channels: 4, background: { r: 0, g: 128, b: 255, alpha: 1 } },
+  }).png().toBuffer();
+  const mediaId = db.createMedia("valid.png", "image/png", pngData, null, { size: pngData.length });
+
+  const { fileAttachments } = await import("../../src/extensions/file-attachments.js");
+  const fake = makeFakeApi();
+  fileAttachments(fake.api);
+
+  const tool = fake.tools.get("read_attachment");
+  const result = await tool.execute("call", { id: mediaId, mode: "image" });
+
+  expect(result.content.length).toBe(2);
+  expect(result.content[1].type).toBe("image");
+  expect(result.content[1].mimeType).toBe("image/png");
+  expect(result.details.mode).toBe("image");
+  expect(result.details.converted).toBe(false);
+});
+
+test("read_attachment converts unsupported image formats to JPEG via sharp", async () => {
+  const sharp = (await import("sharp")).default;
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  // Create a TIFF image (not in VALID_IMAGE_MIMES) — sharp should convert to JPEG
+  const tiffData = await sharp({
+    create: { width: 2, height: 2, channels: 3, background: { r: 255, g: 0, b: 0 } },
+  }).tiff().toBuffer();
+  // Store it claiming image/tiff — the MIME check should reject before sharp runs
+  const mediaId = db.createMedia("photo.tiff", "image/tiff", tiffData, null, { size: tiffData.length });
+
+  const { fileAttachments } = await import("../../src/extensions/file-attachments.js");
+  const fake = makeFakeApi();
+  fileAttachments(fake.api);
+
+  const tool = fake.tools.get("read_attachment");
+  const result = await tool.execute("call", { id: mediaId, mode: "image" });
+
+  // TIFF is not in VALID_IMAGE_MIMES, so it's rejected before sharp validation
+  expect(result.content[0].text).toContain("cannot be returned as an image");
+  expect(result.details.unsupported_image_mime).toBe(true);
+});
