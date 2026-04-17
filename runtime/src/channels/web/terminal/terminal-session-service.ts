@@ -350,6 +350,7 @@ export class TerminalSessionService {
   handleMessage(ws: ServerWebSocket<TerminalSocketData>, rawMessage: string | Buffer | Uint8Array): void {
     const session = this.sessions.get(ws.data.token);
     if (!session) return;
+    if (!session.clients.has(ws)) return;
 
     const messageText = typeof rawMessage === "string" ? rawMessage : Buffer.from(rawMessage).toString("utf8");
     const payload = this.parseClientMessage(messageText);

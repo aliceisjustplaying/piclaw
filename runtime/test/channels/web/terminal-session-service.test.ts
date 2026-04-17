@@ -186,6 +186,28 @@ test("terminal session handoff tokens are issued for live sessions and close pri
   expect(service.getSessionInfo({ token: "terminal-handoff", userId: "user-handoff" }).connected_clients).toBe(1);
 });
 
+test("terminal session service ignores input from detached clients during reconnect grace", () => {
+  createWebSession("terminal-detached", "user-detached", 3600, "totp");
+  const proc = new FakeProcess();
+  const service = new TerminalSessionService({
+    spawnProcess: () => proc as any,
+    reconnectGraceMs: 1_000,
+  });
+  const ws = {
+    data: { kind: "terminal", token: "terminal-detached", userId: "user-detached", handoffToken: null },
+    send: () => {},
+  } as any;
+
+  service.attachClient(ws);
+  service.detachClient(ws);
+
+  expect(service.getSessionInfo({ token: "terminal-detached", userId: "user-detached" }).active).toBe(true);
+  expect(service.getSessionInfo({ token: "terminal-detached", userId: "user-detached" }).connected_clients).toBe(0);
+
+  service.handleMessage(ws, JSON.stringify({ type: "input", data: "whoami\n" }));
+  expect(proc.stdinWrites).toEqual([]);
+});
+
 test("terminal session shutdown kills live shells", () => {
   const proc = new FakeProcess();
   const service = new TerminalSessionService({
