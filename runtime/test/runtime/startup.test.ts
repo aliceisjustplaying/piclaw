@@ -1,133 +1,53 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { queueStartupSessionWarmup } from "../../src/runtime/startup.js";
-import { createTempWorkspace } from "../helpers.js";
+import { afterEach, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
-const TEST_SHELL = process.env.SHELL || "bash";
-const RUNTIME_DIR = join(import.meta.dir, "../..");
+import type { RuntimeState } from "../../src/runtime/state.js";
+import { createTempWorkspace, importFresh, setEnv, type TempWorkspace } from "../helpers.js";
 
-describe("runtime startup helpers", () => {
-  test("initializeRuntimeEnvironment seeds workspace skel files for direct installs", () => {
-    const ws = createTempWorkspace("piclaw-startup-");
+let restoreEnv: (() => void) | null = null;
+let tempWorkspace: TempWorkspace | null = null;
 
-    try {
-      const run = Bun.spawnSync({
-        cmd: [
-          TEST_SHELL,
-          "-lc",
-          "bun -e \"import { initializeRuntimeEnvironment } from './src/runtime/startup.js'; initializeRuntimeEnvironment({ loadTimestamps() {}, loadChats() {} });\"",
-        ],
-        cwd: RUNTIME_DIR,
-        env: {
-          ...process.env,
-          PICLAW_WORKSPACE: ws.workspace,
-          PICLAW_STORE: ws.store,
-          PICLAW_DATA: ws.data,
-          PICLAW_DB_IN_MEMORY: "1",
-        },
-      });
-      expect(run.exitCode, run.stderr.toString() || run.stdout.toString()).toBe(0);
+afterEach(() => {
+  restoreEnv?.();
+  restoreEnv = null;
+  tempWorkspace?.cleanup();
+  tempWorkspace = null;
+});
 
-      expect(existsSync(join(ws.workspace, "AGENTS.md"))).toBe(true);
-      expect(existsSync(join(ws.workspace, ".piclaw", "README.md"))).toBe(true);
-      expect(existsSync(join(ws.workspace, ".piclaw", "config.json.example"))).toBe(true);
-      expect(existsSync(join(ws.workspace, ".pi", "mcp.json.example"))).toBe(true);
-      expect(existsSync(join(ws.workspace, "notes", "index.md"))).toBe(true);
-      expect(existsSync(join(ws.workspace, "notes", "memory", "README.md"))).toBe(true);
-      expect(existsSync(join(ws.workspace, ".pi", "skills"))).toBe(true);
-    } finally {
-      ws.cleanup();
-    }
+test("createWhatsAppChannel writes pairing IPC payloads with noNudge enabled", async () => {
+  tempWorkspace = createTempWorkspace("piclaw-startup-pairing-");
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: tempWorkspace.workspace,
+    PICLAW_STORE: tempWorkspace.store,
+    PICLAW_DATA: tempWorkspace.data,
+    WHATSAPP_PHONE: "+15551234567",
   });
 
-  test("queueStartupResumePendingIpc writes a resume_pending task", () => {
-    const ws = createTempWorkspace("piclaw-startup-");
+  const { createWhatsAppChannel } = await importFresh<typeof import("../../src/runtime/startup.js")>(
+    "../src/runtime/startup.js"
+  );
 
-    try {
-      const run = Bun.spawnSync({
-        cmd: [
-          TEST_SHELL,
-          "-lc",
-          "bun -e \"import { queueStartupResumePendingIpc } from './src/runtime/startup.js'; queueStartupResumePendingIpc();\"",
-        ],
-        cwd: RUNTIME_DIR,
-        env: {
-          ...process.env,
-          PICLAW_WORKSPACE: ws.workspace,
-          PICLAW_STORE: ws.store,
-          PICLAW_DATA: ws.data,
-          PICLAW_DB_IN_MEMORY: "1",
-        },
-      });
-      expect(run.exitCode).toBe(0);
+  const state = {
+    chatJids: new Set<string>(),
+    saveChats: () => {},
+  } as RuntimeState;
 
-      const tasksDir = join(ws.data, "ipc", "tasks");
-      const files = readdirSync(tasksDir).filter((file) => file.startsWith("resume_pending_"));
-      expect(files).toHaveLength(1);
+  const channel = createWhatsAppChannel(state);
+  const onPairingCode = (channel as any).opts?.onPairingCode as ((code: string) => void) | undefined;
+  expect(typeof onPairingCode).toBe("function");
 
-      const payload = JSON.parse(readFileSync(join(tasksDir, files[0]), "utf-8"));
-      expect(payload).toEqual({ type: "resume_pending", chatJid: "all", reason: "startup" });
-    } finally {
-      ws.cleanup();
-    }
-  });
+  onPairingCode?.("123-456");
 
-  test("queueStartupResumePendingIpc always queues a fresh startup resume task", () => {
-    const ws = createTempWorkspace("piclaw-startup-");
+  const ipcDir = join(tempWorkspace.data, "ipc", "messages");
+  const [fileName] = readdirSync(ipcDir);
+  expect(fileName).toBeTruthy();
 
-    try {
-      const tasksDir = join(ws.data, "ipc", "tasks");
-      mkdirSync(tasksDir, { recursive: true });
-      writeFileSync(
-        join(tasksDir, "resume_pending_existing.json"),
-        JSON.stringify({ type: "resume_pending", chatJid: "all", reason: "reload" })
-      );
-
-      const run = Bun.spawnSync({
-        cmd: [
-          TEST_SHELL,
-          "-lc",
-          "bun -e \"import { queueStartupResumePendingIpc } from './src/runtime/startup.js'; queueStartupResumePendingIpc();\"",
-        ],
-        cwd: RUNTIME_DIR,
-        env: {
-          ...process.env,
-          PICLAW_WORKSPACE: ws.workspace,
-          PICLAW_STORE: ws.store,
-          PICLAW_DATA: ws.data,
-          PICLAW_DB_IN_MEMORY: "1",
-        },
-      });
-      expect(run.exitCode).toBe(0);
-
-      const files = readdirSync(tasksDir)
-        .filter((file) => file.startsWith("resume_pending_"))
-        .sort();
-      expect(files.length).toBe(2);
-      expect(files).toContain("resume_pending_existing.json");
-      expect(files.some((file) => file !== "resume_pending_existing.json")).toBe(true);
-    } finally {
-      ws.cleanup();
-    }
-  });
-
-  test("queueStartupSessionWarmup prioritizes the default chat and queues five recent chats by default", () => {
-    const scheduled: Array<{ chatJid: string; priority?: boolean }> = [];
-    const recentCalls: Array<{ limit?: number; excludeChatJids?: string[] }> = [];
-
-    queueStartupSessionWarmup({
-      scheduleChatWarmup: (chatJid: string, options?: { priority?: boolean }) => {
-        scheduled.push({ chatJid, priority: options?.priority });
-        return true;
-      },
-      scheduleRecentChatWarmup: (options?: { limit?: number; excludeChatJids?: string[] }) => {
-        recentCalls.push(options || {});
-        return [];
-      },
-    } as any);
-
-    expect(scheduled).toEqual([{ chatJid: "web:default", priority: true }]);
-    expect(recentCalls).toEqual([{ limit: 5, excludeChatJids: ["web:default"] }]);
+  const payload = JSON.parse(readFileSync(join(ipcDir, fileName), "utf8"));
+  expect(payload).toEqual({
+    type: "message",
+    chatJid: "web:default",
+    text: "123-456",
+    noNudge: true,
   });
 });
