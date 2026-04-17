@@ -389,6 +389,35 @@ test("media attachments are stored and returned", () => {
   expect(interaction?.data.media_ids).toEqual([mediaId]);
 });
 
+test("storeMessage updates existing rows without orphaning media attachments", () => {
+  const chatJid = `test:${Date.now()}-media-upsert`;
+  db.storeChatMetadata(chatJid, new Date().toISOString(), "Test");
+
+  const mediaId = db.createMedia(
+    "note.txt",
+    "text/plain",
+    new TextEncoder().encode("hello"),
+    null,
+    { size: 5 }
+  );
+
+  const message = makeMessage(chatJid, "original", "2024-03-01T00:00:00.000Z");
+  const firstRowId = db.storeMessage(message);
+  db.attachMediaToMessage(firstRowId, [mediaId]);
+
+  const secondRowId = db.storeMessage({
+    ...message,
+    content: "edited",
+    timestamp: "2024-03-01T00:01:00.000Z",
+  });
+
+  expect(secondRowId).toBe(firstRowId);
+
+  const interaction = db.getMessageByRowId(chatJid, secondRowId);
+  expect(interaction?.data.content).toBe("edited");
+  expect(interaction?.data.media_ids).toEqual([mediaId]);
+});
+
 test("text media attachments are added to message search indexing", () => {
   const chatJid = `test:${Date.now()}-media-fts`;
   db.storeChatMetadata(chatJid, new Date().toISOString(), "Test");
