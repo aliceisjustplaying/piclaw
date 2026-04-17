@@ -262,6 +262,7 @@ X-Trust-Epoch
 | `GET /api/remote/ping` | health/metadata | signed |
 | `POST /api/remote/proposal` | default mediated inbound prompt | signed |
 | `POST /api/remote/execute` | optional short-circuit direct exec | signed + mode gate |
+| `POST /api/remote/result` | push execution result callback | signed |
 | `POST /api/remote/revoke` | revoke relationship | signed |
 
 All POST endpoints require `Content-Type: application/json`.
@@ -295,6 +296,30 @@ All POST endpoints require `Content-Type: application/json`.
   "scope_applied": {
     "profile": "restricted"
   }
+}
+```
+
+### Result callback envelope (`POST /api/remote/result`)
+
+Pushed by the executing peer back to the requesting peer after a
+mediated proposal is approved and executed (or rejected).
+
+```json
+{
+  "negotiation_id": "neg_123",
+  "decision": "accept_execute",
+  "result": "The answer is 42.",
+  "usage": { "duration_ms": 1200 }
+}
+```
+
+Or for a rejection:
+
+```json
+{
+  "negotiation_id": "neg_123",
+  "decision": "deny",
+  "reason": "Rejected by operator."
 }
 ```
 
@@ -446,6 +471,9 @@ These defaults are recommended for first implementation.
 /pair block <instance_id|fingerprint>
 /pair revoke <instance_id|fingerprint>
 /pair list
+/pair inbox
+/pair approve <proposal_id>
+/pair reject <proposal_id> [reason]
 /pair permissions <instance_id> <profile>
 /pair mode <instance_id> <mediated|short-circuit>
 /ask <instance_id> <prompt>
