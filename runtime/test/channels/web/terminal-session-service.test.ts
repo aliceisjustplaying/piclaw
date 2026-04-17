@@ -62,18 +62,29 @@ test("terminal session service resolves owner from web session cookie", () => {
   expect(service.resolveOwnerFromRequest(req)).toEqual({ kind: "terminal", token: "terminal-token", userId: "user-1", handoffToken: null });
 });
 
-test("terminal session service falls back to the local default owner when allowed", () => {
+test("terminal session service derives an anonymous owner from the per-client token when allowed", () => {
+  const service = new TerminalSessionService({
+    spawnProcess: () => new FakeProcess() as any,
+  });
+
+  const req = new Request("https://example.com/terminal/session", {
+    headers: { "x-piclaw-terminal-client": "anon-client-1" },
+  });
+  expect(service.resolveOwnerFromRequest(req, true)).toEqual({
+    kind: "terminal",
+    token: "web-terminal-anon:anon-client-1",
+    userId: "default",
+    handoffToken: null,
+  });
+});
+
+test("terminal session service refuses unauthenticated fallback when no per-client token is supplied", () => {
   const service = new TerminalSessionService({
     spawnProcess: () => new FakeProcess() as any,
   });
 
   const req = new Request("https://example.com/terminal/session");
-  expect(service.resolveOwnerFromRequest(req, true)).toEqual({
-    kind: "terminal",
-    token: "web-terminal-local-default",
-    userId: "default",
-    handoffToken: null,
-  });
+  expect(service.resolveOwnerFromRequest(req, true)).toBeNull();
 });
 
 test("terminal session service spawns one shell per web session and relays IO", () => {
