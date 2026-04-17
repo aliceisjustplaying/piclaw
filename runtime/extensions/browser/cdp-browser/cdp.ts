@@ -133,7 +133,7 @@ export async function httpGet(url: string, timeout = 3000, signal?: MaybeAbortSi
     try {
       return JSON.parse(text);
     } catch {
-      return text;
+      return null;
     }
   } finally {
     request.cleanup();
@@ -149,7 +149,7 @@ export async function httpPut(url: string, timeout = 5000, signal?: MaybeAbortSi
     try {
       return JSON.parse(text);
     } catch {
-      return text;
+      return null;
     }
   } finally {
     request.cleanup();
@@ -160,8 +160,10 @@ export async function findCdpPort(signal?: MaybeAbortSignal): Promise<number | n
   for (const port of CDP_PORTS) {
     throwIfAborted(signal);
     try {
-      await httpGet(`http://localhost:${port}/json/version`, 2000, signal);
-      return port;
+      const version = await httpGet(`http://localhost:${port}/json/version`, 2000, signal);
+      if (version && typeof version === "object" && !Array.isArray(version)) {
+        return port;
+      }
     } catch (error) {
       if ((error as Error)?.name === "AbortError") throw error;
     }
@@ -200,7 +202,8 @@ export async function ensureBrowser(signal?: MaybeAbortSignal): Promise<number |
 }
 
 export async function getTargets(port: number, signal?: MaybeAbortSignal): Promise<any[]> {
-  const targets: any[] = await httpGet(`http://localhost:${port}/json`, 3000, signal);
+  const targets = await httpGet(`http://localhost:${port}/json`, 3000, signal);
+  if (!Array.isArray(targets)) return [];
   return targets.filter((target) => target.type === "page");
 }
 
