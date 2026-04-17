@@ -109,6 +109,28 @@ test("cli keychain command accepts leading global runtime flags", async () => {
   expect(() => JSON.parse(logs[logs.length - 1] || "[]")).not.toThrow();
 });
 
+test("cli keychain list survives value-taking flags without swallowing the subcommand", async () => {
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: any[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+
+  try {
+    const handledPort = await handleCliOptions(["-p", "keychain", "list"]);
+    const handledWorkspace = await handleCliOptions(["-w", "keychain", "list"]);
+    expect(handledPort).toBe(true);
+    expect(handledWorkspace).toBe(true);
+  } finally {
+    console.log = originalLog;
+  }
+
+  expect(logs.length).toBeGreaterThanOrEqual(2);
+  for (const output of logs.slice(-2)) {
+    expect(() => JSON.parse(output || "[]")).not.toThrow();
+  }
+});
+
 test("cli keychain errors when disabled", async () => {
   const restoreDisabled = setEnv({ PICLAW_KEYCHAIN_KEY: undefined, PICLAW_KEYCHAIN_KEY_FILE: undefined });
 
