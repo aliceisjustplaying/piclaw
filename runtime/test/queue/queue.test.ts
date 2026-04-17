@@ -180,6 +180,42 @@ describe("AgentQueue", () => {
     }
   });
 
+  test("deduplicates items while a retry is waiting on its backoff timer", async () => {
+    const queue = new AgentQueue();
+    const order: string[] = [];
+    let attempts = 0;
+
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: (...args: any[]) => void, ms?: number, ...args: any[]) =>
+      originalSetTimeout(fn, Math.min(ms ?? 0, 20), ...args)) as typeof setTimeout;
+
+    try {
+      queue.enqueue(async () => {
+        order.push(attempts === 0 ? "first" : "retry");
+        if (attempts === 0) {
+          attempts += 1;
+          throw new Error("fail");
+        }
+      }, "task-1");
+
+      await Bun.sleep(5);
+
+      queue.enqueue(async () => {
+        order.push("duplicate");
+      }, "task-1");
+
+      await new Promise((resolve) => originalSetTimeout(resolve, 80));
+      expect(order).toEqual(["first", "retry"]);
+
+      const metrics = queue.getMetrics();
+      expect(metrics.deduplicated).toBe(1);
+      expect(metrics.retriesScheduled).toBeGreaterThanOrEqual(1);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      await queue.shutdown(100);
+    }
+  });
+
   test("shutdown returns after timeout and clears pending", async () => {
     const queue = new AgentQueue();
     let ran = false;
