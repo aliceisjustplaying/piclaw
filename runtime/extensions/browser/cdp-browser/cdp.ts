@@ -254,6 +254,16 @@ export async function withConnectedTab<T>(
 }
 
 export function cdpSend(ws: WebSocket, method: string, params?: any, signal?: MaybeAbortSignal): Promise<any> {
+  return cdpSendWithTimeout(ws, method, params, signal, 15_000);
+}
+
+export function cdpSendWithTimeout(
+  ws: WebSocket,
+  method: string,
+  params?: any,
+  signal?: MaybeAbortSignal,
+  timeoutMs = 15_000,
+): Promise<any> {
   throwIfAborted(signal);
   const id = Math.floor(Math.random() * 100_000);
   ws.send(JSON.stringify({ id, method, params }));
@@ -265,8 +275,8 @@ export function cdpSend(ws: WebSocket, method: string, params?: any, signal?: Ma
     };
     const timer = setTimeout(() => {
       cleanup();
-      resolve(null);
-    }, 15_000);
+      reject(new Error(`CDP command timed out: ${method}`));
+    }, timeoutMs);
     const unbind = bindAbortSignal(signal, () => {
       cleanup();
       reject(createAbortError());
@@ -276,7 +286,14 @@ export function cdpSend(ws: WebSocket, method: string, params?: any, signal?: Ma
         const msg = JSON.parse(typeof event.data === "string" ? event.data : String(event.data));
         if (msg.id === id) {
           cleanup();
-          resolve(msg.result ?? msg.error ?? null);
+          if (msg.error) {
+            const message = String(msg.error?.message || msg.error?.code || "CDP command failed");
+            const error = new Error(`CDP command failed for ${method}: ${message}`);
+            (error as any).cdpError = msg.error;
+            reject(error);
+            return;
+          }
+          resolve(msg.result ?? null);
         }
       } catch {
         return;
