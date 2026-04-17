@@ -154,7 +154,7 @@ export function listRecentChatJids(limit = 10, options?: { excludeChatJids?: str
 }
 
 /**
- * Persist a message into the `messages` table (INSERT OR REPLACE).
+ * Persist a message into the `messages` table.
  * Returns the SQLite rowid of the inserted row (used as the interaction id
  * in the web timeline and for media attachment linking).
  */
@@ -165,11 +165,23 @@ export function storeMessage(msg: NewMessage): number {
   const linkPreviews = msg.link_previews ? JSON.stringify(msg.link_previews) : null;
 
   db.prepare(
-    `INSERT OR REPLACE INTO messages (
+    `INSERT INTO messages (
       id, chat_jid, sender, sender_name, content, content_blocks, link_previews,
       thread_id, timestamp, is_from_me, is_bot_message, is_terminal_agent_reply, is_steering_message
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id, chat_jid) DO UPDATE SET
+       sender = excluded.sender,
+       sender_name = excluded.sender_name,
+       content = excluded.content,
+       content_blocks = excluded.content_blocks,
+       link_previews = excluded.link_previews,
+       thread_id = excluded.thread_id,
+       timestamp = excluded.timestamp,
+       is_from_me = excluded.is_from_me,
+       is_bot_message = excluded.is_bot_message,
+       is_terminal_agent_reply = excluded.is_terminal_agent_reply,
+       is_steering_message = excluded.is_steering_message`
   ).run(
     msg.id,
     msg.chat_jid,
