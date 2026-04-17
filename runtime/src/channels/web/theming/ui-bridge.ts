@@ -56,6 +56,10 @@ export interface UiBridgeChannel {
   broadcastEvent(eventType: string, data: unknown): void;
 }
 
+interface UiBridgeOptions {
+  waitForIdleTimeoutMs?: number;
+}
+
 interface PendingUiRequest {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
@@ -72,7 +76,10 @@ export class UiBridge {
   themeByChat = new Map<string, WebThemePayload>();
   fallbackTheme = createFallbackTheme();
 
-  constructor(private channel: UiBridgeChannel) {}
+  constructor(
+    private channel: UiBridgeChannel,
+    private readonly options: UiBridgeOptions = {},
+  ) {}
 
   async bindSession(runtime: AgentSessionRuntime, chatJid: string): Promise<void> {
     if (!chatJid.startsWith("web:")) return;
@@ -81,14 +88,43 @@ export class UiBridge {
 
     const waitForIdle = async (): Promise<void> => {
       if (!session.isStreaming) return;
-      await new Promise<void>((resolve) => {
-        const unsub = session.subscribe((event) => {
-          if (event.type === "agent_end") {
-            unsub();
-            resolve();
-          }
-        });
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
+      const timeoutMs = this.getWaitForIdleTimeoutMs();
+      let finish = () => {};
+      const unsubscribe = session.subscribe((event) => {
+        if (event.type === "agent_end" || !session.isStreaming) {
+          finish();
+        }
       });
+
+      try {
+        const waitForSession = new Promise<void>((resolve) => {
+          finish = () => {
+            if (settled) return;
+            settled = true;
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
+            resolve();
+          };
+
+          timeoutId = setTimeout(() => {
+            log.warn("Timed out waiting for web session to go idle", {
+              operation: "web_theming_ui_bridge.wait_for_idle_timeout",
+              chatJid,
+              timeoutMs,
+            });
+            finish();
+          }, timeoutMs);
+        });
+
+        await waitForSession;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        unsubscribe();
+      }
     };
 
     const uiContext = this.createUiContext(chatJid);
@@ -261,5 +297,11 @@ export class UiBridge {
       }
     }
     this.pendingUiRequests.clear();
+  }
+
+  private getWaitForIdleTimeoutMs(): number {
+    const rawTimeout = this.options.waitForIdleTimeoutMs;
+    if (!Number.isFinite(rawTimeout)) return 15000;
+    return Math.max(1, Math.floor(rawTimeout as number));
   }
 }
