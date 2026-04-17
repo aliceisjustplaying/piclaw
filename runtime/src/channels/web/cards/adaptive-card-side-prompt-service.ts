@@ -478,7 +478,8 @@ export class WebAdaptiveCardSidePromptService {
         ? (() => {
             setWebTotpSecret(parsedTotp.state.secret);
             this.options.authGateway.setTotpSecret(parsedTotp.state.secret);
-            return "TOTP setup confirmed. Secret saved. This browser is now TOTP-authenticated.";
+            deleteAllWebSessions();
+            return "TOTP setup confirmed. Secret saved. Existing web sessions were invalidated. This browser is now TOTP-authenticated.";
           })()
         : parsedTotp.state.flow === "reset"
           ? (() => {
