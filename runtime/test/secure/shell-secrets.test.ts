@@ -34,6 +34,7 @@ describe("createStreamingTextRedactor", () => {
       redact: (t) => t,
       maxNeedleLength: 0,
       hasReplacements: false,
+      needles: [],
     };
     const stream = createStreamingTextRedactor(noOp);
     expect(stream.push("hello")).toBe("hello");
@@ -47,35 +48,19 @@ describe("createStreamingTextRedactor", () => {
       redact: (t) => t.replaceAll(secret, "[REDACTED]"),
       maxNeedleLength: secret.length,
       hasReplacements: true,
+      needles: [secret],
     };
     const stream = createStreamingTextRedactor(redactor);
 
-    // Push less than tail length — held in buffer
     const r1 = stream.push("Hi ");
-    // "Hi " is 3 chars, tail keep is 5 (maxNeedleLength - 1)
-    // raw = "Hi ", length 3 <= tailKeep 5 → all buffered
-    expect(r1).toBe("");
+    expect(r1).toBe("Hi ");
 
-    // Push more — some emitted
     const r2 = stream.push("there ABCDEF end");
-    // raw = "Hi there ABCDEF end" (19 chars), tail keep = 5
-    // emit raw[0..14] = "Hi there ABCDE" → redacted: "Hi there ABCDE"
-    // tail = "F end" — hmm, the secret is split across emit and tail
-    // Actually: emitRaw = raw.slice(0, 19-5) = raw.slice(0,14) = "Hi there ABCDE"
-    // tail = raw.slice(14) = "F end"
-    // So the secret "ABCDEF" is split across emit and tail — this is expected
-    // because streaming can't redact across chunk boundaries perfectly
-    expect(typeof r2).toBe("string");
-
-    // Flush remainder
     const r3 = stream.flush();
-    expect(typeof r3).toBe("string");
-
-    // Full output should not contain the secret
     const full = r1 + r2 + r3;
-    // The streaming redactor may miss split-boundary secrets — that's the trade-off
-    // But a non-split secret should be caught
     expect(full).toContain("Hi there");
+    expect(full).toContain("[REDACTED]");
+    expect(full).not.toContain(secret);
   });
 
   test("redacts secret fully contained in a single push", () => {
@@ -84,6 +69,7 @@ describe("createStreamingTextRedactor", () => {
       redact: (t) => t.replaceAll(secret, "[REDACTED]"),
       maxNeedleLength: secret.length,
       hasReplacements: true,
+      needles: [secret],
     };
     const stream = createStreamingTextRedactor(redactor);
 
@@ -101,6 +87,7 @@ describe("createStreamingTextRedactor", () => {
       redact: (t) => t,
       maxNeedleLength: 10,
       hasReplacements: true,
+      needles: ["placeholder"],
     };
     const stream = createStreamingTextRedactor(redactor);
     expect(stream.flush()).toBe("");
