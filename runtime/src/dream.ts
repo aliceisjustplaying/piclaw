@@ -126,7 +126,7 @@ export function parseDreamPromptToken(prompt: string): { matched: boolean; mode:
   return {
     matched: true,
     mode,
-    days: match[2] ? Math.max(1, Number.parseInt(match[2], 10) || fallbackDays) : fallbackDays,
+    days: match[2] ? Math.max(1, Number.parseInt(match[2], 10)) : fallbackDays,
   };
 }
 
