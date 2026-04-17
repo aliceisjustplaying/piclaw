@@ -169,7 +169,10 @@ function getIndexedExtensions(): Set<string> {
 
 const isTextFile = (filePath: string): boolean => {
   const ext = path.extname(filePath).toLowerCase();
-  return getIndexedExtensions().has(ext);
+  if (ext) {
+    return getIndexedExtensions().has(ext);
+  }
+  return getIndexedExtensions().has(path.basename(filePath).toLowerCase());
 };
 
 type WalkFilesResult = {

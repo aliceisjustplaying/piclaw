@@ -87,3 +87,27 @@ test("workspace refresh does not prune previously indexed files when a subtree b
   const betaResults = await workspaceSearch.searchWorkspace({ scope: "notes", query: "hedgehogs", refresh: false });
   expect(betaResults.rows.map((row) => row.path)).toEqual(["notes/nested/beta.md"]);
 });
+
+test("workspace search indexes bare .env files by basename when extname is empty", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+  });
+
+  await fs.rm(path.join(ws.workspace, "notes"), { recursive: true, force: true });
+  await fs.rm(path.join(ws.data, "workspace-search"), { recursive: true, force: true });
+  await fs.mkdir(path.join(ws.workspace, "notes"), { recursive: true });
+  await fs.writeFile(path.join(ws.workspace, "notes", ".env"), "ENV_SECRET=alpha-needle");
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+  const workspaceSearch = await importFresh<typeof import("../src/workspace-search.js")>("../src/workspace-search.js");
+
+  const refreshed = await workspaceSearch.refreshWorkspaceIndex({ scope: "notes" });
+  expect(refreshed.indexed_file_count).toBe(1);
+
+  const results = await workspaceSearch.searchWorkspace({ scope: "notes", query: "ENV_SECRET", refresh: false });
+  expect(results.rows.map((row) => row.path)).toEqual(["notes/.env"]);
+});
