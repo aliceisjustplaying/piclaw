@@ -85,6 +85,8 @@ const BASE_RECONNECT_DELAY_MS = 2_000; // 2s, 4s, 8s, 16s, 32s
 export class WhatsAppChannel {
   private sock!: WASocket;
   private connected = false;
+  private connectReject: ((error: unknown) => void) | null = null;
+  private connectResolve: (() => void) | null = null;
   private outgoingQueue: Array<{ jid: string; text: string }> = [];
   private flushing = false;
   private opts: WhatsAppChannelOpts;
@@ -102,7 +104,19 @@ export class WhatsAppChannel {
 
   async connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.connectInternal(resolve).catch(reject);
+      this.connectResolve = () => {
+        this.connectResolve = null;
+        this.connectReject = null;
+        resolve();
+      };
+      this.connectReject = (error) => {
+        this.connectResolve = null;
+        this.connectReject = null;
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      this.connectInternal(this.connectResolve).catch((error) => {
+        this.settlePendingConnectError(error);
+      });
     });
   }
 
@@ -171,6 +185,9 @@ export class WhatsAppChannel {
                 operation: "connection.update.reconnect",
                 err,
               });
+              if (pending) {
+                this.settlePendingConnectError(err);
+              }
             });
           }, delay);
         } else {
@@ -297,5 +314,12 @@ export class WhatsAppChannel {
       this.pairingRequested = false;
       throw err;
     }
+  }
+
+  private settlePendingConnectError(error: unknown): void {
+    const reject = this.connectReject;
+    this.connectResolve = null;
+    this.connectReject = null;
+    reject?.(error);
   }
 }
