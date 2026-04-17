@@ -240,16 +240,42 @@ function handlePairList(pi: ExtensionAPI): void {
   } catch {
     peers = [];
   }
-  if (!peers.length) {
-    pi.sendMessage({ customType: "remote-pair", content: "No remote peers.", display: true });
+
+  let pendingRequests: RemotePairRequestRecord[];
+  try {
+    pendingRequests = getPendingPairRequests().filter(
+      (r) => new Date(r.expires_at) > new Date()
+    );
+  } catch {
+    pendingRequests = [];
+  }
+
+  if (!peers.length && !pendingRequests.length) {
+    pi.sendMessage({ customType: "remote-pair", content: "No remote peers or pending requests.", display: true });
     return;
   }
-  const lines = peers.map((p) => {
-    const name = p.display_name ? `${p.display_name} ` : "";
-    const fp = `${p.instance_id.slice(0, 6)}-${p.instance_id.slice(6, 12)}-${p.instance_id.slice(12, 18)}`;
-    return `- ${name}\`${fp}\` — ${p.status} / ${p.mode} / ${p.profile}`;
-  });
-  pi.sendMessage({ customType: "remote-pair", content: `**Remote peers:**\n${lines.join("\n")}`, display: true });
+
+  const sections: string[] = [];
+
+  if (peers.length) {
+    const lines = peers.map((p) => {
+      const name = p.display_name ? `${p.display_name} ` : "";
+      const fp = `${p.instance_id.slice(0, 6)}-${p.instance_id.slice(6, 12)}-${p.instance_id.slice(12, 18)}`;
+      return `- ${name}\`${fp}\` — ${p.status} / ${p.mode} / ${p.profile}`;
+    });
+    sections.push(`**Remote peers:**\n${lines.join("\n")}`);
+  }
+
+  if (pendingRequests.length) {
+    const lines = pendingRequests.map((r) => {
+      const fp = formatFingerprint(r.instance_id);
+      const name = r.display_name ? ` (${r.display_name})` : "";
+      return `- \`${r.id}\` — \`${fp}\`${name} — ${r.created_at}`;
+    });
+    sections.push(`**Pending pair requests:**\n${lines.join("\n")}\n\nRun \`/pair accept <request_id>\` to accept.`);
+  }
+
+  pi.sendMessage({ customType: "remote-pair", content: sections.join("\n\n"), display: true });
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
