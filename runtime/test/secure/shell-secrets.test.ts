@@ -117,6 +117,7 @@ describe("buildInjectedExecCommand", () => {
     expect(result.commandArgs[1]).toContain("exec");
     expect(result.commandArgs[1]).toContain("echo");
     expect(result.commandArgs[1]).toContain("hello");
+    expect(result.env).toEqual({});
   });
 
   test("powershell command wraps in powershell -NoProfile -Command", async () => {
@@ -127,6 +128,7 @@ describe("buildInjectedExecCommand", () => {
     const cmd = result.commandArgs[result.commandArgs.length - 1];
     expect(cmd).toContain("Get-Date");
     expect(cmd).toContain("$ErrorActionPreference");
+    expect(result.env).toEqual({});
   });
 
   test("posix quotes arguments with single quotes", async () => {
@@ -134,6 +136,7 @@ describe("buildInjectedExecCommand", () => {
     expect(result.commandArgs[1]).toContain("it");
     // Should be shell-quoted
     expect(result.command).toBe("sh");
+    expect(result.env).toEqual({});
   });
 
   test("command with no args works", async () => {
@@ -141,5 +144,6 @@ describe("buildInjectedExecCommand", () => {
     expect(result.command).toBe("sh");
     expect(result.commandArgs[1]).toContain("exec");
     expect(result.commandArgs[1]).toContain("ls");
+    expect(result.env).toEqual({});
   });
 });

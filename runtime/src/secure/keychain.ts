@@ -350,8 +350,30 @@ export function listInjectableKeychainEnvNames(): string[] {
   return listInjectableKeychainEntries().map((entry) => entry.envName);
 }
 
-export async function loadAutoInjectedKeychainEnv(): Promise<Record<string, string>> {
-  const injectable = listInjectableKeychainEntries();
+function collectReferencedShellEnvNames(texts: string[]): Set<string> {
+  const names = new Set<string>();
+  const regexes = [
+    /\$env:([A-Za-z_][A-Za-z0-9_]*)/g,
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
+    /\$([A-Za-z_][A-Za-z0-9_]*)/g,
+    /%([A-Za-z_][A-Za-z0-9_]*)%/g,
+  ];
+
+  for (const text of texts) {
+    for (const regex of regexes) {
+      regex.lastIndex = 0;
+      for (const match of text.matchAll(regex)) {
+        const name = match[1];
+        if (name) names.add(name);
+      }
+    }
+  }
+  return names;
+}
+
+export async function loadAutoInjectedKeychainEnv(referencedTexts?: string[]): Promise<Record<string, string>> {
+  const referencedEnvNames = Array.isArray(referencedTexts) ? collectReferencedShellEnvNames(referencedTexts) : null;
+  const injectable = listInjectableKeychainEntries().filter((entry) => referencedEnvNames === null || referencedEnvNames.has(entry.envName));
   const resolved: Record<string, string> = {};
   for (const { envName, keychainName } of injectable) {
     const entry = await getKeychainEntry(keychainName);
@@ -363,11 +385,12 @@ export async function loadAutoInjectedKeychainEnv(): Promise<Record<string, stri
 export async function buildInjectedShellEnv(options: {
   explicitEnv?: Record<string, string | undefined>;
   includeProcessEnv?: boolean;
+  referencedTexts?: string[];
 } = {}): Promise<Record<string, string>> {
   const merged: Record<string, string> = options.includeProcessEnv ? { ...process.env } as Record<string, string> : {};
 
   try {
-    const autoInjected = await loadAutoInjectedKeychainEnv();
+    const autoInjected = await loadAutoInjectedKeychainEnv(options.referencedTexts);
     for (const [key, value] of Object.entries(autoInjected)) {
       if (merged[key] === undefined) merged[key] = value;
     }
