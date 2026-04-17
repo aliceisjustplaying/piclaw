@@ -396,7 +396,7 @@ export class AgentRuntimeFacade {
     const channel = detectChannel(chatJid);
     const apply = this.options.applyControlCommandFn ?? applyControlCommand;
     const result = await withChatContext(chatJid, channel, () => apply(runtime, this.options.modelRegistry, command));
-    if (runtime.session !== session) {
+    if (result.refresh_runtime || runtime.session !== session) {
       await this.options.refreshRuntime(chatJid, runtime);
     }
     return result;
@@ -623,7 +623,7 @@ export class AgentRuntimeFacade {
     const channel = detectChannel(chatJid);
     const exec = this.options.executeSlashCommandFn ?? executeSlashCommand;
     const result = await withChatContext(chatJid, channel, () => exec(session, chatJid, rawText));
-    if (runtime.session !== session) {
+    if (result.refresh_runtime || runtime.session !== session) {
       await this.options.refreshRuntime(chatJid, runtime);
     }
     this.options.clearAttachments(chatJid);

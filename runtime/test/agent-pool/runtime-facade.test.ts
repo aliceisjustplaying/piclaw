@@ -349,16 +349,46 @@ test("AgentRuntimeFacade leaves legacy XML session-tree entries unnormalized", (
 
 test("AgentRuntimeFacade clears attachments around slash commands", async () => {
   const session = { marker: true };
+  let refreshCalls = 0;
   const fixture = createFacade({
+    refreshRuntime: async () => {
+      refreshCalls += 1;
+    },
     executeSlashCommandFn: async (incomingSession, chatJid, rawText) => ({
       ok: incomingSession === session,
       chatJid,
       rawText,
+      refresh_runtime: true,
     } as any),
   });
   fixture.pool.set("web:default", { runtime: createRuntime(session), lastUsed: Date.now() });
 
   const result = await fixture.facade.applySlashCommand("web:default", "/tasks");
-  expect(result).toEqual({ ok: true, chatJid: "web:default", rawText: "/tasks" });
+  expect(result).toEqual({ ok: true, chatJid: "web:default", rawText: "/tasks", refresh_runtime: true });
   expect(fixture.cleared).toEqual(["web:default", "web:default"]);
+  expect(refreshCalls).toBe(1);
+});
+
+test("AgentRuntimeFacade refreshes runtime when a control command requests it without swapping sessions", async () => {
+  const session = { marker: true };
+  let refreshCalls = 0;
+  const fixture = createFacade({
+    refreshRuntime: async () => {
+      refreshCalls += 1;
+    },
+    applyControlCommandFn: async () => ({
+      status: "success",
+      message: "Agent restarted.",
+      refresh_runtime: true,
+    }),
+  });
+  fixture.pool.set("web:default", { runtime: createRuntime(session), lastUsed: Date.now() });
+
+  const result = await fixture.facade.applyControlCommand("web:default", { type: "restart", raw: "/restart" } as any);
+  expect(result).toEqual({
+    status: "success",
+    message: "Agent restarted.",
+    refresh_runtime: true,
+  });
+  expect(refreshCalls).toBe(1);
 });
