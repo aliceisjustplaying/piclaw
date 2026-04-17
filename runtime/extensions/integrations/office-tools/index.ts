@@ -8,7 +8,6 @@ import { pathToFileURL } from "node:url";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
 import { ensureBrowser, findBrowser, findCdpPort, printToPdf, type MaybeAbortSignal } from "../../browser/cdp-browser/cdp.ts";
-import { decodeZipEntryText } from "./zip-entry-text.ts";
 
 const EXT_DIR = typeof import.meta.dir === "string" ? import.meta.dir : dirname(new URL(import.meta.url).pathname);
 const OFFICE_TOOLS_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 3h10l4 4v14H4z"></path><path d="M14 3v5h4"></path><path d="M7 13h10"></path><path d="M7 17h10"></path></svg>`;
@@ -58,18 +57,9 @@ function resolveWorkspacePath(baseDir: string, requestedPath: string): string {
 
 function readZipEntries(buf: Buffer): Map<string, string> {
   const entries = new Map<string, string>();
-  let i = 0;
-  while (i + 30 <= buf.length) {
-    if (buf.readUInt32LE(i) !== 0x04034b50) break;
-    const method = buf.readUInt16LE(i + 8);
-    const cSize = buf.readUInt32LE(i + 18);
-    const nameLen = buf.readUInt16LE(i + 26);
-    const extraLen = buf.readUInt16LE(i + 28);
-    const name = buf.toString("utf-8", i + 30, i + 30 + nameLen);
-    const dataStart = i + 30 + nameLen + extraLen;
-    const text = decodeZipEntryText(name, method, buf.subarray(dataStart, dataStart + cSize));
-    if (text !== null) entries.set(name, text);
-    i = dataStart + cSize;
+  const archive = unzipSync(new Uint8Array(buf));
+  for (const [name, data] of Object.entries(archive)) {
+    entries.set(name, Buffer.from(data).toString("utf-8"));
   }
   return entries;
 }
