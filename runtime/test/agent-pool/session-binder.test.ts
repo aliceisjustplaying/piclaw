@@ -46,3 +46,24 @@ test("AgentSessionBinder binds existing sessions and handles binder failures", a
   ]);
   expect(errors).toEqual(["Failed to bind session"]);
 });
+
+test("AgentSessionBinder reports async binder failures for existing sessions", async () => {
+  const pool = new Map<string, { runtime: any; lastUsed: number }>();
+  const errors: string[] = [];
+
+  pool.set("web:one", { runtime: createRuntime({ id: "one" }), lastUsed: Date.now() });
+  pool.set("web:two", { runtime: createRuntime({ id: "two" }), lastUsed: Date.now() });
+
+  const binder = new AgentSessionBinder({
+    pool: pool as any,
+    onError: (message) => errors.push(message),
+  });
+
+  binder.setBinder(async (_runtime: any, chatJid) => {
+    if (chatJid === "web:two") throw new Error("async boom");
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(errors).toEqual(["Failed to bind session"]);
+});
