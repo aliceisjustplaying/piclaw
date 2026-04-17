@@ -9,7 +9,12 @@ import { expect, test } from "bun:test";
 import { getTestWorkspace, setEnv } from "../helpers.js";
 import { initDatabase } from "../../src/db.js";
 import { deleteKeychainEntry, setKeychainEntry } from "../../src/secure/keychain.js";
-import { createTrackedBashOperations, resolveShellCandidates } from "../../src/tools/tracked-bash.js";
+import {
+  createTrackedBashOperations,
+  resolveShellCandidates,
+  TRACKED_BASH_OUTPUT_LIMIT_BYTES,
+  TRACKED_BASH_OUTPUT_TRUNCATION_NOTICE,
+} from "../../src/tools/tracked-bash.js";
 import { buildSubprocessExecutionHint, shouldDetachChildProcess } from "../../src/utils/process-spawn.js";
 
 test("tracked bash executes commands and captures output", async () => {
@@ -199,4 +204,53 @@ test("tracked bash resolves keychain placeholders in commands", async () => {
     deleteKeychainEntry("bash-cmd");
     restore();
   }
+});
+
+test("tracked bash streams output before process exit", async () => {
+  const ws = getTestWorkspace();
+  const ops = createTrackedBashOperations();
+  let execSettled = false;
+  let resolveFirstChunk: ((value: string) => void) | null = null;
+  const firstChunkReady = new Promise<string>((resolve) => {
+    resolveFirstChunk = resolve;
+  });
+
+  const execPromise = ops.exec("printf first; sleep 0.2; printf second", ws.workspace, {
+    onData: (data) => {
+      const text = data.toString("utf8");
+      if (text && resolveFirstChunk) {
+        resolveFirstChunk(text);
+        resolveFirstChunk = null;
+      }
+    },
+    timeout: 5,
+  }).finally(() => {
+    execSettled = true;
+  });
+
+  const first = await Promise.race([firstChunkReady, execPromise.then(() => "__resolved__")]);
+  expect(first).toBe("first");
+  expect(execSettled).toBe(false);
+
+  const result = await execPromise;
+  expect(result.exitCode).toBe(0);
+});
+
+test("tracked bash caps streamed output and appends a truncation marker", async () => {
+  const ws = getTestWorkspace();
+  const ops = createTrackedBashOperations();
+  let output = "";
+
+  const result = await ops.exec("yes x | head -c 400000", ws.workspace, {
+    onData: (data) => {
+      output += data.toString("utf8");
+    },
+    timeout: 5,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(output).toContain(TRACKED_BASH_OUTPUT_TRUNCATION_NOTICE.trim());
+  expect(Buffer.byteLength(output, "utf8")).toBeLessThanOrEqual(
+    TRACKED_BASH_OUTPUT_LIMIT_BYTES + Buffer.byteLength(TRACKED_BASH_OUTPUT_TRUNCATION_NOTICE, "utf8")
+  );
 });

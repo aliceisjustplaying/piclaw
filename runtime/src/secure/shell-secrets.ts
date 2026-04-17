@@ -9,6 +9,7 @@ export interface TextRedactor {
   redact(text: string): string;
   maxNeedleLength: number;
   hasReplacements: boolean;
+  needles?: string[];
 }
 
 export interface StreamingTextRedactor {
@@ -64,6 +65,7 @@ export async function createKeychainOutputRedactor(): Promise<TextRedactor> {
         redact: (text) => text,
         maxNeedleLength: 0,
         hasReplacements: false,
+        needles: [],
       };
     }
 
@@ -77,12 +79,14 @@ export async function createKeychainOutputRedactor(): Promise<TextRedactor> {
       },
       maxNeedleLength: replacements[0]?.secret.length ?? 0,
       hasReplacements: true,
+      needles: replacements.map((replacement) => replacement.secret),
     };
   } catch {
     return {
       redact: (text) => text,
       maxNeedleLength: 0,
       hasReplacements: false,
+      needles: [],
     };
   }
 }
@@ -95,15 +99,35 @@ export function createStreamingTextRedactor(redactor: TextRedactor): StreamingTe
     };
   }
 
-  const tailKeep = redactor.maxNeedleLength - 1;
+  const needles = (redactor.needles ?? []).filter((needle) => needle.length > 1);
+  const prefixes = new Set<string>();
+  for (const needle of needles) {
+    for (let length = 1; length < needle.length; length += 1) {
+      prefixes.add(needle.slice(0, length));
+    }
+  }
+
+  const maxTailLength = redactor.maxNeedleLength - 1;
   let tail = "";
+
+  const longestPotentialPrefixSuffixLength = (text: string): number => {
+    if (prefixes.size === 0) {
+      return Math.min(text.length, maxTailLength);
+    }
+
+    const maxLength = Math.min(text.length, maxTailLength);
+    for (let length = maxLength; length > 0; length -= 1) {
+      if (prefixes.has(text.slice(text.length - length))) {
+        return length;
+      }
+    }
+    return 0;
+  };
+
   return {
     push(text) {
       const raw = `${tail}${text}`;
-      if (raw.length <= tailKeep) {
-        tail = raw;
-        return "";
-      }
+      const tailKeep = longestPotentialPrefixSuffixLength(raw);
       const emitRaw = raw.slice(0, raw.length - tailKeep);
       tail = raw.slice(raw.length - tailKeep);
       return redactor.redact(emitRaw);
