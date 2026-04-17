@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   extractConsumerAuthCodeFromRedirect,
+  extractImplicitOAuthTokenFromRedirect,
   isM365YoloEnabled,
   resolveGraphAuthMode,
 } from "../../extensions/experimental/m365/shared.js";
@@ -44,6 +45,48 @@ test("extractConsumerAuthCodeFromRedirect requires exact redirect origin/path an
     extractConsumerAuthCodeFromRedirect(
       "https://outlook.live.com/mail/?error=access_denied&state=ok",
       "https://outlook.live.com/mail/",
+      "ok",
+    ),
+  ).toBeNull();
+});
+
+test("extractImplicitOAuthTokenFromRedirect requires exact redirect origin/path and matching state", () => {
+  expect(
+    extractImplicitOAuthTokenFromRedirect(
+      "https://teams.microsoft.com/go#access_token=abc&state=ok",
+      "https://teams.microsoft.com/go",
+      "ok",
+    ),
+  ).toBe("abc");
+
+  expect(
+    extractImplicitOAuthTokenFromRedirect(
+      "https://teams.microsoft.com/go?state=ok#access_token=abc",
+      "https://teams.microsoft.com/go",
+      "ok",
+    ),
+  ).toBe("abc");
+
+  expect(
+    extractImplicitOAuthTokenFromRedirect(
+      "https://teams.microsoft.com/go/elsewhere#access_token=abc&state=ok",
+      "https://teams.microsoft.com/go",
+      "ok",
+    ),
+  ).toBeNull();
+
+  expect(
+    extractImplicitOAuthTokenFromRedirect(
+      "https://teams.microsoft.com/go#access_token=abc&state=wrong",
+      "https://teams.microsoft.com/go",
+      "ok",
+    ),
+  ).toBeNull();
+
+  expect(
+    extractImplicitOAuthTokenFromRedirect(
+      "https://teams.microsoft.com/go#error=access_denied&state=ok",
+      "https://teams.microsoft.com/go",
       "ok",
     ),
   ).toBeNull();
