@@ -121,9 +121,6 @@ export class RequestRouterService {
       return await this.channel.handleRemote(req);
     }
 
-    // Track the last seen origin so slash commands can build absolute links.
-    rememberWebOrigin("web:default", req);
-
     const flags = getRouteFlags(req, pathname);
     const guardResponse = await enforceRequestGuards(this.channel, req, pathname, flags);
     if (guardResponse) {
@@ -134,6 +131,9 @@ export class RequestRouterService {
     if (authRouteResponse) {
       return authRouteResponse;
     }
+
+    // Track the last seen origin only after the request clears guard/auth checks.
+    rememberWebOrigin("web:default", req);
 
     const shellResponse = await handleShellRoutes(
       this.channel,
