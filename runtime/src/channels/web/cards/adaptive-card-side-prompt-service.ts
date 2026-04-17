@@ -28,6 +28,7 @@ import { handleAgentMessage as handleAgentMessageRequest } from "../handlers/age
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 
 const log = createLogger("web");
+const SIDE_PROMPT_STREAM_HEARTBEAT_MS = 30000;
 
 type SidePromptResult = {
   status: "success" | "error";
@@ -602,9 +603,14 @@ export class WebAdaptiveCardSidePromptService {
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
         let closed = false;
+        let heartbeat: ReturnType<typeof setInterval> | null = null;
         const close = () => {
           if (closed) return;
           closed = true;
+          if (heartbeat) {
+            clearInterval(heartbeat);
+            heartbeat = null;
+          }
           try {
             controller.close();
           } catch (error) {
@@ -625,8 +631,21 @@ export class WebAdaptiveCardSidePromptService {
             close();
           }
         };
+        const sendHeartbeat = () => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(": heartbeat\n\n"));
+            controller.enqueue(encoder.encode(formatSseEvent("heartbeat", { ts: Date.now(), chat_jid: chatJid })));
+          } catch (error) {
+            debugSuppressedError(log, "Adaptive-card side-prompt heartbeat enqueue raced a closed controller.", error, {
+              chatJid,
+            });
+            close();
+          }
+        };
 
         req.signal.addEventListener("abort", close, { once: true });
+        heartbeat = setInterval(sendHeartbeat, SIDE_PROMPT_STREAM_HEARTBEAT_MS);
 
         send("side_prompt_start", { chat_jid: chatJid });
         void runSidePrompt(chatJid, prompt, {
