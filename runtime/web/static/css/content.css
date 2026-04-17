@@ -575,11 +575,11 @@
 
 .post-content th:first-child,
 .post-content td:first-child {
-    width: 1%;
-    white-space: nowrap;
-    overflow-wrap: normal;
-    word-break: normal;
-    hyphens: none;
+    width: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
 }
 
 .post-content th {
