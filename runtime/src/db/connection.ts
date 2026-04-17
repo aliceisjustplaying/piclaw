@@ -108,6 +108,7 @@ function createSchema(database: Database): void {
       sender TEXT,
       sender_name TEXT,
       content TEXT,
+      fts_content TEXT,
       content_blocks TEXT,
       link_previews TEXT,
       thread_id INTEGER,
@@ -134,29 +135,25 @@ function createSchema(database: Database): void {
       sender UNINDEXED,
       sender_name UNINDEXED,
       timestamp UNINDEXED,
-      is_bot_message UNINDEXED,
-      content='messages',
-      content_rowid='rowid'
+      is_bot_message UNINDEXED
     );
 
     -- Trigger: populate FTS on message insert.
     CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
       INSERT INTO messages_fts(rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
-      VALUES (new.rowid, new.content, new.chat_jid, new.sender, new.sender_name, new.timestamp, new.is_bot_message);
+      VALUES (new.rowid, COALESCE(new.fts_content, new.content), new.chat_jid, new.sender, new.sender_name, new.timestamp, new.is_bot_message);
     END;
 
     -- Trigger: remove FTS entry on message delete.
     CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-      INSERT INTO messages_fts(messages_fts, rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
-      VALUES ('delete', old.rowid, old.content, old.chat_jid, old.sender, old.sender_name, old.timestamp, old.is_bot_message);
+      DELETE FROM messages_fts WHERE rowid = old.rowid;
     END;
 
     -- Trigger: update FTS entry on message update (delete old + insert new).
     CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-      INSERT INTO messages_fts(messages_fts, rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
-      VALUES ('delete', old.rowid, old.content, old.chat_jid, old.sender, old.sender_name, old.timestamp, old.is_bot_message);
+      DELETE FROM messages_fts WHERE rowid = old.rowid;
       INSERT INTO messages_fts(rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
-      VALUES (new.rowid, new.content, new.chat_jid, new.sender, new.sender_name, new.timestamp, new.is_bot_message);
+      VALUES (new.rowid, COALESCE(new.fts_content, new.content), new.chat_jid, new.sender, new.sender_name, new.timestamp, new.is_bot_message);
     END;
 
     CREATE TABLE IF NOT EXISTS media (
@@ -469,10 +466,8 @@ function createSchema(database: Database): void {
 }
 
 /**
- * Add columns that were introduced after the initial schema.
+ * Add message columns that were introduced after the initial schema.
  * Safe to call repeatedly – skips columns that already exist.
- * Handles the `content_blocks`, `link_previews`, and `thread_id` columns
- * added for the web channel's rich-message support.
  */
 function ensureMessageColumns(database: Database): void {
   const columns = database.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
@@ -489,23 +484,66 @@ function ensureMessageColumns(database: Database): void {
       });
     }
   };
+  ensureColumn("fts_content");
   ensureColumn("content_blocks");
   ensureColumn("link_previews");
   ensureColumn("thread_id", "INTEGER");
   ensureColumn("is_terminal_agent_reply", "INTEGER DEFAULT 0");
   ensureColumn("is_steering_message", "INTEGER DEFAULT 0");
+  database.exec("UPDATE messages SET fts_content = content WHERE fts_content IS NULL");
 }
 
 /**
- * One-time FTS rebuild for databases created before the FTS triggers existed.
+ * Recreate the message FTS table and triggers with the current schema.
+ */
+function recreateMessageFts(database: Database): void {
+  database.exec(`
+    DROP TRIGGER IF EXISTS messages_ai;
+    DROP TRIGGER IF EXISTS messages_ad;
+    DROP TRIGGER IF EXISTS messages_au;
+    DROP TABLE IF EXISTS messages_fts;
+
+    CREATE VIRTUAL TABLE messages_fts USING fts5(
+      content,
+      chat_jid UNINDEXED,
+      sender UNINDEXED,
+      sender_name UNINDEXED,
+      timestamp UNINDEXED,
+      is_bot_message UNINDEXED
+    );
+
+    CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
+      VALUES (new.rowid, COALESCE(new.fts_content, new.content), new.chat_jid, new.sender, new.sender_name, new.timestamp, new.is_bot_message);
+    END;
+
+    CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+      DELETE FROM messages_fts WHERE rowid = old.rowid;
+    END;
+
+    CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+      DELETE FROM messages_fts WHERE rowid = old.rowid;
+      INSERT INTO messages_fts(rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
+      VALUES (new.rowid, COALESCE(new.fts_content, new.content), new.chat_jid, new.sender, new.sender_name, new.timestamp, new.is_bot_message);
+    END;
+  `);
+}
+
+/**
+ * Rebuild the message FTS table when the search schema changes.
  * Uses PRAGMA user_version as a migration marker so it only runs once.
  */
 function ensureFts(database: Database): void {
   const row = database.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
   const version = typeof row?.user_version === "number" ? row.user_version : 0;
-  if (version >= 1) return;
-  database.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
-  database.exec("PRAGMA user_version = 1;");
+  if (version >= 2) return;
+  recreateMessageFts(database);
+  database.exec(`
+    INSERT INTO messages_fts(rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message)
+    SELECT rowid, COALESCE(fts_content, content), chat_jid, sender, sender_name, timestamp, is_bot_message
+    FROM messages;
+  `);
+  database.exec("PRAGMA user_version = 2;");
 }
 
 /**

@@ -39,6 +39,7 @@ interface StoredMessageRow {
   sender: string;
   sender_name: string;
   content: string;
+  fts_content: string | null;
   content_blocks: string | null;
   link_previews: string | null;
   thread_id: number | null;
@@ -47,7 +48,7 @@ interface StoredMessageRow {
 }
 
 /** Column list used in SELECT queries to ensure a consistent shape. */
-const MESSAGE_COLUMNS = "rowid, chat_jid, sender, sender_name, content, content_blocks, link_previews, thread_id, timestamp, is_bot_message";
+const MESSAGE_COLUMNS = "rowid, chat_jid, sender, sender_name, content, fts_content, content_blocks, link_previews, thread_id, timestamp, is_bot_message";
 
 function ensureMonotonicMessageTimestamp(chatJid: string, requestedTimestamp: string): string {
   const requestedMs = Date.parse(requestedTimestamp);
@@ -166,15 +167,16 @@ export function storeMessage(msg: NewMessage): number {
 
   db.prepare(
     `INSERT OR REPLACE INTO messages (
-      id, chat_jid, sender, sender_name, content, content_blocks, link_previews,
+      id, chat_jid, sender, sender_name, content, fts_content, content_blocks, link_previews,
       thread_id, timestamp, is_from_me, is_bot_message, is_terminal_agent_reply, is_steering_message
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     msg.id,
     msg.chat_jid,
     msg.sender,
     msg.sender_name,
+    msg.content,
     msg.content,
     contentBlocks,
     linkPreviews,
@@ -283,9 +285,10 @@ export function replaceMessageContent(
   const linkPreviews = options.linkPreviews ? JSON.stringify(options.linkPreviews) : null;
   const res = db
     .prepare(
-      "UPDATE messages SET content = ?, content_blocks = ?, link_previews = ?, is_terminal_agent_reply = COALESCE(?, is_terminal_agent_reply) WHERE chat_jid = ? AND rowid = ?"
+      "UPDATE messages SET content = ?, fts_content = ?, content_blocks = ?, link_previews = ?, is_terminal_agent_reply = COALESCE(?, is_terminal_agent_reply) WHERE chat_jid = ? AND rowid = ?"
     )
     .run(
+      content,
       content,
       contentBlocks,
       linkPreviews,

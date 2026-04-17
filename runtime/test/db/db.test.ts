@@ -409,6 +409,31 @@ test("text media attachments are added to message search indexing", () => {
   expect(results.map((row) => row.data.content)).toContain("message body");
 });
 
+test("replacing message content refreshes media-backed FTS terms without leaving stale tokens", () => {
+  const chatJid = `test:${Date.now()}-media-fts-update`;
+  db.storeChatMetadata(chatJid, new Date().toISOString(), "Test");
+
+  const mediaId = db.createMedia(
+    "note.txt",
+    "text/plain",
+    new TextEncoder().encode("attached needle"),
+    null,
+    { size: 15 }
+  );
+
+  const rowId = db.storeMessage(makeMessage(chatJid, "original body", "2024-03-01T00:00:00.000Z"));
+  db.attachMediaToMessage(rowId, [mediaId]);
+
+  expect(db.searchMessages(chatJid, "needle", 10, 0).map((row) => row.id)).toEqual([rowId]);
+
+  const updated = db.replaceMessageContent(chatJid, rowId, "renamed body", { mediaIds: [mediaId] });
+  expect(updated?.data.content).toBe("renamed body");
+
+  expect(db.searchMessages(chatJid, "renamed", 10, 0).map((row) => row.id)).toEqual([rowId]);
+  expect(db.searchMessages(chatJid, "needle", 10, 0).map((row) => row.id)).toEqual([rowId]);
+  expect(db.searchMessages(chatJid, "original", 10, 0)).toEqual([]);
+});
+
 // --- New coverage: same-timestamp ordering & cursor filters ---
 
 test("same-timestamp ordering is stable for timeline and cursor queries", () => {

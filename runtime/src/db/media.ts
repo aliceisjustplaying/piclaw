@@ -31,7 +31,7 @@ export function attachMediaToMessage(messageRowId: number, mediaIds: number[]): 
 
   // Extract searchable text from text-based media (SVG, markdown, plain text)
   // and append it to the FTS index so media content is full-text searchable.
-  appendMediaTextToFts(db, messageRowId, mediaIds);
+  appendMediaTextToFts(db, messageRowId);
 }
 
 /**
@@ -185,12 +185,15 @@ function stripTags(text: string): string {
 function appendMediaTextToFts(
   db: ReturnType<typeof getDb>,
   messageRowId: number,
-  mediaIds: number[],
 ): void {
-  const placeholders = mediaIds.map(() => "?").join(",");
   const rows = db
-    .prepare(`SELECT content_type, data FROM media WHERE id IN (${placeholders})`)
-    .all(...mediaIds) as Array<{ content_type: string; data: Uint8Array }>;
+    .prepare(
+      `SELECT media.content_type, media.data
+         FROM media
+         JOIN message_media ON message_media.media_id = media.id
+        WHERE message_media.message_rowid = ?`
+    )
+    .all(messageRowId) as Array<{ content_type: string; data: Uint8Array }>;
 
   const textParts: string[] = [];
   for (const row of rows) {
@@ -206,8 +209,6 @@ function appendMediaTextToFts(
       textParts.push(text);
     }
   }
-
-  if (textParts.length === 0) return;
 
   const msg = db
     .prepare(
@@ -225,14 +226,9 @@ function appendMediaTextToFts(
     | undefined;
   if (!msg) return;
 
-  const combined = msg.content + "\n\n" + textParts.join("\n");
+  const combined = textParts.length > 0
+    ? msg.content + "\n\n" + textParts.join("\n")
+    : msg.content;
 
-  // FTS5 content-sync: delete old entry, insert updated one
-  db.prepare(
-    "INSERT INTO messages_fts(messages_fts, rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message) VALUES ('delete', ?, ?, ?, ?, ?, ?, ?)",
-  ).run(messageRowId, msg.content, msg.chat_jid, msg.sender, msg.sender_name, msg.timestamp, msg.is_bot_message);
-
-  db.prepare(
-    "INSERT INTO messages_fts(rowid, content, chat_jid, sender, sender_name, timestamp, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(messageRowId, combined, msg.chat_jid, msg.sender, msg.sender_name, msg.timestamp, msg.is_bot_message);
+  db.prepare("UPDATE messages SET fts_content = ? WHERE rowid = ?").run(combined, messageRowId);
 }
