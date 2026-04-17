@@ -104,10 +104,20 @@ export async function handleAsk(_session: AgentSession, command: AskCommand): Pr
   }
 
   let data: unknown;
+  let rawBody: string;
   try {
-    data = await response.json();
+    rawBody = await response.text();
   } catch {
-    return { status: "error", message: `Peer returned non-JSON response (HTTP ${response.status}).` };
+    return { status: "error", message: `Peer returned unreadable response (HTTP ${response.status}).` };
+  }
+
+  try {
+    data = JSON.parse(rawBody);
+  } catch {
+    return {
+      status: "error",
+      message: `Peer returned non-JSON response (HTTP ${response.status}).\n\nBody: ${rawBody.slice(0, 200)}`,
+    };
   }
 
   if (!response.ok) {
