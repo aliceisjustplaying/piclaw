@@ -142,7 +142,9 @@ export async function handlePairRequest(req: Request, context: RemotePairingHand
 
   const label = displayName ? `**${displayName}**` : `\`${instanceId.slice(0, 12)}…\``;
   const fp = deriveFingerprint(instanceId);
-  context.notify?.(`Pair request from ${label} (\`${fp}\`)`);
+  context.notify?.(
+    `Pair request from ${label} (\`${fp}\`).\nRequest ID: \`${requestId}\`\n\nRun \`/pair accept ${requestId}\` to accept, or \`/pair list\` to review.`
+  );
 
   const identity = loadOrCreateIdentity();
   return jsonResponse(
