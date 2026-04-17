@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 
 const PreviousDOMParser = globalThis.DOMParser;
-
 function decodeEntities(value: string) {
   return String(value || '')
     .replace(/&lt;/g, '<')
@@ -114,4 +113,15 @@ test('applySyntaxHighlighting falls back to escaped plaintext for unsupported la
   expect(highlighted).toContain('&lt;tag&gt;');
   expect(highlighted).not.toContain('tok-keyword');
   expect(highlighted).not.toContain('<span class="tok-');
+});
+
+test('isSanitizedHtmlAttributeAllowed rejects inline style while preserving safe attrs', async () => {
+  const { isSanitizedHtmlAttributeAllowed } = await import('../../web/src/markdown.ts');
+
+  expect(isSanitizedHtmlAttributeAllowed('span', 'style')).toBe(false);
+  expect(isSanitizedHtmlAttributeAllowed('span', 'title')).toBe(true);
+  expect(isSanitizedHtmlAttributeAllowed('a', 'href')).toBe(true);
+  expect(isSanitizedHtmlAttributeAllowed('img', 'src')).toBe(true);
+  expect(isSanitizedHtmlAttributeAllowed('span', 'aria-label')).toBe(true);
+  expect(isSanitizedHtmlAttributeAllowed('span', 'onclick')).toBe(false);
 });
