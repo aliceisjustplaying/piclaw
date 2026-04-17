@@ -274,6 +274,38 @@ test("resolves keychain env references and inline placeholders", async () => {
   });
 });
 
+test("resolves keychain references whose entry names contain colons", async () => {
+  await withKeychainContext(async ({ keychain }) => {
+    await keychain.setKeychainEntry({
+      name: "service:api",
+      type: "basic",
+      secret: "api-secret",
+      username: "api-user",
+    });
+    await keychain.setKeychainEntry({
+      name: "service:api:staging",
+      type: "secret",
+      secret: "staging-secret",
+    });
+
+    const env = await keychain.resolveKeychainEnv({
+      TOKEN: "keychain:service:api:token",
+      USERNAME: "keychain:service:api:username",
+      STAGING: "keychain:service:api:staging",
+    });
+    expect(env).toEqual({
+      TOKEN: "api-secret",
+      USERNAME: "api-user",
+      STAGING: "staging-secret",
+    });
+
+    const placeholderText = await keychain.resolveKeychainPlaceholders(
+      "curl -u keychain:service:api:username:keychain:service:api:token keychain:service:api:staging"
+    );
+    expect(placeholderText).toBe("curl -u api-user:api-secret staging-secret");
+  });
+});
+
 test("rejects invalid entry shapes, invalid references, missing usernames, and unsupported KDFs", async () => {
   await withKeychainContext(async ({ db, keychain }) => {
     await expect(
