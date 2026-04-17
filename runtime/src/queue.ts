@@ -56,6 +56,8 @@ export interface QueueMetrics {
  */
 export class AgentQueue {
   private lanes = new Map<string, LaneState>();
+  private retryingIds = new Set<string>();
+  private retryTimers = new Set<ReturnType<typeof setTimeout>>();
   private shuttingDown = false;
   private metrics: QueueMetrics = {
     enqueued: 0,
@@ -87,6 +89,7 @@ export class AgentQueue {
   }
 
   private hasQueuedId(id: string): boolean {
+    if (this.retryingIds.has(id)) return true;
     for (const lane of this.lanes.values()) {
       if (lane.current?.id === id) return true;
       if (lane.pending.some((item) => item.id === id)) return true;
@@ -127,6 +130,7 @@ export class AgentQueue {
 
   /** Start executing an item inside a lane. */
   private runItem(lane: LaneState, item: QueueItem): void {
+    if (item.id) this.retryingIds.delete(item.id);
     lane.running = true;
     lane.current = item;
     this.metrics.started += 1;
@@ -165,6 +169,7 @@ export class AgentQueue {
     if (!shouldRetry(item.retries, DEFAULT_MAX_RETRIES, this.shuttingDown)) return;
     item.retries++;
     this.metrics.retriesScheduled += 1;
+    if (item.id) this.retryingIds.add(item.id);
     const delay = getRetryDelay(item.retries, DEFAULT_BASE_RETRY_MS);
     log.info("Scheduling queue retry", {
       operation: "schedule_retry",
@@ -173,7 +178,9 @@ export class AgentQueue {
       delayMs: delay,
       itemId: item.id ?? null,
     });
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(timer);
+      if (item.id) this.retryingIds.delete(item.id);
       if (this.shuttingDown) return;
       const lane = this.getLane(item.laneKey);
       if (lane.running) {
@@ -182,6 +189,7 @@ export class AgentQueue {
         this.runItem(lane, item);
       }
     }, delay);
+    this.retryTimers.add(timer);
   }
 
   /**
@@ -190,6 +198,11 @@ export class AgentQueue {
    */
   async shutdown(ms = 5000): Promise<void> {
     this.shuttingDown = true;
+    for (const timer of this.retryTimers) {
+      clearTimeout(timer);
+    }
+    this.retryTimers.clear();
+    this.retryingIds.clear();
     const runningPromises: Promise<void>[] = [];
     for (const lane of this.lanes.values()) {
       lane.pending = [];
