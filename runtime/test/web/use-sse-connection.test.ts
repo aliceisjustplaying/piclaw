@@ -65,15 +65,11 @@ test('bindSseWakeLifecycle reconnects and wakes once after a real return without
 
   let now = 1000;
   let reconnects = 0;
-  let forcedReconnects = 0;
   let wakes = 0;
   const dispose = bindSseWakeLifecycle({
     sse: {
       reconnectIfNeeded() {
         reconnects += 1;
-      },
-      forceReconnect() {
-        forcedReconnects += 1;
       },
     },
     onWake() {
@@ -95,8 +91,7 @@ test('bindSseWakeLifecycle reconnects and wakes once after a real return without
   win.dispatch('pageshow');
   doc.dispatch('visibilitychange');
 
-  expect(reconnects).toBe(0);
-  expect(forcedReconnects).toBe(1);
+  expect(reconnects).toBe(1);
   expect(wakes).toBe(1);
 
   dispose();
