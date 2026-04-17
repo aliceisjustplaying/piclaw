@@ -148,4 +148,54 @@ describe("token-usage", () => {
     expect(model[0].total_tokens).toBe(280);
     expect(model[0].runs).toBe(2);
   });
+
+  test("coalesces grouped token usage aggregates when legacy rows contain null counts", () => {
+    initDatabase();
+    const db = getDb();
+    const chatJid = "test:aggregate-null";
+    db.prepare(
+      `INSERT INTO token_usage (
+        chat_jid,
+        run_at,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+        total_tokens,
+        cost_input,
+        cost_output,
+        cost_cache_read,
+        cost_cache_write,
+        cost_total,
+        model,
+        provider,
+        api,
+        turns
+      ) VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, 0, 0, 0, 0, NULL, ?, ?, NULL, NULL)`
+    ).run(chatJid, new Date().toISOString(), "legacy-model", "legacy-provider");
+
+    const provider = getTokenUsageByProvider(chatJid, 10);
+    expect(provider).toEqual([{
+      provider: "legacy-provider",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      total_tokens: 0,
+      cost_total: 0,
+      runs: 1,
+    }]);
+
+    const model = getTokenUsageByModel(chatJid, 10);
+    expect(model).toEqual([{
+      model: "legacy-model",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      total_tokens: 0,
+      cost_total: 0,
+      runs: 1,
+    }]);
+  });
 });
