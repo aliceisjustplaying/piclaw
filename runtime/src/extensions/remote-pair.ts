@@ -712,11 +712,13 @@ export async function runAskFlow(idOrFingerprint: string, prompt: string, pi: Ex
       break;
     }
     case "accept_defer": {
-      pi.sendMessage({ customType: "remote-ask", content: `Remote deferred your request. It will execute when ready.`, display: true });
+      const negId = typeof body.negotiation_id === "string" ? body.negotiation_id : null;
+      pi.sendMessage({ customType: "remote-ask", content: `Remote deferred your request.${negId ? ` Negotiation ID: \`${negId}\`` : ""} It will execute when ready.`, display: true });
       break;
     }
     case "human_required": {
-      pi.sendMessage({ customType: "remote-ask", content: `Remote side queued your request for operator review.`, display: true });
+      const negId = typeof body.negotiation_id === "string" ? body.negotiation_id : null;
+      pi.sendMessage({ customType: "remote-ask", content: `Remote side queued your request for operator review.${negId ? ` Negotiation ID: \`${negId}\`` : ""}`, display: true });
       break;
     }
     case "negotiate": {
