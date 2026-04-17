@@ -88,12 +88,19 @@ function installCallbackStub(peer: InteropIdentity): () => void {
   };
 }
 
-function buildSignedRequest(identity: InteropIdentity, method: string, path: string, body?: unknown) {
+function buildSignedRequest(
+  identity: InteropIdentity,
+  method: string,
+  path: string,
+  body?: unknown,
+  options: { trustEpoch?: string | null } = {},
+) {
   const bodyText = body ? JSON.stringify(body) : "";
   const bodyBytes = new TextEncoder().encode(bodyText);
   const timestamp = new Date().toISOString();
   const nonce = `nonce-${Math.random().toString(36).slice(2, 8)}`;
   const contentType = body ? "application/json" : "";
+  const trustEpoch = options.trustEpoch === undefined ? "1" : options.trustEpoch;
   const canonical = buildCanonicalRequest({
     method,
     pathWithQuery: path,
@@ -103,7 +110,7 @@ function buildSignedRequest(identity: InteropIdentity, method: string, path: str
     nonce,
     instanceId: identity.instance_id,
     sigVersion: "v1",
-    trustEpoch: "1",
+    ...(trustEpoch !== null ? { trustEpoch } : {}),
   });
   const signature = signRequest(identity, canonical);
 
@@ -113,8 +120,8 @@ function buildSignedRequest(identity: InteropIdentity, method: string, path: str
     "X-Nonce": nonce,
     "X-Sig-Version": "v1",
     "X-Signature": signature,
-    "X-Trust-Epoch": "1",
   };
+  if (trustEpoch !== null) headers["X-Trust-Epoch"] = trustEpoch;
   if (body) headers["Content-Type"] = "application/json";
 
   return new Request(`http://localhost${path}`, {
@@ -490,10 +497,16 @@ describe("remote interop", () => {
     expect(pairBody.request_id).toBeTruthy();
 
     const restoreFetch = installCallbackStub(peer);
-    const confirmReq = buildSignedRequest(peer, "POST", "/api/remote/pair-confirm", {
-      request_id: pairBody.request_id,
-      challenge: "challenge",
-    });
+    const confirmReq = buildSignedRequest(
+      peer,
+      "POST",
+      "/api/remote/pair-confirm",
+      {
+        request_id: pairBody.request_id,
+        challenge: "challenge",
+      },
+      { trustEpoch: null },
+    );
 
     const confirmRes = await service.handleRequest(confirmReq);
     restoreFetch();

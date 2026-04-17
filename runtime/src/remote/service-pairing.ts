@@ -192,7 +192,7 @@ export async function handlePairConfirm(req: Request, context: RemotePairingHand
     status: "pending",
     mode: "mediated",
     profile: "restricted",
-    trust_epoch: 1,
+    trust_epoch: null,
     created_at: pending.created_at,
     updated_at: pending.created_at,
     last_seen_at: null,
