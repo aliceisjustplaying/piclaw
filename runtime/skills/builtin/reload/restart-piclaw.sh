@@ -200,6 +200,20 @@ find_port_pid() {
     | awk -F 'pid=' 'NR>1 {split($2,a,","); print a[1]}' | head -1
 }
 
+is_valid_port() {
+  local port="${1:-}"
+  case "$port" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null
+}
+
+can_connect_local_port() {
+  local port="$1"
+  is_valid_port "$port" || return 1
+  (exec 3<>/dev/tcp/127.0.0.1/$port) >/dev/null 2>&1
+}
+
 wait_for_agent_idle() {
   command -v curl >/dev/null 2>&1 || { echo "[reload] curl not available; skipping agent status wait."; return 0; }
   local url="http://127.0.0.1:$PORT/agent/status"
@@ -260,8 +274,12 @@ trap handle_signal SIGTERM SIGINT
 notify_ready() {
   local ready_port="${1:-$PORT}"
   [ -f "$NOTIFY_SENT_FILE" ] && return 0
+  if ! is_valid_port "$ready_port"; then
+    echo "[reload] Invalid ready port '$ready_port'; skipping reload notification."
+    return 0
+  fi
   for _ in $(seq 1 40); do
-    if bash -c "</dev/tcp/127.0.0.1/$ready_port" >/dev/null 2>&1; then
+    if can_connect_local_port "$ready_port"; then
       mkdir -p "$IPC_MESSAGES_DIR"
       cat > "$IPC_MESSAGES_DIR/reload_$(date +%s%N).json" <<EOF
 {"type":"message","chatJid":"web:default","text":"Piclaw reload complete."}
@@ -360,6 +378,10 @@ restart_manual() {
 }
 
 # ── Main ─────────────────────────────────────────────────────────────
+
+if [ "${PICLAW_RESTART_TEST_MODE:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 wait_for_agent_idle
 queue_resume_pending
