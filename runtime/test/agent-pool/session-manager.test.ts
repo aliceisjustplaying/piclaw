@@ -174,6 +174,7 @@ test("AgentSessionManager evicts idle sessions and shuts down remaining sessions
   fixture.pool.set("web:active", { runtime: createRuntime(activeSession), lastUsed: Date.now() - 10_000 });
 
   fixture.manager.evictIdle(1_000);
+  await Bun.sleep(0);
 
   expect(fixture.pool.has("web:old")).toBe(false);
   expect(fixture.pool.has("web:active")).toBe(true);
@@ -183,6 +184,48 @@ test("AgentSessionManager evicts idle sessions and shuts down remaining sessions
   expect(fixture.pool.size).toBe(0);
   expect(fixture.sidePool.size).toBe(0);
   expect(disposed).toBe(2);
+});
+
+test("AgentSessionManager waits for idle eviction disposal before recreating a main session", async () => {
+  let createCalls = 0;
+  let disposeStarted = false;
+  let releaseDispose!: () => void;
+  const disposeGate = new Promise<void>((resolve) => {
+    releaseDispose = resolve;
+  });
+  const originalRuntime = createRuntime({
+    isStreaming: false,
+    isBashRunning: false,
+    isCompacting: false,
+    dispose() {
+      disposeStarted = true;
+      return disposeGate;
+    },
+  });
+  const replacementSession = { dispose() {} };
+  const fixture = createManager({
+    createSession: async () => {
+      createCalls += 1;
+      return createRuntime(replacementSession) as any;
+    },
+  });
+
+  fixture.pool.set("web:default", { runtime: originalRuntime, lastUsed: Date.now() - 10_000 });
+
+  fixture.manager.evictIdle(1_000);
+  const recreated = fixture.manager.getOrCreate("web:default");
+  await Promise.resolve();
+
+  expect(disposeStarted).toBe(true);
+  expect(createCalls).toBe(0);
+
+  releaseDispose();
+
+  expect((await recreated).session).toBe(replacementSession);
+  expect(createCalls).toBe(1);
+  expect(fixture.pool.get("web:default")?.runtime.session).toBe(replacementSession);
+
+  await fixture.manager.shutdown();
 });
 
 test("AgentSessionManager serializes queued prewarms and honors priority ordering", async () => {

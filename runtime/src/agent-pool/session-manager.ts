@@ -51,6 +51,8 @@ export interface AgentSessionManagerOptions {
 export class AgentSessionManager {
   private readonly branchSeedRealizationInFlight = new Map<string, Promise<boolean>>();
   private readonly createInFlight = new Map<string, Promise<AgentSessionRuntime>>();
+  private readonly idleMainDisposalsInFlight = new Map<string, Promise<void>>();
+  private readonly idleSideDisposalsInFlight = new Map<string, Promise<void>>();
   private readonly invalidDeferredBranchSeedErrors = new Map<string, { error: Error; fingerprint: string | null }>();
   private readonly runtimeDisposeInFlight = new WeakMap<AgentSessionRuntime, Promise<void>>();
   private readonly prewarmInFlight = new Set<string>();
@@ -89,6 +91,11 @@ export class AgentSessionManager {
   }
 
   async getOrCreate(chatJid: string): Promise<AgentSessionRuntime> {
+    const pendingIdleDispose = this.idleMainDisposalsInFlight.get(chatJid);
+    if (pendingIdleDispose) {
+      await pendingIdleDispose;
+    }
+
     const knownInvalidSeedError = this.getBlockingInvalidSeedError(chatJid);
     if (knownInvalidSeedError) {
       throw knownInvalidSeedError;
@@ -157,6 +164,11 @@ export class AgentSessionManager {
   }
 
   async getOrCreateSide(chatJid: string): Promise<AgentSessionRuntime> {
+    const pendingIdleDispose = this.idleSideDisposalsInFlight.get(chatJid);
+    if (pendingIdleDispose) {
+      await pendingIdleDispose;
+    }
+
     const existing = this.options.sidePool.get(chatJid);
     if (existing) {
       existing.lastUsed = Date.now();
@@ -326,14 +338,7 @@ export class AgentSessionManager {
           operation: "evict_idle.main_session",
           chatJid: jid,
         });
-        Promise.resolve(entry.runtime.dispose()).catch((err) => {
-          this.options.onWarn?.("Failed to dispose evicted session", {
-            operation: "evict_idle.main_session",
-            chatJid: jid,
-            err,
-          });
-        });
-        this.options.pool.delete(jid);
+        this.startIdleDispose(this.options.pool, this.idleMainDisposalsInFlight, jid, entry, "evict_idle.main_session", false);
       }
     }
     for (const [jid, entry] of this.options.sidePool) {
@@ -347,14 +352,7 @@ export class AgentSessionManager {
           operation: "evict_idle.side_session",
           chatJid: jid,
         });
-        Promise.resolve(entry.runtime.dispose()).catch((err) => {
-          this.options.onWarn?.("Failed to dispose evicted side session", {
-            operation: "evict_idle.side_session",
-            chatJid: jid,
-            err,
-          });
-        });
-        this.options.sidePool.delete(jid);
+        this.startIdleDispose(this.options.sidePool, this.idleSideDisposalsInFlight, jid, entry, "evict_idle.side_session", true);
       }
     }
   }
@@ -511,28 +509,68 @@ export class AgentSessionManager {
     })();
   }
 
-  private async disposeMainRuntimeAfterError(chatJid: string, runtime: AgentSessionRuntime, operation: string): Promise<void> {
-    if (this.options.pool.get(chatJid)?.runtime === runtime) {
-      this.options.pool.delete(chatJid);
-    }
+  private startIdleDispose(
+    map: Map<string, PoolEntry>,
+    pendingDisposals: Map<string, Promise<void>>,
+    chatJid: string,
+    entry: PoolEntry,
+    operation: string,
+    side: boolean,
+  ): void {
+    if (pendingDisposals.has(chatJid)) return;
+
+    let task!: Promise<void>;
+    task = (async () => {
+      try {
+        await this.disposeRuntimeOnce(entry.runtime);
+      } catch (err) {
+        this.options.onWarn?.(side ? "Failed to dispose evicted side session" : "Failed to dispose evicted session", {
+          operation,
+          chatJid,
+          err,
+        });
+      } finally {
+        if (map.get(chatJid)?.runtime === entry.runtime) {
+          map.delete(chatJid);
+        }
+        if (pendingDisposals.get(chatJid) === task) {
+          pendingDisposals.delete(chatJid);
+        }
+      }
+    })();
+
+    pendingDisposals.set(chatJid, task);
+  }
+
+  private async disposeRuntimeOnce(runtime: AgentSessionRuntime): Promise<void> {
     const pendingDispose = this.runtimeDisposeInFlight.get(runtime);
     if (pendingDispose) {
       await pendingDispose;
       return;
     }
 
-    const task = (async () => {
-      try {
-        await runtime.dispose();
-      } catch (disposeErr) {
-        this.options.onWarn?.("Failed to dispose session after initialization error", {
-          operation,
-          chatJid,
-          err: disposeErr,
-        });
+    let task!: Promise<void>;
+    task = Promise.resolve(runtime.dispose()).finally(() => {
+      if (this.runtimeDisposeInFlight.get(runtime) === task) {
+        this.runtimeDisposeInFlight.delete(runtime);
       }
-    })();
+    });
     this.runtimeDisposeInFlight.set(runtime, task);
     await task;
+  }
+
+  private async disposeMainRuntimeAfterError(chatJid: string, runtime: AgentSessionRuntime, operation: string): Promise<void> {
+    if (this.options.pool.get(chatJid)?.runtime === runtime) {
+      this.options.pool.delete(chatJid);
+    }
+    try {
+      await this.disposeRuntimeOnce(runtime);
+    } catch (disposeErr) {
+      this.options.onWarn?.("Failed to dispose session after initialization error", {
+        operation,
+        chatJid,
+        err: disposeErr,
+      });
+    }
   }
 }
