@@ -164,6 +164,7 @@ export function sanitizeUrl(url, options = {}) {
 
 function sanitizeHtml(html, options = {}) {
     if (!html) return '';
+    if (options?.sanitize === false) return html;
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const nodes = [];
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
