@@ -45,3 +45,45 @@ test("workspace search status tracks never-indexed, ready, and stale lifecycle",
   expect(stale.state).toBe("stale");
   expect(stale.last_indexed_at).toBe(ready.last_indexed_at);
 });
+
+test("workspace refresh does not prune previously indexed files when a subtree becomes unreadable", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+  });
+
+  await fs.rm(path.join(ws.workspace, "notes"), { recursive: true, force: true });
+  await fs.rm(path.join(ws.data, "workspace-search"), { recursive: true, force: true });
+  await fs.mkdir(path.join(ws.workspace, "notes", "nested"), { recursive: true });
+  await fs.writeFile(path.join(ws.workspace, "notes", "alpha.md"), "alpha kittens");
+  await fs.writeFile(path.join(ws.workspace, "notes", "nested", "beta.md"), "beta hedgehogs");
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+  const workspaceSearch = await importFresh<typeof import("../src/workspace-search.js")>("../src/workspace-search.js");
+
+  const initial = await workspaceSearch.refreshWorkspaceIndex({ scope: "notes" });
+  expect(initial.indexed_file_count).toBe(2);
+
+  const originalReaddir = fs.readdir.bind(fs);
+  (fs.readdir as typeof fs.readdir) = (async (target: fs.PathLike, options?: fs.ObjectEncodingOptions & { withFileTypes?: false } | BufferEncoding | null) => {
+    if (String(target).endsWith(path.join("notes", "nested"))) {
+      const error = new Error("permission denied");
+      (error as NodeJS.ErrnoException).code = "EACCES";
+      throw error;
+    }
+    return originalReaddir(target as Parameters<typeof fs.readdir>[0], options as Parameters<typeof fs.readdir>[1]);
+  }) as typeof fs.readdir;
+
+  try {
+    const refreshed = await workspaceSearch.refreshWorkspaceIndex({ scope: "notes" });
+    expect(refreshed.indexed_file_count).toBe(2);
+  } finally {
+    (fs.readdir as typeof fs.readdir) = originalReaddir;
+  }
+
+  const betaResults = await workspaceSearch.searchWorkspace({ scope: "notes", query: "hedgehogs", refresh: false });
+  expect(betaResults.rows.map((row) => row.path)).toEqual(["notes/nested/beta.md"]);
+});

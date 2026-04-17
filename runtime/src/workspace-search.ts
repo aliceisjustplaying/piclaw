@@ -172,23 +172,45 @@ const isTextFile = (filePath: string): boolean => {
   return getIndexedExtensions().has(ext);
 };
 
-async function walkFiles(root: string): Promise<string[]> {
+type WalkFilesResult = {
+  files: string[];
+  hadError: boolean;
+};
+
+async function walkFiles(root: string): Promise<WalkFilesResult> {
   const files: string[] = [];
+  let hadError = false;
+  let entries;
   try {
-    const entries = await fs.readdir(root, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = path.join(root, entry.name);
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch (err) {
+    debugSuppressedError(log, "Workspace walk skipped an unreadable directory.", err, {
+      operation: "workspace_search.walk.readdir",
+      path: toRelative(root),
+    });
+    return { files, hadError: true };
+  }
+
+  for (const entry of entries) {
+    const full = path.join(root, entry.name);
+    try {
       if (entry.isDirectory()) {
         if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".cache" || entry.name === "generated") continue;
-        files.push(...(await walkFiles(full)));
+        const nested = await walkFiles(full);
+        files.push(...nested.files);
+        hadError = hadError || nested.hadError;
       } else if (entry.isFile()) {
         files.push(full);
       }
+    } catch (err) {
+      hadError = true;
+      debugSuppressedError(log, "Workspace walk skipped an unreadable entry.", err, {
+        operation: "workspace_search.walk.entry",
+        path: toRelative(full),
+      });
     }
-  } catch {
-    return files;
   }
-  return files;
+  return { files, hadError };
 }
 
 function normalizeRoots(scope: string | undefined): string[] {
@@ -298,11 +320,13 @@ async function indexWorkspace(roots: string[], maxBytes: number): Promise<void> 
   const seen = new Set<string>();
   const now = new Date().toISOString();
   const rootPrefixes = rootsToPrefixes(roots);
+  let hadScanError = false;
 
   for (const root of roots) {
     const absRoot = path.resolve(root);
-    const files = await walkFiles(absRoot);
-    for (const file of files) {
+    const walk = await walkFiles(absRoot);
+    hadScanError = hadScanError || walk.hadError;
+    for (const file of walk.files) {
       if (!isTextFile(file)) continue;
       const rel = toRelative(file);
       try {
@@ -328,12 +352,17 @@ async function indexWorkspace(roots: string[], maxBytes: number): Promise<void> 
           "INSERT INTO workspace_files (path, mtime_ms, size_bytes, indexed_at) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET mtime_ms = excluded.mtime_ms, size_bytes = excluded.size_bytes, indexed_at = excluded.indexed_at",
         ).run(rel, mtimeMs, stat.size, now);
       } catch (err) {
+        hadScanError = true;
         debugSuppressedError(log, "Workspace index skipped an unreadable file.", err, {
           operation: "workspace_search.refresh.read_file",
           path: rel,
         });
       }
     }
+  }
+
+  if (hadScanError) {
+    return;
   }
 
   // aggressive cleanup: remove deleted files only within scanned roots
