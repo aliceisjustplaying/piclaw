@@ -35,9 +35,9 @@
   <text x="40" y="74" class="body">Generated from docs/performance/memory-footprint-history.md · latest commit 0943907f · 8 cold experiment steps · 6 live snapshots</text>
 
   <g filter="url(#shadow)">
-    <rect x="40" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
-    <rect x="425" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
-    <rect x="810" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="40" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="425" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="810" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
   </g>
 
   <text x="62" y="132" class="small">Cold-session improvement vs real workspace baseline</text>
@@ -49,8 +49,10 @@
   <text x="447" y="190" class="body">450.8 → 254.1 MB RSS · -46.9% from 478.7 MB peak</text>
 
   <text x="832" y="132" class="small">Current live service snapshot</text>
-  <text x="832" y="168" class="metric">254.1 MB</text>
-  <text x="832" y="190" class="body">PSS 253.2 · heap 93.1 · external 61.5</text>
+  <text x="832" y="162" class="small">Live settled</text>
+  <text x="832" y="184" class="metric">254.1 MB</text>
+  <text x="832" y="204" class="body">PSS 253.2 · heap 93.1 · external 61.5</text>
+  <text x="832" y="222" class="small">Fresh post-start 207.8 RSS · heap 25.2 · ext 5.3</text>
 
   <g filter="url(#shadow)">
     <rect x="40" y="240" width="550" height="330" rx="22" fill="#111827" stroke="#1f2937"/>
@@ -212,8 +214,9 @@
 <text x="1110.0" y="840" text-anchor="middle" class="tiny">service after installing the</text>
 
   <g filter="url(#shadow)">
-    <rect x="40" y="875" width="1120" height="60" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="40" y="860" width="1120" height="78" rx="18" fill="#111827" stroke="#1f2937"/>
   </g>
-  <text x="60" y="900" class="body">Cold experiments: real-workspace RSS delta 133.3 MB → 25.3 MB (-81.0%); elapsed 630 ms → 215 ms (-65.9%).</text>
-  <text x="60" y="918" class="body">Live service: 450.8 MB RSS at 18:02Z → 254.1 MB at 22:58Z (-43.6%); peak was 478.7 MB at 20:00Z.</text>
+  <text x="60" y="885" class="body">Cold experiments: real-workspace RSS delta 133.3 MB → 25.3 MB (-81.0%); elapsed 630 ms → 215 ms (-65.9%).</text>
+  <text x="60" y="903" class="body">Live service: 450.8 MB RSS at 18:02Z → 254.1 MB at 22:58Z (-43.6%); peak was 478.7 MB at 20:00Z.</text>
+  <text x="60" y="921" class="body">Fresh post-start sample from the latest restart: 207.8 MB RSS / 25.2 MB heap / 5.3 MB external.</text>
 </svg>

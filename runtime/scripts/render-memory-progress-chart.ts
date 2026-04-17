@@ -41,6 +41,12 @@ type LiveRow = {
   notes: string;
 };
 
+type PostStartSample = {
+  rssMb: number;
+  heapUsedMb: number;
+  externalMb: number;
+};
+
 type TableRow = Record<string, string>;
 
 type ChartArea = {
@@ -351,6 +357,16 @@ function renderLegendItem(x: number, y: number, color: string, label: string): s
   return `<rect x="${x}" y="${y - 9}" width="14" height="14" rx="4" fill="${color}"/><text x="${x + 22}" y="${y + 2}" class="small">${escapeXml(label)}</text>`;
 }
 
+function extractPostStartSample(notes: string): PostStartSample | null {
+  const match = notes.match(/post-start sample at\s+(\d+(?:\.\d+)?)\s+MB\s+RSS\s+\/\s+(\d+(?:\.\d+)?)\s+MB\s+heap\s+\/\s+(\d+(?:\.\d+)?)\s+MB\s+external/i);
+  if (!match) return null;
+  const rssMb = Number(match[1]);
+  const heapUsedMb = Number(match[2]);
+  const externalMb = Number(match[3]);
+  if (![rssMb, heapUsedMb, externalMb].every((value) => Number.isFinite(value))) return null;
+  return { rssMb, heapUsedMb, externalMb };
+}
+
 function renderSvg(config: TemplateConfig, inputPath: string, coldRows: ColdRow[], liveRows: LiveRow[]): string {
   if (coldRows.length === 0) throw new Error("No fresh-process cold-session benchmark rows found in memory history.");
   if (liveRows.length === 0) throw new Error("No live-service snapshot rows found in memory history.");
@@ -361,6 +377,7 @@ function renderSvg(config: TemplateConfig, inputPath: string, coldRows: ColdRow[
   const firstLive = liveRows[0];
   const latestLive = liveRows[liveRows.length - 1];
   const peakLive = liveRows.reduce((best, row) => row.rssMb > best.rssMb ? row : best, liveRows[0]);
+  const latestPostStart = extractPostStartSample(latestLive.notes);
 
   const rssValues = displayedColdRows.map((row) => row.rssDeltaMb);
   const elapsedValues = displayedColdRows.map((row) => row.elapsedMs);
@@ -382,7 +399,9 @@ function renderSvg(config: TemplateConfig, inputPath: string, coldRows: ColdRow[
   const footerLines = [
     `Cold experiments: real-workspace RSS delta ${formatNumber(baselineCold.rssDeltaMb)} MB → ${formatNumber(latestCold.rssDeltaMb)} MB (${coldRssChange}); elapsed ${formatNumber(baselineCold.elapsedMs, 0)} ms → ${formatNumber(latestCold.elapsedMs, 0)} ms (${coldElapsedChange}).`,
     `Live service: ${formatNumber(firstLive.rssMb)} MB RSS at ${formatTimeLabel(firstLive.timestamp)} → ${formatNumber(latestLive.rssMb)} MB at ${formatTimeLabel(latestLive.timestamp)} (${liveRssChange}); peak was ${formatNumber(peakLive.rssMb)} MB at ${formatTimeLabel(peakLive.timestamp)}.`,
-    `Latest live snapshot: ${formatNumber(latestLive.rssMb)} MB RSS / ${formatNumber(latestLive.pssMb ?? latestLive.rssMb)} MB PSS / ${formatNumber(latestLive.heapUsedMb ?? 0)} MB heap / ${formatNumber(latestLive.externalMb ?? 0)} MB external.`,
+    latestPostStart
+      ? `Fresh post-start sample from the latest restart: ${formatNumber(latestPostStart.rssMb)} MB RSS / ${formatNumber(latestPostStart.heapUsedMb)} MB heap / ${formatNumber(latestPostStart.externalMb)} MB external.`
+      : `Latest live snapshot: ${formatNumber(latestLive.rssMb)} MB RSS / ${formatNumber(latestLive.pssMb ?? latestLive.rssMb)} MB PSS / ${formatNumber(latestLive.heapUsedMb ?? 0)} MB heap / ${formatNumber(latestLive.externalMb ?? 0)} MB external.`,
     `Interpretation: the middle row is ordered experimental progression, while the bottom row is the actual chronological live-service memory history.`,
   ];
 
@@ -423,9 +442,9 @@ function renderSvg(config: TemplateConfig, inputPath: string, coldRows: ColdRow[
   <text x="40" y="74" class="body">${escapeXml(config.subtitle_prefix)} · latest commit ${escapeXml(subtitleCommit)} · ${displayedColdRows.length} cold experiment steps · ${liveRows.length} live snapshots</text>
 
   <g filter="url(#shadow)">
-    <rect x="40" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
-    <rect x="425" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
-    <rect x="810" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="40" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="425" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="810" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
   </g>
 
   <text x="62" y="132" class="small">Cold-session improvement vs real workspace baseline</text>
@@ -437,8 +456,10 @@ function renderSvg(config: TemplateConfig, inputPath: string, coldRows: ColdRow[
   <text x="447" y="190" class="body">${escapeXml(formatNumber(firstLive.rssMb))} → ${escapeXml(formatNumber(latestLive.rssMb))} MB RSS · ${escapeXml(livePeakDrop)} from ${escapeXml(formatNumber(peakLive.rssMb))} MB peak</text>
 
   <text x="832" y="132" class="small">${escapeXml(config.live_summary_title)}</text>
-  <text x="832" y="168" class="metric">${escapeXml(formatNumber(latestLive.rssMb))} MB</text>
-  <text x="832" y="190" class="body">PSS ${escapeXml(formatNumber(latestLive.pssMb ?? latestLive.rssMb))} · heap ${escapeXml(formatNumber(latestLive.heapUsedMb ?? 0))} · external ${escapeXml(formatNumber(latestLive.externalMb ?? 0))}</text>
+  <text x="832" y="162" class="small">Live settled</text>
+  <text x="832" y="184" class="metric">${escapeXml(formatNumber(latestLive.rssMb))} MB</text>
+  <text x="832" y="204" class="body">PSS ${escapeXml(formatNumber(latestLive.pssMb ?? latestLive.rssMb))} · heap ${escapeXml(formatNumber(latestLive.heapUsedMb ?? 0))} · external ${escapeXml(formatNumber(latestLive.externalMb ?? 0))}</text>
+  ${latestPostStart ? `<text x="832" y="222" class="small">Fresh post-start ${escapeXml(formatNumber(latestPostStart.rssMb))} RSS · heap ${escapeXml(formatNumber(latestPostStart.heapUsedMb))} · ext ${escapeXml(formatNumber(latestPostStart.externalMb))}</text>` : ""}
 
   <g filter="url(#shadow)">
     <rect x="40" y="240" width="550" height="330" rx="22" fill="#111827" stroke="#1f2937"/>
@@ -465,10 +486,11 @@ function renderSvg(config: TemplateConfig, inputPath: string, coldRows: ColdRow[
   ${liveTimeline}
 
   <g filter="url(#shadow)">
-    <rect x="40" y="875" width="1120" height="60" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="40" y="860" width="1120" height="78" rx="18" fill="#111827" stroke="#1f2937"/>
   </g>
-  <text x="60" y="900" class="body">${escapeXml(footerLines[0])}</text>
-  <text x="60" y="918" class="body">${escapeXml(footerLines[1])}</text>
+  <text x="60" y="885" class="body">${escapeXml(footerLines[0])}</text>
+  <text x="60" y="903" class="body">${escapeXml(footerLines[1])}</text>
+  <text x="60" y="921" class="body">${escapeXml(footerLines[2])}</text>
 </svg>`;
 }
 
