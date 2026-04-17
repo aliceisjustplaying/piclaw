@@ -55,7 +55,8 @@
  * Consumers: Invoked via /skill:graphite-power-chart.
  */
 
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, renameSync, writeFileSync } from "fs";
+import { randomUUID } from "crypto";
 import { basename, join } from "path";
 
 const args = process.argv.slice(2);
@@ -122,6 +123,21 @@ const dataDir = process.env.PICLAW_DATA || "/workspace/.piclaw/data";
 const messagesDir = join(dataDir, "ipc", "messages");
 const mediaDir = join(dataDir, "ipc", "media");
 
+const buildUniqueFilePath = (dir: string, prefix: string, extension: string): string =>
+  join(dir, `${prefix}-${Date.now()}-${randomUUID()}${extension}`);
+
+const writeTextFileAtomic = (dir: string, prefix: string, extension: string, content: string): string => {
+  mkdirSync(dir, { recursive: true });
+  const finalPath = buildUniqueFilePath(dir, prefix, extension);
+  const tmpPath = join(dir, `.tmp.${basename(finalPath)}`);
+  writeFileSync(tmpPath, content, "utf8");
+  renameSync(tmpPath, finalPath);
+  return finalPath;
+};
+
+const writeJsonFileAtomic = (dir: string, prefix: string, payload: unknown): string =>
+  writeTextFileAtomic(dir, prefix, ".json", JSON.stringify(payload, null, 2));
+
 const chooseResamplePeriod = (hours: number): string => {
   if (hours <= 3) return "1min";
   if (hours <= 6) return "2min";
@@ -158,9 +174,12 @@ const points = datapoints
 if (!points.length) {
   const msg = `No data for ${displayName} (last ${targetHours}h).`;
   if (ipcEnabled) {
-    mkdirSync(messagesDir, { recursive: true });
-    const outPath = join(messagesDir, `msg_${Date.now()}_graphite_power.json`);
-    writeFileSync(outPath, JSON.stringify({ type: "message", chatJid, text: msg, noNudge: !nudgeEnabled }, null, 2));
+    writeJsonFileAtomic(messagesDir, "msg_graphite_power", {
+      type: "message",
+      chatJid,
+      text: msg,
+      noNudge: !nudgeEnabled,
+    });
   } else {
     process.stdout.write(msg);
   }
@@ -360,11 +379,7 @@ const summaryLines = [
 const message = summaryLines.join("\n");
 
 if (ipcEnabled) {
-  mkdirSync(messagesDir, { recursive: true });
-  mkdirSync(mediaDir, { recursive: true });
-  const svgPath = join(mediaDir, `graphite-power-${Date.now()}.svg`);
-  writeFileSync(svgPath, svg, "utf8");
-  const outPath = join(messagesDir, `msg_${Date.now()}_graphite_power.json`);
+  const svgPath = writeTextFileAtomic(mediaDir, "graphite-power", ".svg", svg);
   const payloadOut = {
     type: "message",
     chatJid,
@@ -379,7 +394,7 @@ if (ipcEnabled) {
       },
     ],
   };
-  writeFileSync(outPath, JSON.stringify(payloadOut, null, 2));
+  const outPath = writeJsonFileAtomic(messagesDir, "msg_graphite_power", payloadOut);
   process.stdout.write(outPath);
 } else {
   const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;

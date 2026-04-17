@@ -26,7 +26,7 @@
 set -euo pipefail
 
 export BUN_INSTALL="/usr/local/lib/bun"
-export PATH="$BUN_INSTALL/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$BUN_INSTALL/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 
 LOG_PATH="${PICLAW_RELOAD_LOG:-/tmp/restart-piclaw-force.log}"
 DETACH_DEFAULT="${PICLAW_RELOAD_ASYNC:-1}"
@@ -259,6 +259,23 @@ tidy_lock() {
     exec 9>&- || true
   fi
 }
+trap tidy_lock EXIT
+
+ipc_unique_suffix() {
+  printf '%s_%s_%s' "$(date +%s%N 2>/dev/null || date +%s)" "$$" "${RANDOM:-0}"
+}
+
+write_ipc_json_file() {
+  local dir="$1" prefix="$2" payload="$3"
+  local suffix final_path tmp_path
+  mkdir -p "$dir"
+  suffix=$(ipc_unique_suffix)
+  final_path="$dir/${prefix}_${suffix}.json"
+  tmp_path="$dir/.tmp.${prefix}_${suffix}.json"
+  printf '%s\n' "$payload" > "$tmp_path"
+  mv -f "$tmp_path" "$final_path"
+  printf '%s\n' "$final_path"
+}
 
 CHILD_PID=""
 handle_signal() {
@@ -267,7 +284,7 @@ handle_signal() {
     kill "$CHILD_PID" 2>/dev/null || true
     wait "$CHILD_PID" 2>/dev/null || true
   }
-  tidy_lock; exit 0
+  exit 0
 }
 trap handle_signal SIGTERM SIGINT
 
@@ -280,11 +297,13 @@ notify_ready() {
   fi
   for _ in $(seq 1 40); do
     if can_connect_local_port "$ready_port"; then
-      mkdir -p "$IPC_MESSAGES_DIR"
-      cat > "$IPC_MESSAGES_DIR/reload_$(date +%s%N).json" <<EOF
+      local payload
+      payload=$(cat <<EOF
 {"type":"message","chatJid":"web:default","text":"Piclaw reload complete."}
 EOF
-      echo "ready" > "$NOTIFY_SENT_FILE"
+)
+      write_ipc_json_file "$IPC_MESSAGES_DIR" "reload" "$payload" >/dev/null
+      printf 'ready\n' > "$NOTIFY_SENT_FILE"
       return 0
     fi
     sleep 0.5
@@ -299,9 +318,12 @@ queue_resume_pending() {
   ls "$IPC_TASKS_DIR"/resume_pending_*.json >/dev/null 2>&1 && {
     echo "[reload] Resume IPC already queued; skipping."; return 0
   }
-  cat > "$IPC_TASKS_DIR/resume_pending_$(date +%s%N).json" <<EOF
+  local payload
+  payload=$(cat <<EOF
 {"type":"resume_pending","chatJid":"all","reason":"reload"}
 EOF
+)
+  write_ipc_json_file "$IPC_TASKS_DIR" "resume_pending" "$payload" >/dev/null
   echo "[reload] Queued resume_pending IPC."
 }
 
@@ -357,7 +379,6 @@ restart_manual() {
     [ -n "$OLD_SUPERVISOR" ] && [ "$OLD_SUPERVISOR" != "$$" ] && kill_pid "$OLD_SUPERVISOR" "old supervisor"
   fi
   echo $$ > "$SUPERVISOR_PIDFILE"
-  tidy_lock
 
   echo "[reload] Starting: $* (supervisor PID $$)"
   local attempt=0
@@ -367,10 +388,14 @@ restart_manual() {
     CHILD_PID=$!
     echo "$CHILD_PID" > "$PIDFILE"
     [ ! -f "$NOTIFY_SENT_FILE" ] && notify_ready &
-    wait "$CHILD_PID"
-    local status=$?
+    local status=0
+    wait "$CHILD_PID" || status=$?
     CHILD_PID=""
     [ $status -eq 0 ] && { echo "[reload] piclaw exited cleanly"; exit 0; }
+    if [ $status -eq 130 ] || [ $status -eq 143 ]; then
+      echo "[reload] piclaw received SIGTERM/SIGINT; stopping supervisor cleanly"
+      exit 0
+    fi
     [ $attempt -ge 5 ] && { echo "[reload] piclaw exited with status $status; giving up"; exit $status; }
     echo "[reload] piclaw exited with status $status; restarting in 2s"
     sleep 2

@@ -11,7 +11,11 @@ Write a JSON file to the piclaw IPC directory to send a message right away.
 ## Usage
 
 ```bash
-cat > "$PICLAW_DATA/ipc/messages/msg_$(date +%s).json" <<EOF
+mkdir -p "$PICLAW_DATA/ipc/messages"
+suffix="$(date +%s%N)_$$_${RANDOM:-0}"
+tmp="$PICLAW_DATA/ipc/messages/.tmp.msg_${suffix}.json"
+final="$PICLAW_DATA/ipc/messages/msg_${suffix}.json"
+cat > "$tmp" <<EOF
 {
   "type": "message",
   "chatJid": "$PICLAW_CHAT_JID",
@@ -25,6 +29,7 @@ cat > "$PICLAW_DATA/ipc/messages/msg_$(date +%s).json" <<EOF
   ]
 }
 EOF
+mv "$tmp" "$final"
 ```
 
 ## When to Use

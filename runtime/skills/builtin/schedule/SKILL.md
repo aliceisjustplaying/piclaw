@@ -32,7 +32,11 @@ Examples:
 If tool access is unavailable, write an IPC JSON file to `$PICLAW_DATA/ipc/tasks/`:
 
 ```bash
-cat > "$PICLAW_DATA/ipc/tasks/schedule_$(date +%s).json" <<EOF
+mkdir -p "$PICLAW_DATA/ipc/tasks"
+suffix="$(date +%s%N)_$$_${RANDOM:-0}"
+tmp="$PICLAW_DATA/ipc/tasks/.tmp.schedule_${suffix}.json"
+final="$PICLAW_DATA/ipc/tasks/schedule_${suffix}.json"
+cat > "$tmp" <<EOF
 {
   "type": "schedule_task",
   "chatJid": "$PICLAW_CHAT_JID",
@@ -42,12 +46,17 @@ cat > "$PICLAW_DATA/ipc/tasks/schedule_$(date +%s).json" <<EOF
   "schedule_value": "2026-03-09T09:00:00Z"
 }
 EOF
+mv "$tmp" "$final"
 ```
 
 Shell command variant:
 
 ```bash
-cat > "$PICLAW_DATA/ipc/tasks/schedule_$(date +%s).json" <<EOF
+mkdir -p "$PICLAW_DATA/ipc/tasks"
+suffix="$(date +%s%N)_$$_${RANDOM:-0}"
+tmp="$PICLAW_DATA/ipc/tasks/.tmp.schedule_${suffix}.json"
+final="$PICLAW_DATA/ipc/tasks/schedule_${suffix}.json"
+cat > "$tmp" <<EOF
 {
   "type": "schedule_task",
   "chatJid": "$PICLAW_CHAT_JID",
@@ -59,6 +68,7 @@ cat > "$PICLAW_DATA/ipc/tasks/schedule_$(date +%s).json" <<EOF
   "schedule_value": "3600000"
 }
 EOF
+mv "$tmp" "$final"
 ```
 
 ## Verify it was scheduled

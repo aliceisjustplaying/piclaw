@@ -11,7 +11,9 @@ import { mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync } from "fs"
 import { join } from "path";
 import { tmpdir } from "os";
 
-test("token chart --ipc writes JSON message safely", () => {
+const SCRIPT_PATH = "/workspace/.tmp/piclaw-skl-03/runtime/skills/operator/token-chart/token-chart.ts";
+
+test("token chart --ipc writes unique atomic IPC message files", () => {
   const base = join(tmpdir(), `piclaw-ipc-${Date.now()}`);
   const sessionsDir = join(base, "sessions");
   const dataDir = join(base, "data");
@@ -31,26 +33,32 @@ test("token chart --ipc writes JSON message safely", () => {
 
   writeFileSync(join(sessionsDir, "session.jsonl"), JSON.stringify(entry));
 
-  const proc = Bun.spawnSync([
-    "bun",
-    "/workspace/piclaw/runtime/skills/operator/token-chart/token-chart.ts",
-    "--days",
-    "1",
-    "--sessions-dir",
-    sessionsDir,
-    "--ipc",
-  ], {
-    env: {
-      ...process.env,
-      PICLAW_DATA: dataDir,
-    },
-  });
+  const runChart = () =>
+    Bun.spawnSync([
+      "bun",
+      SCRIPT_PATH,
+      "--days",
+      "1",
+      "--sessions-dir",
+      sessionsDir,
+      "--ipc",
+    ], {
+      env: {
+        ...process.env,
+        PICLAW_DATA: dataDir,
+      },
+    });
 
-  expect(proc.exitCode).toBe(0);
+  expect(runChart().exitCode).toBe(0);
+  expect(runChart().exitCode).toBe(0);
 
   const messagesDir = join(dataDir, "ipc", "messages");
+  const mediaDir = join(dataDir, "ipc", "media");
   const files = readdirSync(messagesDir).filter((f) => f.endsWith(".json"));
-  expect(files.length).toBe(1);
+  expect(files.length).toBe(2);
+  expect(readdirSync(messagesDir).some((f) => f.startsWith(".tmp."))).toBe(false);
+  expect(readdirSync(mediaDir).filter((f) => f.endsWith(".svg")).length).toBe(2);
+  expect(readdirSync(mediaDir).some((f) => f.startsWith(".tmp."))).toBe(false);
   const payload = JSON.parse(readFileSync(join(messagesDir, files[0]), "utf8"));
   expect(payload.type).toBe("message");
   expect(payload.chatJid).toBe("web:default");

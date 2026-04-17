@@ -53,7 +53,8 @@
  * Consumers: Scheduled by task-scheduler.ts or invoked manually via /skill:token-chart.
  */
 
-import { readdirSync, statSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "fs";
+import { readdirSync, statSync, readFileSync, mkdirSync, renameSync, writeFileSync, existsSync } from "fs";
+import { randomUUID } from "crypto";
 import { basename, dirname, join } from "path";
 import Database from "bun:sqlite";
 import { generateProviderModelChart } from "./token-usage-by-provider-model-chart";
@@ -98,6 +99,21 @@ const outputSvgCandidate = outputSvgArgIndex >= 0 ? args[outputSvgArgIndex + 1] 
 const outputSvg = outputSvgCandidate && !outputSvgCandidate.startsWith("--") ? outputSvgCandidate : undefined;
 const storeDir = process.env.PICLAW_STORE || "/workspace/.piclaw/store";
 const dbPath = join(storeDir, "messages.db");
+
+const buildUniqueFilePath = (dir: string, prefix: string, extension: string): string =>
+  join(dir, `${prefix}-${Date.now()}-${randomUUID()}${extension}`);
+
+const writeTextFileAtomic = (dir: string, prefix: string, extension: string, content: string): string => {
+  mkdirSync(dir, { recursive: true });
+  const finalPath = buildUniqueFilePath(dir, prefix, extension);
+  const tmpPath = join(dir, `.tmp.${basename(finalPath)}`);
+  writeFileSync(tmpPath, content, "utf8");
+  renameSync(tmpPath, finalPath);
+  return finalPath;
+};
+
+const writeJsonFileAtomic = (dir: string, prefix: string, payload: unknown): string =>
+  writeTextFileAtomic(dir, prefix, ".json", JSON.stringify(payload, null, 2));
 
 const now = new Date();
 const start = new Date(now);
@@ -166,11 +182,7 @@ function runProviderModelMode() {
     writeFileSync(outputSvg, result.svg, "utf8");
   }
   if (ipcEnabled) {
-    mkdirSync(messagesDir, { recursive: true });
-    mkdirSync(mediaDir, { recursive: true });
-    const svgPath = outputSvg || join(mediaDir, `token-chart-provider-model-${Date.now()}.svg`);
-    if (!outputSvg) writeFileSync(svgPath, result.svg, "utf8");
-    const outPath = join(messagesDir, `msg_${Date.now()}_tokenchart.json`);
+    const svgPath = outputSvg || writeTextFileAtomic(mediaDir, "token-chart-provider-model", ".svg", result.svg);
     const payload = {
       type: "message",
       chatJid,
@@ -185,7 +197,7 @@ function runProviderModelMode() {
         },
       ],
     };
-    writeFileSync(outPath, JSON.stringify(payload, null, 2));
+    const outPath = writeJsonFileAtomic(messagesDir, "msg_tokenchart", payload);
     process.stdout.write(outPath);
   } else {
     const dataUrl = `data:image/svg+xml;base64,${Buffer.from(result.svg).toString("base64")}`;
@@ -596,15 +608,8 @@ const summaryLines = [
 const message = summaryLines.join("\n");
 
 if (ipcEnabled) {
-  mkdirSync(messagesDir, { recursive: true });
-  mkdirSync(mediaDir, { recursive: true });
+  const svgPath = outputSvg || writeTextFileAtomic(mediaDir, "token-chart", ".svg", svg);
 
-  const svgPath = outputSvg || join(mediaDir, `token-chart-${Date.now()}.svg`);
-  if (!outputSvg) {
-    writeFileSync(svgPath, svg, "utf8");
-  }
-
-  const outPath = join(messagesDir, `msg_${Date.now()}_tokenchart.json`);
   const payload = {
     type: "message",
     chatJid,
@@ -619,7 +624,7 @@ if (ipcEnabled) {
       },
     ],
   };
-  writeFileSync(outPath, JSON.stringify(payload, null, 2));
+  const outPath = writeJsonFileAtomic(messagesDir, "msg_tokenchart", payload);
   process.stdout.write(outPath);
 } else {
   const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;

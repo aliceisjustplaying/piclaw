@@ -12,6 +12,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import Database from "bun:sqlite";
 
+const SCRIPT_PATH = "/workspace/.tmp/piclaw-skl-03/runtime/skills/operator/token-chart/token-chart.ts";
+
 function formatDay(d: Date) {
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -50,7 +52,7 @@ test("token chart outputs chart first and summary lines", () => {
 
   const proc = Bun.spawnSync([
     "bun",
-    "/workspace/piclaw/runtime/skills/operator/token-chart/token-chart.ts",
+    SCRIPT_PATH,
     "--days",
     "2",
     "--sessions-dir",
@@ -78,7 +80,7 @@ test("token chart handles empty sessions directory", () => {
 
   const proc = Bun.spawnSync([
     "bun",
-    "/workspace/piclaw/runtime/skills/operator/token-chart/token-chart.ts",
+    SCRIPT_PATH,
     "--days",
     "1",
     "--sessions-dir",
@@ -136,7 +138,7 @@ test("token chart combines normal and autoresearch into one daily stack when rea
 
   const proc = Bun.spawnSync([
     "bun",
-    "/workspace/piclaw/runtime/skills/operator/token-chart/token-chart.ts",
+    SCRIPT_PATH,
     "--days",
     "1",
     "--source",
@@ -187,7 +189,7 @@ test("token chart ignores malformed JSONL lines", () => {
 
   const proc = Bun.spawnSync([
     "bun",
-    "/workspace/piclaw/runtime/skills/operator/token-chart/token-chart.ts",
+    SCRIPT_PATH,
     "--days",
     "1",
     "--sessions-dir",
