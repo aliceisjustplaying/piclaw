@@ -239,10 +239,30 @@ export async function runUnpairFlow(idOrFingerprint: string, pi: ExtensionAPI): 
   });
 }
 
-function handlePairList(pi: ExtensionAPI): void {
+function handlePairList(pi: ExtensionAPI, filter?: string): void {
+  if (filter === "revoked") {
+    let peers: RemotePeerRecord[];
+    try {
+      peers = getAllRemotePeers().filter((p) => p.status === "revoked");
+    } catch {
+      peers = [];
+    }
+    if (!peers.length) {
+      pi.sendMessage({ customType: "remote-pair", content: "No revoked peers.", display: true });
+      return;
+    }
+    const lines = peers.map((p) => {
+      const name = p.display_name ? `${p.display_name} ` : "";
+      const fp = formatFingerprint(p.instance_id);
+      return `- ${name}\`${fp}\` — revoked / epoch ${p.trust_epoch ?? "?"}  — ${p.updated_at}`;
+    });
+    pi.sendMessage({ customType: "remote-pair", content: `**Revoked peers:**\n${lines.join("\n")}`, display: true });
+    return;
+  }
+
   let peers: RemotePeerRecord[];
   try {
-    peers = getAllRemotePeers();
+    peers = getAllRemotePeers().filter((p) => p.status === "paired");
   } catch {
     peers = [];
   }
@@ -257,7 +277,7 @@ function handlePairList(pi: ExtensionAPI): void {
   }
 
   if (!peers.length && !pendingRequests.length) {
-    pi.sendMessage({ customType: "remote-pair", content: "No remote peers or pending requests.", display: true });
+    pi.sendMessage({ customType: "remote-pair", content: "No paired peers or pending requests.", display: true });
     return;
   }
 
@@ -266,10 +286,10 @@ function handlePairList(pi: ExtensionAPI): void {
   if (peers.length) {
     const lines = peers.map((p) => {
       const name = p.display_name ? `${p.display_name} ` : "";
-      const fp = `${p.instance_id.slice(0, 6)}-${p.instance_id.slice(6, 12)}-${p.instance_id.slice(12, 18)}`;
-      return `- ${name}\`${fp}\` — ${p.status} / ${p.mode} / ${p.profile}`;
+      const fp = formatFingerprint(p.instance_id);
+      return `- ${name}\`${fp}\` — ${p.mode} / ${p.profile}`;
     });
-    sections.push(`**Remote peers:**\n${lines.join("\n")}`);
+    sections.push(`**Paired peers:**\n${lines.join("\n")}`);
   }
 
   if (pendingRequests.length) {
@@ -783,7 +803,7 @@ export const remotePair: ExtensionFactory = (pi: ExtensionAPI) => {
       const rest = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim();
 
       if (sub === "list") {
-        handlePairList(pi);
+        handlePairList(pi, rest || undefined);
         return;
       }
 
@@ -920,7 +940,8 @@ export const remotePair: ExtensionFactory = (pi: ExtensionAPI) => {
         content: [
           "Usage:",
           "  `/pair request <url>` — initiate pairing",
-          "  `/pair list` — show known peers",
+          "  `/pair list` — show paired peers and pending requests",
+          "  `/pair list revoked` — show revoked peers",
           "  `/pair inbox` — show pending proposals for review",
           "  `/pair approve <id>` — approve and execute a proposal",
           "  `/pair reject <id> [reason]` — reject a proposal",
