@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 
 import {
+  auth,
   extractConsumerAuthCodeFromRedirect,
   extractImplicitOAuthTokenFromRedirect,
+  graphFetch,
   isM365YoloEnabled,
   resolveGraphAuthMode,
 } from "../../extensions/experimental/m365/shared.js";
@@ -112,4 +114,59 @@ test("resolveGraphAuthMode hard-fails only for known consumer mode", () => {
     useConsumerFlow: false,
     hardFailOnConsumerFailure: false,
   });
+});
+
+test("graphFetch cancels 401 bodies before retrying with a fresh token", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalGetGraphToken = auth.getGraphToken;
+  const requests: Array<{ url: string; headers: Record<string, string> }> = [];
+  let cancelled = false;
+
+  auth.getGraphToken = async (force = false) => force ? "fresh-token" : "stale-token";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({
+      url: String(input),
+      headers: (init?.headers ?? {}) as Record<string, string>,
+    });
+    if (requests.length === 1) {
+      return {
+        ok: false,
+        status: 401,
+        body: {
+          locked: false,
+          cancel: async () => {
+            cancelled = true;
+          },
+        },
+        text: async () => "Unauthorized",
+      } as unknown as Response;
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await expect(graphFetch("me")).resolves.toEqual({ ok: true });
+    expect(cancelled).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.headers.Authorization).toBe("Bearer stale-token");
+    expect(requests[1]?.headers.Authorization).toBe("Bearer fresh-token");
+  } finally {
+    globalThis.fetch = originalFetch;
+    auth.getGraphToken = originalGetGraphToken;
+  }
+});
+
+test("graphFetch returns null for 204 no-content JSON responses", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalGetGraphToken = auth.getGraphToken;
+
+  auth.getGraphToken = async () => "graph-token";
+  globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof fetch;
+
+  try {
+    await expect(graphFetch("me/drive/items/123", { method: "DELETE" })).resolves.toBeNull();
+  } finally {
+    globalThis.fetch = originalFetch;
+    auth.getGraphToken = originalGetGraphToken;
+  }
 });

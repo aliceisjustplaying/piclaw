@@ -2233,14 +2233,33 @@ export async function graphFetch(
 		headers,
 		body: requestBody,
 	}, { "sec-fetch-site": "cross-site" });
+	const discardResponseBody = async (resp: Response) => {
+		try {
+			if (resp.body && !resp.body.locked && typeof resp.body.cancel === "function") {
+				await resp.body.cancel();
+				return;
+			}
+		} catch {
+			// Fall back to draining the body text below.
+		}
+		try {
+			await resp.text();
+		} catch {
+			// Best effort only; retry path should not fail because the error body was unreadable.
+		}
+	};
 	const handle = async (resp: Response) => {
 		if (!resp.ok) throw new Error(`Graph ${resp.status}: ${await resp.text()}`);
 		if (responseType === "response") return resp;
 		if (responseType === "text") return resp.text();
-		return resp.json();
+		if (resp.status === 204) return null;
+		const text = await resp.text();
+		if (!text) return null;
+		return JSON.parse(text);
 	};
 	const resp = await run();
 	if (resp.status === 401) {
+		await discardResponseBody(resp);
 		const freshToken = await auth.getGraphToken(true);
 		headers.Authorization = `Bearer ${freshToken}`;
 		return handle(await run());
