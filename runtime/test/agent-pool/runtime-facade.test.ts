@@ -222,6 +222,49 @@ test("AgentRuntimeFacade removes one queued follow-up and replays the remaining 
   ]);
 });
 
+test("AgentRuntimeFacade restores the original queue when queued follow-up removal replay fails", async () => {
+  const prompts: Array<{ text: string; behavior: string }> = [];
+  let thirdFollowupAttempts = 0;
+  let queue = {
+    steering: ["keep steer"],
+    followUp: ["first", "second", "third"],
+  };
+
+  const session = {
+    isStreaming: true,
+    getFollowUpMessages: () => [...queue.followUp],
+    clearQueue: () => {
+      const cleared = {
+        steering: [...queue.steering],
+        followUp: [...queue.followUp],
+      };
+      queue = { steering: [], followUp: [] };
+      return cleared;
+    },
+    prompt: async (text: string, options?: { streamingBehavior?: string }) => {
+      prompts.push({ text, behavior: options?.streamingBehavior ?? "" });
+      if (text === "third" && options?.streamingBehavior === "followUp" && thirdFollowupAttempts++ === 0) {
+        throw new Error("requeue failed");
+      }
+      if (options?.streamingBehavior === "steer") {
+        queue.steering.push(text);
+      } else if (options?.streamingBehavior === "followUp") {
+        queue.followUp.push(text);
+      }
+    },
+  };
+
+  const fixture = createFacade();
+  fixture.pool.set("web:default", { runtime: createRuntime(session), lastUsed: Date.now() });
+
+  await expect(fixture.facade.removeQueuedFollowupMessage("web:default", "second")).resolves.toBe(false);
+  expect(queue).toEqual({
+    steering: ["keep steer"],
+    followUp: ["first", "second", "third"],
+  });
+  expect(fixture.warnings).toContain("Failed to remove queued follow-up");
+});
+
 test("AgentRuntimeFacade normalizes session-tree user prompts for display while keeping raw detail", () => {
   const session = {
     sessionManager: {

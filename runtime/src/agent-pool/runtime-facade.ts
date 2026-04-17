@@ -574,11 +574,21 @@ export class AgentRuntimeFacade {
         const cleared = session.clearQueue();
         const nextFollowups = cleared.followUp.filter((_, idx) => idx !== removeIndex);
 
-        for (const steer of cleared.steering) {
-          await session.prompt(steer, { streamingBehavior: "steer" });
-        }
-        for (const followup of nextFollowups) {
-          await session.prompt(followup, { streamingBehavior: "followUp" });
+        try {
+          await this.restoreQueuedMessages(session, cleared.steering, nextFollowups);
+        } catch (err) {
+          try {
+            session.clearQueue();
+            await this.restoreQueuedMessages(session, cleared.steering, cleared.followUp);
+          } catch (restoreErr) {
+            this.options.onWarn?.("Failed to restore queued follow-up after removal error", {
+              operation: "remove_queued_follow_up.restore",
+              chatJid,
+              err: restoreErr,
+              originalError: err,
+            });
+          }
+          throw err;
         }
 
         return true;
@@ -590,6 +600,19 @@ export class AgentRuntimeFacade {
         err,
       });
       return false;
+    }
+  }
+
+  private async restoreQueuedMessages(
+    session: { prompt: (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => Promise<unknown> },
+    steering: readonly string[],
+    followUp: readonly string[],
+  ): Promise<void> {
+    for (const steer of steering) {
+      await session.prompt(steer, { streamingBehavior: "steer" });
+    }
+    for (const queued of followUp) {
+      await session.prompt(queued, { streamingBehavior: "followUp" });
     }
   }
 
