@@ -68,6 +68,7 @@ export interface RemoteRequestRecord {
   decision: string | null;
   remote_mode: string | null;
   error: string | null;
+  result: string | null;
 }
 
 /** Row shape for records stored in `remote_audit_logs`. */
@@ -327,8 +328,8 @@ export function storeRemoteRequest(request: RemoteRequestRecord): void {
   const db = getDb();
   db.prepare(
     `INSERT INTO remote_requests (
-      id, peer_instance_id, request_type, status, prompt, created_at, decision, remote_mode, error
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      id, peer_instance_id, request_type, status, prompt, created_at, decision, remote_mode, error, result
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     request.id,
     request.peer_instance_id,
@@ -338,7 +339,8 @@ export function storeRemoteRequest(request: RemoteRequestRecord): void {
     request.created_at,
     request.decision,
     request.remote_mode,
-    request.error
+    request.error,
+    request.result
   );
 }
 
@@ -347,7 +349,7 @@ export function getRemoteRequestById(id: string): RemoteRequestRecord | null {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT id, peer_instance_id, request_type, status, prompt, created_at, decision, remote_mode, error
+      `SELECT id, peer_instance_id, request_type, status, prompt, created_at, decision, remote_mode, error, result
        FROM remote_requests WHERE id = ?`
     )
     .get(id) as RemoteRequestRecord | undefined;

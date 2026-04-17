@@ -320,7 +320,8 @@ function createSchema(database: Database): void {
       created_at TEXT NOT NULL,
       decision TEXT,
       remote_mode TEXT,
-      error TEXT
+      error TEXT,
+      result TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_remote_requests_peer ON remote_requests(peer_instance_id, created_at);
 

@@ -129,6 +129,7 @@ export async function handleProposal(req: Request, context: RemoteOperationHandl
     decision: null,
     remote_mode: peer.mode,
     error: null,
+    result: null,
   });
 
   logAudit(peer, "/api/remote/proposal", "queued", "human_required");
