@@ -290,6 +290,17 @@ export class WhatsAppChannel {
     await sendWhatsAppTypingUpdate(this.sock, jid, isTyping);
   }
 
+  private scheduleQueueFlush(operation: string): void {
+    queueMicrotask(() => {
+      void this.flushOutgoingQueue().catch((err) => {
+        log.error("Failed to flush queued outbound messages", {
+          operation,
+          err,
+        });
+      });
+    });
+  }
+
   private async flushOutgoingQueue(): Promise<void> {
     if (this.flushing || this.outgoingQueue.length === 0) return;
     this.flushing = true;
@@ -300,6 +311,9 @@ export class WhatsAppChannel {
       }
     } finally {
       this.flushing = false;
+      if (this.connected && this.outgoingQueue.length > 0) {
+        this.scheduleQueueFlush("flush_outgoing_queue.retry_after_race");
+      }
     }
   }
 
