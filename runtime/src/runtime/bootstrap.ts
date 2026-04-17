@@ -169,6 +169,7 @@ export async function bootstrapRuntime(deps: RuntimeBootstrapDeps): Promise<void
 
   const senders = deps.createRuntimeSenders(web, whatsapp, pushover);
   deps.startRuntimeWorkers(queue, agentPool, web, senders);
+  deps.queueStartupResumePendingIpc();
 
   await whatsapp.connect();
 

@@ -113,6 +113,7 @@ describe("runtime bootstrap", () => {
       "register-shutdown-signals",
       "create-senders",
       "start-workers",
+      "queue-startup-resume",
       "connect-whatsapp",
       "start-runtime-loop",
     ]);
