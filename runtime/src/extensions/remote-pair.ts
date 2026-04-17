@@ -11,6 +11,8 @@
  */
 
 import { randomUUID } from "crypto";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import { getDb } from "../db/connection.js";
 import {
@@ -25,15 +27,19 @@ import {
   createOutboundPairRequest,
   getOutboundPairRequestById,
   updateOutboundPairRequestStatus,
+  getPendingRemoteRequests,
+  getRemoteRequestById,
+  updateRemoteRequestDecision,
   type RemotePeerRecord,
   type RemotePairRequestRecord,
+  type RemoteRequestRecord,
   type RemotePeerProfile,
   type RemotePeerMode,
 } from "../db/remote-interop.js";
 import { loadOrCreateIdentity, deriveFingerprint } from "../remote/identity.js";
 import { buildCanonicalRequest, hashBody, signRequest } from "../remote/signature.js";
 import { verifyCallbackProof } from "../remote/service-security.js";
-import { WEB_SERVER_CONFIG } from "../core/config.js";
+import { WEB_SERVER_CONFIG, DATA_DIR } from "../core/config.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("extensions.remote-pair");
@@ -276,6 +282,35 @@ function handlePairList(pi: ExtensionAPI): void {
   }
 
   pi.sendMessage({ customType: "remote-pair", content: sections.join("\n\n"), display: true });
+}
+
+// ─── Proposal Inbox ──────────────────────────────────────────────────────────
+
+function handlePairInbox(pi: ExtensionAPI): void {
+  let proposals: RemoteRequestRecord[];
+  try {
+    proposals = getPendingRemoteRequests();
+  } catch {
+    proposals = [];
+  }
+
+  if (!proposals.length) {
+    pi.sendMessage({ customType: "remote-pair", content: "No pending proposals.", display: true });
+    return;
+  }
+
+  const lines = proposals.map((r) => {
+    const peer = getRemotePeer(r.peer_instance_id);
+    const peerLabel = peer?.display_name ?? formatFingerprint(r.peer_instance_id);
+    const promptPreview = r.prompt && r.prompt.length > 80 ? r.prompt.slice(0, 80) + "…" : (r.prompt || "(no prompt)");
+    return `- \`${r.id}\` from **${peerLabel}** (${r.created_at})\n  > ${promptPreview}`;
+  });
+
+  pi.sendMessage({
+    customType: "remote-pair",
+    content: `**Pending proposals (${proposals.length}):**\n${lines.join("\n")}\n\nRun \`/pair approve <id>\` or \`/pair reject <id> [reason]\`.`,
+    display: true,
+  });
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -670,6 +705,11 @@ export const remotePair: ExtensionFactory = (pi: ExtensionAPI) => {
         return;
       }
 
+      if (sub === "inbox") {
+        handlePairInbox(pi);
+        return;
+      }
+
       if (sub === "request") {
         if (!rest) {
           pi.sendMessage({ customType: "remote-pair", content: "Usage: /pair request <url>", display: true });
@@ -777,6 +817,9 @@ export const remotePair: ExtensionFactory = (pi: ExtensionAPI) => {
           "Usage:",
           "  `/pair request <url>` — initiate pairing",
           "  `/pair list` — show known peers",
+          "  `/pair inbox` — show pending proposals for review",
+          "  `/pair approve <id>` — approve and execute a proposal",
+          "  `/pair reject <id> [reason]` — reject a proposal",
           "  `/pair accept <id>` — accept an inbound pair request",
           "  `/pair deny <id>` — deny an inbound pair request",
           "  `/pair block <id>` — block an inbound pair request and peer",
