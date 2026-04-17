@@ -1034,8 +1034,18 @@ export class PortainerClient {
 
     const containers = await this.listContainers(endpointId);
     if (id) {
-      const byId = containers.find((entry) => typeof entry.Id === "string" && entry.Id.startsWith(id));
-      if (byId) return byId;
+      const exact = containers.find((entry) => typeof entry.Id === "string" && entry.Id === id);
+      if (exact) return exact;
+
+      if (id.length < 12) {
+        throw new Error("Container id prefixes must be at least 12 characters.");
+      }
+
+      const byId = containers.filter((entry) => typeof entry.Id === "string" && entry.Id.startsWith(id));
+      if (byId.length === 1) return byId[0];
+      if (byId.length > 1) {
+        throw new Error(`Container id prefix "${id}" is ambiguous on endpoint ${endpointId}.`);
+      }
     }
 
     if (name) {

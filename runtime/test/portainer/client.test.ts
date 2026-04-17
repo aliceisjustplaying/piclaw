@@ -243,6 +243,75 @@ test("container exec supports PowerShell wrappers", async () => {
   });
 });
 
+test("resolveContainer rejects short container id prefixes", async () => {
+  await withPortainerContext(async ({ keychain, portainer }) => {
+    await keychain.setKeychainEntry({
+      name: "portainer/relay",
+      type: "secret",
+      username: "https://portainer.example.com:9443",
+      secret: "portainer-token",
+    });
+
+    portainer.setPortainerRequestExecutorForTests(async (input) => {
+      if (input.url.endsWith("/api/endpoints/2/docker/containers/json?all=1")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          bodyText: JSON.stringify([
+            { Id: "abc123456789abcdef", Names: ["/web"] },
+          ]),
+        };
+      }
+      throw new Error(`unexpected url ${input.url}`);
+    });
+
+    const client = new portainer.PortainerClient({
+      base_url: "https://portainer.example.com:9443",
+      api_token_keychain: "portainer/relay",
+      allow_insecure_tls: true,
+    });
+
+    await expect(client.resolveContainer(2, { container_id: "abc123" })).rejects.toThrow(
+      "Container id prefixes must be at least 12 characters.",
+    );
+  });
+});
+
+test("resolveContainer rejects ambiguous container id prefixes", async () => {
+  await withPortainerContext(async ({ keychain, portainer }) => {
+    await keychain.setKeychainEntry({
+      name: "portainer/relay",
+      type: "secret",
+      username: "https://portainer.example.com:9443",
+      secret: "portainer-token",
+    });
+
+    portainer.setPortainerRequestExecutorForTests(async (input) => {
+      if (input.url.endsWith("/api/endpoints/2/docker/containers/json?all=1")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          bodyText: JSON.stringify([
+            { Id: "123456789abc0000", Names: ["/web-a"] },
+            { Id: "123456789abcffff", Names: ["/web-b"] },
+          ]),
+        };
+      }
+      throw new Error(`unexpected url ${input.url}`);
+    });
+
+    const client = new portainer.PortainerClient({
+      base_url: "https://portainer.example.com:9443",
+      api_token_keychain: "portainer/relay",
+      allow_insecure_tls: true,
+    });
+
+    await expect(client.resolveContainer(2, { container_id: "123456789abc" })).rejects.toThrow(
+      'Container id prefix "123456789abc" is ambiguous on endpoint 2.',
+    );
+  });
+});
+
 test("requestPortainerApi redacts secret values in HTTP error bodies", async () => {
   await withPortainerContext(async ({ keychain, portainer }) => {
     await keychain.setKeychainEntry({
