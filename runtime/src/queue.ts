@@ -57,6 +57,7 @@ export interface QueueMetrics {
 export class AgentQueue {
   private lanes = new Map<string, LaneState>();
   private retryingIds = new Set<string>();
+  private retryTimers = new Set<ReturnType<typeof setTimeout>>();
   private shuttingDown = false;
   private metrics: QueueMetrics = {
     enqueued: 0,
@@ -177,7 +178,8 @@ export class AgentQueue {
       delayMs: delay,
       itemId: item.id ?? null,
     });
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(timer);
       if (item.id) this.retryingIds.delete(item.id);
       if (this.shuttingDown) return;
       const lane = this.getLane(item.laneKey);
@@ -187,6 +189,7 @@ export class AgentQueue {
         this.runItem(lane, item);
       }
     }, delay);
+    this.retryTimers.add(timer);
   }
 
   /**
@@ -195,6 +198,11 @@ export class AgentQueue {
    */
   async shutdown(ms = 5000): Promise<void> {
     this.shuttingDown = true;
+    for (const timer of this.retryTimers) {
+      clearTimeout(timer);
+    }
+    this.retryTimers.clear();
+    this.retryingIds.clear();
     const runningPromises: Promise<void>[] = [];
     for (const lane of this.lanes.values()) {
       lane.pending = [];

@@ -216,6 +216,31 @@ describe("AgentQueue", () => {
     }
   });
 
+  test("shutdown cancels pending retry timers", async () => {
+    const queue = new AgentQueue();
+    let attempts = 0;
+
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: (...args: any[]) => void, ms?: number, ...args: any[]) =>
+      originalSetTimeout(fn, Math.min(ms ?? 0, 20), ...args)) as typeof setTimeout;
+
+    try {
+      queue.enqueue(async () => {
+        attempts += 1;
+        throw new Error("fail");
+      }, "task-1");
+
+      await Bun.sleep(5);
+      await queue.shutdown(100);
+      await new Promise((resolve) => originalSetTimeout(resolve, 80));
+
+      expect(attempts).toBe(1);
+      expect(queue.getMetrics().retriesScheduled).toBe(1);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+
   test("shutdown returns after timeout and clears pending", async () => {
     const queue = new AgentQueue();
     let ran = false;
