@@ -58,6 +58,7 @@ export interface UiBridgeChannel {
 
 interface UiBridgeOptions {
   waitForIdleTimeoutMs?: number;
+  chatStateTtlMs?: number;
 }
 
 interface PendingUiRequest {
@@ -68,12 +69,15 @@ interface PendingUiRequest {
   chatJid: string;
 }
 
+const DEFAULT_CHAT_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
 /** Bridges extension UI prompts (confirm/input) to SSE events and API responses. */
 export class UiBridge {
   pendingUiRequests = new Map<string, PendingUiRequest>();
   uiRequestCounter = 0;
   editorTextByChat = new Map<string, string>();
   themeByChat = new Map<string, WebThemePayload>();
+  private readonly chatStateTouchedAtByChat = new Map<string, number>();
   fallbackTheme = createFallbackTheme();
 
   constructor(
@@ -83,6 +87,7 @@ export class UiBridge {
 
   async bindSession(runtime: AgentSessionRuntime, chatJid: string): Promise<void> {
     if (!chatJid.startsWith("web:")) return;
+    this.touchChat(chatJid);
 
     const session = runtime.session;
 
@@ -161,11 +166,13 @@ export class UiBridge {
   }
 
   createUiContext(chatJid: string): ExtensionUIContext {
+    this.touchChat(chatJid);
     const requestUiResponse = async (
       kind: string,
       payload: Record<string, unknown>,
       timeoutMs = 120000
     ): Promise<unknown> => {
+      this.touchChat(chatJid);
       const requestId = `ui-${Date.now()}-${++this.uiRequestCounter}`;
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
@@ -233,16 +240,21 @@ export class UiBridge {
         return result as T;
       },
       pasteToEditor: (text) => {
+        this.touchChat(chatJid);
         const current = this.editorTextByChat.get(chatJid) || "";
         const updated = current + text;
         this.editorTextByChat.set(chatJid, updated);
         this.channel.broadcastEvent("extension_ui_editor_text", { chat_jid: chatJid, text: updated });
       },
       setEditorText: (text) => {
+        this.touchChat(chatJid);
         this.editorTextByChat.set(chatJid, text);
         this.channel.broadcastEvent("extension_ui_editor_text", { chat_jid: chatJid, text });
       },
-      getEditorText: () => this.editorTextByChat.get(chatJid) || "",
+      getEditorText: () => {
+        this.touchChat(chatJid);
+        return this.editorTextByChat.get(chatJid) || "";
+      },
       editor: async (title, prefill) => {
         const result = await requestUiResponse("editor", { title, prefill });
         return typeof result === "string" ? result : undefined;
@@ -259,6 +271,7 @@ export class UiBridge {
         return undefined;
       },
       setTheme: (nextTheme) => {
+        this.touchChat(chatJid);
         const payload = normalizeThemePayload(nextTheme);
         if (!payload) return { success: false, error: "Invalid theme payload" };
         this.themeByChat.set(chatJid, payload);
@@ -278,10 +291,32 @@ export class UiBridge {
     if (normalizedChatJid && pending.chatJid !== normalizedChatJid) {
       return { status: "unknown_request" };
     }
+    this.touchChat(pending.chatJid);
     clearTimeout(pending.timeoutId);
     this.pendingUiRequests.delete(requestId);
     pending.resolve(outcome);
     return { status: "ok" };
+  }
+
+  clearChatState(chatJid: string, reason = "Web UI chat state expired"): void {
+    const normalizedChatJid = String(chatJid || "").trim();
+    if (!normalizedChatJid) return;
+    this.editorTextByChat.delete(normalizedChatJid);
+    this.themeByChat.delete(normalizedChatJid);
+    this.chatStateTouchedAtByChat.delete(normalizedChatJid);
+    for (const [requestId, pending] of this.pendingUiRequests) {
+      if (pending.chatJid !== normalizedChatJid) continue;
+      clearTimeout(pending.timeoutId);
+      this.pendingUiRequests.delete(requestId);
+      try {
+        pending.reject(new Error(reason));
+      } catch (error) {
+        debugSuppressedError(log, "Failed to reject a stale web UI request during chat-state cleanup.", error, {
+          chatJid: pending.chatJid,
+          kind: pending.kind,
+        });
+      }
+    }
   }
 
   stop(): void {
@@ -297,11 +332,36 @@ export class UiBridge {
       }
     }
     this.pendingUiRequests.clear();
+    this.editorTextByChat.clear();
+    this.themeByChat.clear();
+    this.chatStateTouchedAtByChat.clear();
   }
 
   private getWaitForIdleTimeoutMs(): number {
     const rawTimeout = this.options.waitForIdleTimeoutMs;
     if (!Number.isFinite(rawTimeout)) return 15000;
     return Math.max(1, Math.floor(rawTimeout as number));
+  }
+
+  private getChatStateTtlMs(): number {
+    const rawTtl = this.options.chatStateTtlMs;
+    if (!Number.isFinite(rawTtl)) return DEFAULT_CHAT_STATE_TTL_MS;
+    return Math.max(1, Math.floor(rawTtl as number));
+  }
+
+  private touchChat(chatJid: string): void {
+    const normalizedChatJid = String(chatJid || "").trim();
+    if (!normalizedChatJid) return;
+    const now = Date.now();
+    this.pruneExpiredChatState(now);
+    this.chatStateTouchedAtByChat.set(normalizedChatJid, now);
+  }
+
+  private pruneExpiredChatState(now = Date.now()): void {
+    const ttlMs = this.getChatStateTtlMs();
+    for (const [chatJid, touchedAt] of this.chatStateTouchedAtByChat) {
+      if (now - touchedAt < ttlMs) continue;
+      this.clearChatState(chatJid, "Web UI chat state expired");
+    }
   }
 }

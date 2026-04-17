@@ -11,12 +11,15 @@ import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 import { UiBridge } from "../../../src/channels/web/theming/ui-bridge.js";
 import { bindSessionUiContext, createUiContext } from "../../../src/channels/web/ui-context.js";
 
-function makeChannel(waitForIdleTimeoutMs?: number) {
+function makeChannel(options: { waitForIdleTimeoutMs?: number; chatStateTtlMs?: number } = {}) {
   const events: Array<{ type: string; payload: any }> = [];
   const channel = {
     broadcastEvent: (type: string, payload: any) => events.push({ type, payload }),
   };
-  const uiBridge = new UiBridge(channel as any, waitForIdleTimeoutMs == null ? undefined : { waitForIdleTimeoutMs });
+  const uiBridge = new UiBridge(channel as any, {
+    ...(options.waitForIdleTimeoutMs == null ? {} : { waitForIdleTimeoutMs: options.waitForIdleTimeoutMs }),
+    ...(options.chatStateTtlMs == null ? {} : { chatStateTtlMs: options.chatStateTtlMs }),
+  });
   (channel as any).uiBridge = uiBridge;
   return { channel, events, uiBridge };
 }
@@ -160,7 +163,7 @@ describe("ui-context", () => {
   });
 
   test("bindSessionUiContext waitForIdle unsubscribes after a bounded timeout when agent_end never arrives", async () => {
-    const { channel } = makeChannel(10);
+    const { channel } = makeChannel({ waitForIdleTimeoutMs: 10 });
     let boundArgs: any = null;
     let unsubscribeCalled = false;
 
@@ -182,7 +185,7 @@ describe("ui-context", () => {
   });
 
   test("bindSessionUiContext waitForIdle resolves when streaming stops before agent_end", async () => {
-    const { channel } = makeChannel(1000);
+    const { channel } = makeChannel({ waitForIdleTimeoutMs: 1000 });
     let boundArgs: any = null;
     let unsubscribeCalled = false;
     let listener: ((event: any) => void) | null = null;
@@ -222,5 +225,24 @@ describe("ui-context", () => {
 
     await bindSessionUiContext(channel as any, createRuntime(session), "whatsapp:123");
     expect(bindCalled).toBe(false);
+  });
+
+  test("UiBridge prunes stale per-chat state and rejects stale pending requests", async () => {
+    const { uiBridge } = makeChannel({ chatStateTtlMs: 10 });
+    const staleUi = uiBridge.createUiContext("web:stale");
+    staleUi.setEditorText("Alpha");
+    staleUi.setTheme("tango");
+    const pendingConfirm = staleUi.confirm("Confirm", "Are you sure?", { timeout: 1000 });
+
+    await Bun.sleep(20);
+
+    const freshUi = uiBridge.createUiContext("web:fresh");
+    freshUi.setEditorText("Beta");
+
+    await expect(pendingConfirm).rejects.toThrow("Web UI chat state expired");
+    expect(uiBridge.pendingUiRequests.size).toBe(0);
+    expect(uiBridge.editorTextByChat.has("web:stale")).toBe(false);
+    expect(uiBridge.themeByChat.has("web:stale")).toBe(false);
+    expect(uiBridge.editorTextByChat.get("web:fresh")).toBe("Beta");
   });
 });
