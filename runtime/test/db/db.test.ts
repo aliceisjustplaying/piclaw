@@ -531,6 +531,35 @@ test("deleteMessageByRowId cleans up media only when unreferenced", () => {
   expect(db.getMediaById(mediaId)).toBeUndefined();
 });
 
+test("deleteUnreferencedMedia removes media after sweeping dangling message_media rows", () => {
+  const mediaId = db.createMedia(
+    "orphan.txt",
+    "text/plain",
+    new TextEncoder().encode("orphaned"),
+    null,
+    { size: 8 }
+  );
+
+  db.getDb()
+    .prepare("INSERT INTO message_media (message_rowid, media_id) VALUES (?, ?)")
+    .run(999999, mediaId);
+
+  expect(db.getMediaById(mediaId)).toBeTruthy();
+  expect(
+    db.getDb()
+      .prepare("SELECT COUNT(*) AS count FROM message_media WHERE media_id = ?")
+      .get(mediaId),
+  ).toEqual({ count: 1 });
+
+  expect(db.deleteUnreferencedMedia([mediaId])).toBe(1);
+  expect(db.getMediaById(mediaId)).toBeUndefined();
+  expect(
+    db.getDb()
+      .prepare("SELECT COUNT(*) AS count FROM message_media WHERE media_id = ?")
+      .get(mediaId),
+  ).toEqual({ count: 0 });
+});
+
 test("deleteThreadByRowId removes thread replies and cleans up media", () => {
   const chatJid = `test:${Date.now()}-delete-thread`;
   db.storeChatMetadata(chatJid, new Date().toISOString(), "Test");

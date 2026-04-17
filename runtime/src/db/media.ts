@@ -69,8 +69,27 @@ export function deleteUnreferencedMedia(mediaIds: number[]): number {
   if (mediaIds.length === 0) return 0;
   const db = getDb();
   const placeholders = mediaIds.map(() => "?").join(",");
+  db
+    .prepare(
+      `DELETE FROM message_media
+        WHERE media_id IN (${placeholders})
+          AND NOT EXISTS (
+            SELECT 1
+              FROM messages
+             WHERE messages.rowid = message_media.message_rowid
+          )`
+    )
+    .run(...mediaIds);
   const res = db
-    .prepare(`DELETE FROM media WHERE id IN (${placeholders}) AND id NOT IN (SELECT media_id FROM message_media)`)
+    .prepare(
+      `DELETE FROM media
+        WHERE id IN (${placeholders})
+          AND NOT EXISTS (
+            SELECT 1
+              FROM message_media
+             WHERE message_media.media_id = media.id
+          )`
+    )
     .run(...mediaIds);
   return Number(res.changes || 0);
 }
