@@ -28,8 +28,10 @@ let signRequest: (identity: InteropIdentity, canonical: string) => string;
 let getRemotePeer: (id: string) => any;
 let getRemoteRequestById: (id: string) => any;
 let updatePairRequestStatus: (id: string, status: string) => void;
+let upsertRemotePeer: (peer: any) => void;
 let initDatabase: () => void;
 let RemoteInteropService: any;
+let handlePairRequest: (req: Request, context: any) => Promise<Response>;
 
 let originalFetch: typeof fetch | null = null;
 const TEST_REMOTE_BASE_URL = "https://93.184.216.34";
@@ -151,9 +153,13 @@ describe("remote interop", () => {
     getRemotePeer = remoteDbMod.getRemotePeer;
     getRemoteRequestById = remoteDbMod.getRemoteRequestById;
     updatePairRequestStatus = remoteDbMod.updatePairRequestStatus;
+    upsertRemotePeer = remoteDbMod.upsertRemotePeer;
 
     const serviceMod = await importFresh("../src/remote/service.js");
     RemoteInteropService = serviceMod.RemoteInteropService;
+
+    const pairingMod = await importFresh("../src/remote/service-pairing.js");
+    handlePairRequest = pairingMod.handlePairRequest;
 
     resetInteropIdentityForTests();
     initDatabase();
@@ -306,6 +312,87 @@ describe("remote interop", () => {
     }
 
     expect(lastStatus).toBe(429);
+  });
+
+  test("pair request checks rate limit before callback validation", async () => {
+    const peer = makeIdentity();
+    let validateCalls = 0;
+
+    const res = await handlePairRequest(
+      new Request("http://localhost/api/remote/pair-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instance_id: peer.instance_id,
+          public_key: peer.public_key,
+          display_name: "peer",
+          callback_url: `${TEST_REMOTE_BASE_URL}/api/remote/pair-confirm`,
+          protocol_version: "1",
+          nonce: "abc",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      }),
+      {
+        pairLimiter: { allow: () => false },
+        pairConfirmLimiter: { allow: () => true },
+        nonceCache: {},
+        validateCallbackUrl: async () => {
+          validateCalls += 1;
+          return { ok: true, url: new URL(`${TEST_REMOTE_BASE_URL}/api/remote/pair-confirm`) };
+        },
+      }
+    );
+
+    expect(res.status).toBe(429);
+    expect(validateCalls).toBe(0);
+  });
+
+  test("pair request rejects already paired peers before callback validation", async () => {
+    const peer = makeIdentity();
+    let validateCalls = 0;
+    const now = new Date().toISOString();
+    upsertRemotePeer({
+      instance_id: peer.instance_id,
+      public_key: peer.public_key,
+      display_name: "peer",
+      status: "paired",
+      mode: "mediated",
+      profile: "restricted",
+      trust_epoch: 1,
+      created_at: now,
+      updated_at: now,
+      last_seen_at: now,
+      blocked_reason: null,
+    });
+
+    const res = await handlePairRequest(
+      new Request("http://localhost/api/remote/pair-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instance_id: peer.instance_id,
+          public_key: peer.public_key,
+          display_name: "peer",
+          callback_url: `${TEST_REMOTE_BASE_URL}/api/remote/pair-confirm`,
+          protocol_version: "1",
+          nonce: "abc",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      }),
+      {
+        pairLimiter: { allow: () => true },
+        pairConfirmLimiter: { allow: () => true },
+        nonceCache: {},
+        validateCallbackUrl: async () => {
+          validateCalls += 1;
+          return { ok: true, url: new URL(`${TEST_REMOTE_BASE_URL}/api/remote/pair-confirm`) };
+        },
+      }
+    );
+
+    expect(res.status).toBe(409);
+    expect(validateCalls).toBe(0);
+    expect(await res.json()).toEqual({ error: "Peer is already paired." });
   });
 
   test("pair confirm rate limit", async () => {
