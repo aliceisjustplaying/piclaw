@@ -2,7 +2,6 @@
 import { useEffect, useRef } from '../vendor/preact-htm.js';
 import { SSEClient } from '../api.js';
 import { isIOSDevice } from './app-helpers.js';
-import { watchReturnToApp } from './app-resume.js';
 
 export function bindSseWakeLifecycle({ sse, onWake }, runtime = {}) {
   const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
@@ -11,35 +10,63 @@ export function bindSseWakeLifecycle({ sse, onWake }, runtime = {}) {
     return () => {};
   }
 
-  const stopWatchingReturn = watchReturnToApp(() => {
+  const reconnectAfterReturn = () => {
+    if (typeof sse.forceReconnect === 'function') {
+      sse.forceReconnect();
+      return;
+    }
     sse.reconnectIfNeeded();
-    onWake?.();
-  }, {
-    window: win,
-    document: doc,
-    ...(typeof runtime.now === 'function' ? { now: runtime.now } : {}),
-    ...(Number.isFinite(runtime.minHiddenMs) ? { minHiddenMs: runtime.minHiddenMs } : {}),
-    ...(Number.isFinite(runtime.dedupeMs) ? { dedupeMs: runtime.dedupeMs } : {}),
-  });
+  };
 
   const shouldUseFocusReconnect = typeof runtime.useFocusReconnect === 'boolean'
     ? runtime.useFocusReconnect
     : !isIOSDevice();
+  let pendingWake = doc.visibilityState && doc.visibilityState !== 'visible';
 
-  const handleWindowFocus = () => {
-    if (!shouldUseFocusReconnect) return;
-    sse.reconnectIfNeeded();
+  const handleHiddenState = () => {
+    if (doc.visibilityState && doc.visibilityState !== 'visible') {
+      pendingWake = true;
+      return true;
+    }
+    return false;
   };
 
-  if (shouldUseFocusReconnect) {
-    win.addEventListener('focus', handleWindowFocus);
-  }
+  const handleVisibleReturn = () => {
+    if (handleHiddenState()) return;
+    if (pendingWake) {
+      pendingWake = false;
+      reconnectAfterReturn();
+      onWake?.();
+    }
+  };
+
+  const handleWindowFocus = () => {
+    if (handleHiddenState()) return;
+    if (pendingWake) {
+      handleVisibleReturn();
+      return;
+    }
+    if (shouldUseFocusReconnect) {
+      sse.reconnectIfNeeded();
+    }
+  };
+
+  const handlePageShow = () => {
+    handleVisibleReturn();
+  };
+
+  const handleVisibilityChange = () => {
+    handleVisibleReturn();
+  };
+
+  win.addEventListener('focus', handleWindowFocus);
+  win.addEventListener('pageshow', handlePageShow);
+  doc.addEventListener('visibilitychange', handleVisibilityChange);
 
   return () => {
-    if (shouldUseFocusReconnect) {
-      win.removeEventListener('focus', handleWindowFocus);
-    }
-    stopWatchingReturn();
+    win.removeEventListener('focus', handleWindowFocus);
+    win.removeEventListener('pageshow', handlePageShow);
+    doc.removeEventListener('visibilitychange', handleVisibilityChange);
   };
 }
 
