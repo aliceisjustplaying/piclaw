@@ -62,6 +62,8 @@ export interface IpcDeps {
   resumePending?: (data?: Record<string, unknown>) => Promise<void>;
   /** Run a Dream/AutoDream cycle out of band. */
   runDream?: (data: Record<string, unknown>) => Promise<void>;
+  /** Execute an approved mediated proposal via the agent pool. */
+  executeProposal?: (proposalId: string) => Promise<void>;
 }
 
 /** Guard to prevent starting the watcher more than once. */
@@ -641,6 +643,22 @@ export async function processTaskCommand(data: JsonRecord, deps: IpcDeps): Promi
       });
       if (deps.runDream) {
         await deps.runDream(data);
+      }
+      break;
+    }
+
+    case "execute_proposal": {
+      const proposalId = getStringField(data, "proposal_id");
+      if (!proposalId) {
+        log.warn("execute_proposal task missing proposal_id", { operation: "process_task_command.execute_proposal" });
+        break;
+      }
+      log.info("Processing execute_proposal IPC task", {
+        operation: "process_task_command.execute_proposal",
+        proposalId,
+      });
+      if (deps.executeProposal) {
+        await deps.executeProposal(proposalId);
       }
       break;
     }

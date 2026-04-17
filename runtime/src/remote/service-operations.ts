@@ -5,7 +5,7 @@
 import { createUuid } from "../utils/ids.js";
 import type { AgentPool } from "../agent-pool.js";
 import { formatRecoverySummary } from "../agent-pool/automatic-recovery.js";
-import { getRemotePeer, storeRemoteRequest, updateRemotePeer, type RemotePeerRecord } from "../db/remote-interop.js";
+import { getRemotePeer, getRemoteRequestById, storeRemoteRequest, updateRemoteRequestDecision, updateRemotePeer, type RemotePeerRecord } from "../db/remote-interop.js";
 import type { RemoteInteropConfig } from "../core/config.js";
 import { verifySignedRequest } from "./auth.js";
 import type { RemoteNonceCache } from "./nonce-cache.js";
@@ -27,8 +27,12 @@ import {
 } from "./http-utils.js";
 import { logAudit } from "./service-security.js";
 import { loadOrCreateIdentity } from "./identity.js";
+import { buildSignedRequestHeaders } from "../extensions/remote-pair.js";
 import { RemoteExecuteConcurrency } from "./execute-concurrency.js";
 import { getToolCeilingFilter } from "./policy.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("remote.service-operations");
 
 /** Shared remote operation handler dependencies owned by the remote service runtime. */
 export interface RemoteOperationHandlersContext {
@@ -263,4 +267,91 @@ export async function handleRevoke(req: Request, context: RemoteOperationHandler
   });
   logAudit(peer, "/api/remote/revoke", "revoked", "revoked");
   return jsonResponse({ status: "revoked", trust_epoch: nextEpoch });
+}
+
+// ─── Proposal execution (called via IPC, not HTTP) ───────────────────────────
+
+/**
+ * Execute a previously approved mediated proposal. Called from the IPC task
+ * handler when an operator runs `/pair approve <id>`.
+ *
+ * Fetches the proposal from the database, runs it through the agent pool,
+ * stores the result, and pushes a signed result callback to the requesting peer.
+ */
+export async function executeApprovedProposal(
+  proposalId: string,
+  agentPool: AgentPool,
+  notify?: (text: string) => void | Promise<void>,
+): Promise<void> {
+  const proposal = getRemoteRequestById(proposalId);
+  if (!proposal) {
+    log.warn("execute_proposal: proposal not found", { proposalId });
+    return;
+  }
+  if (proposal.status !== "pending") {
+    log.warn("execute_proposal: proposal not pending", { proposalId, status: proposal.status });
+    return;
+  }
+
+  const peer = getRemotePeer(proposal.peer_instance_id);
+  if (!peer || peer.status !== "paired") {
+    updateRemoteRequestDecision(proposalId, "rejected", null, "Peer no longer paired.");
+    log.warn("execute_proposal: peer not paired", { proposalId, peerId: proposal.peer_instance_id });
+    return;
+  }
+
+  const prompt = proposal.prompt;
+  if (!prompt) {
+    updateRemoteRequestDecision(proposalId, "rejected", null, "Empty prompt.");
+    return;
+  }
+
+  const maxToolCalls = peer.profile === "full" ? DEFAULT_MAX_TOOL_CALLS_FULL : DEFAULT_MAX_TOOL_CALLS_RESTRICTED;
+  const toolCeilingFilter = getToolCeilingFilter(peer.profile) ?? undefined;
+  const chatJid = `remote:${peer.instance_id}`;
+  const start = Date.now();
+
+  try {
+    const output = await agentPool.runAgent(prompt, chatJid, {
+      timeoutMs: 60_000,
+      maxToolCalls,
+      toolCeilingFilter,
+    });
+    const duration = Date.now() - start;
+
+    if (output.status === "error") {
+      updateRemoteRequestDecision(proposalId, "accepted", null, output.error || "Execution failed.");
+      notify?.(`Proposal \`${proposalId}\` execution failed: ${output.error || "unknown error"}`);
+      return;
+    }
+
+    const resultText = output.result || "";
+    updateRemoteRequestDecision(proposalId, "accepted", resultText);
+
+    const peerLabel = peer.display_name ?? `${peer.instance_id.slice(0, 6)}…`;
+    notify?.(`Proposal \`${proposalId}\` from **${peerLabel}** executed (${duration}ms).\n\n**Result:**\n${resultText.slice(0, 500)}${resultText.length > 500 ? "…" : ""}`);
+
+    // Push result callback to the requesting peer.
+    if (peer.base_url) {
+      try {
+        const identity = loadOrCreateIdentity();
+        const endpoint = "/api/remote/result";
+        const body = JSON.stringify({
+          negotiation_id: proposalId,
+          decision: "accept_execute",
+          result: resultText,
+          usage: { duration_ms: duration },
+        });
+        const bodyBytes = new TextEncoder().encode(body);
+        const headers = buildSignedRequestHeaders(identity, endpoint, bodyBytes, peer.trust_epoch);
+        await fetch(`${peer.base_url}${endpoint}`, { method: "POST", headers, body });
+      } catch (err) {
+        log.warn("Failed to push result callback", { operation: "execute_proposal.callback", proposalId, err });
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    updateRemoteRequestDecision(proposalId, "accepted", null, msg);
+    notify?.(`Proposal \`${proposalId}\` execution threw: ${msg}`);
+  }
 }
