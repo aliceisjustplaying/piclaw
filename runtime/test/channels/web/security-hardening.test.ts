@@ -9,6 +9,8 @@
  * - Agent message content length limits
  */
 import { describe, test, expect } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
 import { getTestWorkspace, setEnv } from "../../helpers.js";
 
 // ── Post content length validation ──
@@ -684,6 +686,26 @@ describe("CSRF origin checks", () => {
 
     const res = await router.handle(req);
     expect(res.status).toBe(403);
+  });
+
+  test("serveStaticAsset rejects same-prefix sibling traversal paths", async () => {
+    const runtimeRoot = join(import.meta.dir, "..", "..", "..");
+    const staticSiblingDir = join(runtimeRoot, "web", "static-backup");
+    const staticSiblingFile = join(staticSiblingDir, "router-secret.txt");
+
+    mkdirSync(staticSiblingDir, { recursive: true });
+    writeFileSync(staticSiblingFile, "router secret", "utf8");
+
+    try {
+      const router = new RequestRouterService(new StubChannel() as any);
+      const res = await (router as any).serveStaticAsset(
+        new Request("http://localhost/favicon.ico"),
+        "../static-backup/router-secret.txt",
+      );
+      expect(res.status).toBe(404);
+    } finally {
+      rmSync(staticSiblingDir, { recursive: true, force: true });
+    }
   });
 });
 

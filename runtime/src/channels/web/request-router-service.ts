@@ -24,7 +24,7 @@
  * Consumers: channels/web.ts delegates each request to handle().
  */
 
-import { extname, resolve } from "path";
+import { extname, isAbsolute, relative, resolve } from "path";
 import { createUuid } from "../../utils/ids.js";
 import type { WebChannelLike } from "./core/web-channel-contracts.js";
 import { rememberWebOrigin } from "./auth/request-origin.js";
@@ -53,6 +53,11 @@ const STATIC_MIME_TYPES: Record<string, string> = {
   ".json": "application/manifest+json; charset=utf-8",
 };
 
+function isPathWithin(baseDir: string, filePath: string): boolean {
+  const rel = relative(baseDir, filePath);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 /** Business logic for handling compose-box submissions and agent runs. */
 export class RequestRouterService {
   constructor(private channel: WebChannelLike) {}
@@ -60,7 +65,7 @@ export class RequestRouterService {
   private async serveStaticAsset(req: Request, relPath: string): Promise<Response> {
     const filePath = resolve(STATIC_DIR, relPath);
 
-    if (!filePath.startsWith(STATIC_DIR)) {
+    if (!isPathWithin(STATIC_DIR, filePath)) {
       return this.channel.json({ error: "Not found" }, 404);
     }
 
