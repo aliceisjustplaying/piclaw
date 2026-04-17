@@ -4,6 +4,7 @@ import { getAppPerfTracing, startAppPerfTrace } from '../../web/src/ui/app-perf-
 import {
   isAppChatActivationRecent,
   noteAppChatActivation,
+  pruneAppRefreshCoordination,
   resetAppRefreshCoordination,
   runCoalescedAppRefresh,
 } from '../../web/src/ui/app-refresh-coordination.js';
@@ -127,4 +128,41 @@ test('runCoalescedAppRefresh suppresses immediate duplicate refreshes after chat
   expect(first).toEqual({ run: 1 });
   expect(second).toEqual({ run: 1 });
   expect(callCount).toBe(1);
+});
+
+test('pruneAppRefreshCoordination drops stale cached refresh results for long-lived sessions', async () => {
+  let callCount = 0;
+
+  noteAppChatActivation({ chatJid: 'web:branch', nowMs: 100 });
+
+  const first = await runCoalescedAppRefresh({
+    kind: 'model-state',
+    chatJid: 'web:branch',
+    cooldownMs: Number.MAX_SAFE_INTEGER,
+    activationWindowMs: 1_500,
+    run: async () => {
+      callCount += 1;
+      return { run: callCount };
+    },
+    nowMs: 110,
+  });
+
+  pruneAppRefreshCoordination(Number.MAX_SAFE_INTEGER);
+  noteAppChatActivation({ chatJid: 'web:branch', nowMs: 120 });
+
+  const second = await runCoalescedAppRefresh({
+    kind: 'model-state',
+    chatJid: 'web:branch',
+    cooldownMs: Number.MAX_SAFE_INTEGER,
+    activationWindowMs: 1_500,
+    run: async () => {
+      callCount += 1;
+      return { run: callCount };
+    },
+    nowMs: 130,
+  });
+
+  expect(first).toEqual({ run: 1 });
+  expect(second).toEqual({ run: 2 });
+  expect(callCount).toBe(2);
 });

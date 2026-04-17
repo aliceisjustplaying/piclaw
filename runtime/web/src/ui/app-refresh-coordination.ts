@@ -45,11 +45,25 @@ function pruneOldChatActivations(nowMs: number): void {
   }
 }
 
+function pruneStaleRefreshStates(nowMs: number): void {
+  for (const [key, state] of refreshStates.entries()) {
+    if (state.inFlight) continue;
+    if (!Number.isFinite(state.lastCompletedAt) || nowMs - state.lastCompletedAt > ACTIVATION_RETENTION_MS) {
+      refreshStates.delete(key);
+    }
+  }
+}
+
+export function pruneAppRefreshCoordination(nowMs = now()): void {
+  pruneOldChatActivations(nowMs);
+  pruneStaleRefreshStates(nowMs);
+}
+
 export function noteAppChatActivation(options: NoteAppChatActivationOptions): void {
   const { chatJid, nowMs = now() } = options;
   if (!chatJid) return;
   recentChatActivationAt.set(chatJid, nowMs);
-  pruneOldChatActivations(nowMs);
+  pruneAppRefreshCoordination(nowMs);
 }
 
 export function isAppChatActivationRecent(chatJid: string, withinMs = DEFAULT_ACTIVATION_WINDOW_MS, nowMs = now()): boolean {
@@ -68,6 +82,8 @@ export async function runCoalescedAppRefresh<T>(options: RunCoalescedAppRefreshO
     activationWindowMs = DEFAULT_ACTIVATION_WINDOW_MS,
     nowMs = now(),
   } = options;
+
+  pruneAppRefreshCoordination(nowMs);
 
   const key = buildRefreshKey(kind, chatJid);
   const state = refreshStates.get(key) || {
