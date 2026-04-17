@@ -48,6 +48,14 @@ import {
 const log = createLogger("extensions.experimental.m365.index");
 const M365_STATUS_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="3" y="3" width="8" height="8" rx="1.2"></rect><rect x="13" y="3" width="8" height="8" rx="1.2"></rect><rect x="3" y="13" width="8" height="8" rx="1.2"></rect><rect x="13" y="13" width="8" height="8" rx="1.2"></rect></svg>`;
 
+export function compileM365SyncPattern(pattern: string): RegExp {
+	const escaped = String(pattern)
+		.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&")
+		.replace(/\\\*/g, ".*")
+		.replace(/\\\?/g, ".");
+	return new RegExp(`^${escaped}$`, "i");
+}
+
 function readTrimmedString(...values: unknown[]): string | null {
 	for (const value of values) {
 		if (typeof value === "string" && value.trim()) return value.trim();
@@ -1502,7 +1510,7 @@ export default function (pi: ExtensionAPI) {
 
 			const direction = (params.direction ?? "upload").toLowerCase();
 			const dryRun = getDryRun(params);
-			const pattern = params.pattern ? new RegExp(params.pattern.replace(/\*/g, ".*").replace(/\?/g, "."), "i") : null;
+			const pattern = params.pattern ? compileM365SyncPattern(params.pattern) : null;
 
 			let driveId = params.driveId;
 			let folderId = params.folderId;
