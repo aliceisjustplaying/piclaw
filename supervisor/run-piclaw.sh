@@ -23,7 +23,11 @@ fi
 
 if [ "${PICLAW_AUTOSTART:-1}" != "1" ]; then
   echo "[run-piclaw] PICLAW_AUTOSTART=0; supervisor service is idle."
-  tail -f /dev/null & wait $!
+  tail -f /dev/null &
+  IDLE_CHILD_PID=$!
+  trap 'kill "$IDLE_CHILD_PID" 2>/dev/null || true; wait "$IDLE_CHILD_PID" 2>/dev/null || true; exit 0' TERM INT
+  wait "$IDLE_CHILD_PID"
+  exit 0
 fi
 
 PORT="${PICLAW_WEB_PORT:-8080}"
