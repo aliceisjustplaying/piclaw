@@ -198,6 +198,7 @@ interface ComposeViewRefreshLifecycleOptionsInput {
   dismissedQueueRowIdsRef: RefBox<Set<string | number>>;
   refreshQueueState: () => Promise<void>;
   refreshAgentStatus: () => Promise<any>;
+  refreshModelState: () => Promise<void>;
   refreshContextUsage: () => Promise<void>;
   viewStateRef: RefBox<Record<string, unknown> | null | undefined>;
   refreshTimeline: () => Promise<void>;
@@ -228,6 +229,7 @@ export function composeViewRefreshLifecycleOptions(input: ComposeViewRefreshLife
     dismissedQueueRowIdsRef: input.dismissedQueueRowIdsRef,
     refreshQueueState: input.refreshQueueState,
     refreshAgentStatus: input.refreshAgentStatus,
+    refreshModelState: input.refreshModelState,
     refreshContextUsage: input.refreshContextUsage,
     viewStateRef: input.viewStateRef,
     refreshTimeline: input.refreshTimeline,
@@ -408,6 +410,7 @@ export function useMainAppLifecycleComposition(options: UseMainAppLifecycleCompo
     ...options,
     refreshQueueState: agentStatusLifecycle.refreshQueueState,
     refreshAgentStatus: agentStatusLifecycle.refreshAgentStatus,
+    refreshModelState: chatRefreshLifecycle.refreshModelState,
     refreshContextUsage: agentStatusLifecycle.refreshContextUsage,
     refreshModelAndQueueState: chatRefreshLifecycle.refreshModelAndQueueState,
     refreshPostPaintThreadState: chatRefreshLifecycle.refreshPostPaintThreadState,

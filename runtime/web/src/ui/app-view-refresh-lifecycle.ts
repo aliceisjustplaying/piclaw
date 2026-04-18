@@ -42,6 +42,19 @@ export function hydrateThreadStateAfterTimelineLoad(options: {
   void refreshAgentStatus();
 }
 
+export function refreshChatMetadataAfterRestore(options: {
+  refreshModelState: () => Promise<void>;
+  refreshContextUsage: () => Promise<void>;
+}): void {
+  const {
+    refreshModelState,
+    refreshContextUsage,
+  } = options;
+
+  void refreshModelState();
+  void refreshContextUsage();
+}
+
 interface UseViewRefreshLifecycleOptions {
   currentChatJid: string;
   currentRootChatJid: string;
@@ -69,6 +82,7 @@ interface UseViewRefreshLifecycleOptions {
   dismissedQueueRowIdsRef: RefBox<Set<string | number>>;
   refreshQueueState: () => Promise<void>;
   refreshAgentStatus: () => Promise<any>;
+  refreshModelState: () => Promise<void>;
   refreshContextUsage: () => Promise<void>;
   viewStateRef: RefBox<Record<string, unknown> | null | undefined>;
   refreshTimeline: () => Promise<void>;
@@ -98,6 +112,8 @@ export function useViewRefreshLifecycle(options: UseViewRefreshLifecycleOptions)
     restoreChatPaneState,
     dismissedQueueRowIdsRef,
     refreshAgentStatus,
+    refreshModelState,
+    refreshContextUsage,
     viewStateRef,
     refreshTimeline,
     refreshModelAndQueueState,
@@ -195,11 +211,17 @@ export function useViewRefreshLifecycle(options: UseViewRefreshLifecycleOptions)
     paneStateOwnerChatJidRef.current = currentChatJid;
     dismissedQueueRowIdsRef.current.clear();
     restoreChatPaneState(chatPaneStateByChatRef.current.get(currentChatJid) || null);
+    refreshChatMetadataAfterRestore({
+      refreshModelState,
+      refreshContextUsage,
+    });
   }, [
     chatPaneStateByChatRef,
     currentChatJid,
     dismissedQueueRowIdsRef,
     paneStateOwnerChatJidRef,
+    refreshContextUsage,
+    refreshModelState,
     restoreChatPaneState,
     snapshotCurrentChatPaneState,
   ]);
