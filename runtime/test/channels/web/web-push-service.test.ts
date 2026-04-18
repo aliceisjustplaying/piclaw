@@ -81,7 +81,7 @@ describe("web push service", () => {
     expect(String((deliveries[0]?.options.vapidDetails as any)?.privateKey)).not.toContain("BEGIN");
   });
 
-  test("defaults to a local-safe VAPID subject when one is not supplied", async () => {
+  test("defaults to the configured VAPID subject when one is not supplied", async () => {
     const baseDir = createTempPushDir();
     upsertStoredWebPushSubscription(createSubscription(11), { baseDir });
 
@@ -98,7 +98,7 @@ describe("web push service", () => {
 
     expect(result).toEqual({ attempted: 1, sent: 1, removed: 0, failed: 0 });
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]?.subject).toBe("mailto:notifications@localhost.invalid");
+    expect(deliveries[0]?.subject).toBe(process.env.PICLAW_WEB_PUSH_VAPID_SUBJECT?.trim() || "mailto:notifications@localhost.invalid");
   });
 
   test("removes expired subscriptions and keeps non-expired failures", async () => {

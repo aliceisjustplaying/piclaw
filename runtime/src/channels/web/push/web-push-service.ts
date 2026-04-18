@@ -54,6 +54,7 @@ export interface SendStoredWebPushNotificationOptions {
   baseDir?: string;
   vapidSubject?: string;
   chatJid?: string;
+  targetDeviceId?: string;
   ttl?: number;
   urgency?: "very-low" | "low" | "normal" | "high";
   sendNotification?: (
