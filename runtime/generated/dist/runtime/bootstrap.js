@@ -48,6 +48,9 @@ export async function bootstrapRuntime(deps) {
     await deps.registerOptionalProviders(agentPool);
     deps.log("=== Piclaw - Pi Coding Agent Assistant ===");
     const web = await deps.startWebChannel(queue, agentPool);
+    if (typeof web.broadcastEvent === "function") {
+        globalThis.__PICLAW_BROADCAST_EVENT__ = (t, d) => web.broadcastEvent(t, d);
+    }
     const pushover = await deps.startOptionalPushoverChannel();
     const whatsapp = deps.createWhatsAppChannel(state);
     const shutdown = deps.createShutdownHandler({

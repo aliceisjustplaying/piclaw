@@ -1,4 +1,6 @@
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
+const ANTHROPIC_OAUTH_USAGE_BETA = "oauth-2025-04-20";
+const PROVIDER_USAGE_FETCH_TIMEOUT_MS = 10_000;
 const USAGE_CACHE_TTL_MS = Number(process.env.PICLAW_PROVIDER_USAGE_TTL_MS || "60000");
 const usageCache = new Map();
 const usageRefreshInFlight = new Map();
@@ -55,6 +57,29 @@ function compactPercent(value) {
         return null;
     return `${Math.round(value)}%`;
 }
+function formatUsd(value) {
+    if (value == null || !Number.isFinite(value))
+        return null;
+    const rendered = Number.isInteger(value)
+        ? value.toFixed(0)
+        : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+    return `$${rendered}`;
+}
+function formatCurrencyMinorUnits(amountMinor, currency) {
+    if (amountMinor == null || !Number.isFinite(amountMinor) || !currency || !currency.trim())
+        return null;
+    try {
+        return new Intl.NumberFormat("en", {
+            style: "currency",
+            currency: currency.trim().toUpperCase(),
+            currencyDisplay: "symbol",
+            maximumFractionDigits: 2,
+        }).format(amountMinor / 100);
+    }
+    catch {
+        return null;
+    }
+}
 function buildCodexHint(primary, secondary, creditsRemaining, creditsUnlimited) {
     const parts = [];
     const p1 = compactPercent(primary?.remaining_percent ?? null);
@@ -79,6 +104,99 @@ function buildCopilotHint(primary, secondary) {
     if (chat)
         parts.push(`chat ${chat}`);
     return parts.join(" • ");
+}
+function buildExtraUsageHint(enabled, unlimited, usedUsd, monthlyLimitUsd, grantAmountMinorUnits, grantCurrency) {
+    if (!enabled) {
+        const grantLabel = formatCurrencyMinorUnits(grantAmountMinorUnits, grantCurrency);
+        if (grantLabel)
+            return `extra off (${grantLabel})`;
+        const limitLabel = formatUsd(monthlyLimitUsd);
+        if (limitLabel)
+            return `extra off (${limitLabel})`;
+        return null;
+    }
+    if (unlimited)
+        return "extra ∞";
+    const usedLabel = formatUsd(usedUsd);
+    const limitLabel = formatUsd(monthlyLimitUsd);
+    if (usedLabel && limitLabel)
+        return `extra ${usedLabel}/${limitLabel}`;
+    if (limitLabel)
+        return `extra ${limitLabel}`;
+    return null;
+}
+function nextMonthResetDate() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() + 1, 1);
+}
+function makeExtraUsage(payload, overageGrant = null) {
+    if (!payload && !overageGrant)
+        return null;
+    const enabled = payload?.is_enabled === true;
+    const monthlyLimitMinor = payload?.monthly_limit;
+    const usedMinor = payload?.used_credits;
+    const grantAmountMinorUnits = overageGrant?.granted && Number.isFinite(Number(overageGrant?.amount_minor_units))
+        ? Number(overageGrant.amount_minor_units)
+        : null;
+    const grantCurrency = typeof overageGrant?.currency === "string" && overageGrant.currency.trim()
+        ? overageGrant.currency.trim().toUpperCase()
+        : null;
+    if (!enabled && (grantAmountMinorUnits == null || grantAmountMinorUnits <= 0) && monthlyLimitMinor == null) {
+        return null;
+    }
+    const unlimited = enabled && monthlyLimitMinor === null;
+    const usedUsd = usedMinor != null && Number.isFinite(Number(usedMinor)) ? Number(usedMinor) / 100 : null;
+    const monthlyLimitUsd = !unlimited && monthlyLimitMinor != null && Number.isFinite(Number(monthlyLimitMinor))
+        ? Number(monthlyLimitMinor) / 100
+        : null;
+    const resetDate = enabled ? (parseDate(payload?.resets_at ?? payload?.reset_at) ?? nextMonthResetDate()) : null;
+    const hintShort = buildExtraUsageHint(enabled, unlimited, usedUsd, monthlyLimitUsd, grantAmountMinorUnits, grantCurrency);
+    return {
+        enabled,
+        unlimited,
+        used_usd: usedUsd,
+        monthly_limit_usd: monthlyLimitUsd,
+        grant_amount_minor_units: grantAmountMinorUnits,
+        grant_currency: grantCurrency,
+        utilization_percent: clampPercent(payload?.utilization),
+        resets_at: resetDate ? resetDate.toISOString() : null,
+        reset_description: formatResetDescription(resetDate),
+        hint_short: hintShort,
+    };
+}
+function buildAnthropicHint(primary, secondary, extraUsage) {
+    const parts = [];
+    const p1 = compactPercent(primary?.remaining_percent ?? null);
+    const p2 = compactPercent(secondary?.remaining_percent ?? null);
+    if (p1)
+        parts.push(`5h ${p1}`);
+    if (p2)
+        parts.push(`wk ${p2}`);
+    if (extraUsage?.hint_short)
+        parts.push(extraUsage.hint_short);
+    return parts.join(" • ");
+}
+function firstNonEmptyString(...values) {
+    for (const value of values) {
+        if (typeof value === "string" && value.trim())
+            return value.trim();
+    }
+    return null;
+}
+const anthropicOrgUuidByAccessToken = new Map();
+async function fetchJsonWithTimeout(url, init) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), PROVIDER_USAGE_FETCH_TIMEOUT_MS) : null;
+    try {
+        return await fetch(url, {
+            ...init,
+            ...(controller ? { signal: controller.signal } : {}),
+        });
+    }
+    finally {
+        if (timeoutId)
+            clearTimeout(timeoutId);
+    }
 }
 async function getOAuthCredential(authStorage, providerId) {
     const current = authStorage.get(providerId) ?? null;
@@ -129,6 +247,7 @@ async function fetchCodexUsage(authStorage) {
         secondary,
         credits_remaining: Number.isFinite(creditsRemaining) ? creditsRemaining : null,
         credits_unlimited: creditsUnlimited,
+        extra_usage: null,
         hint_short: buildCodexHint(primary, secondary, Number.isFinite(creditsRemaining) ? creditsRemaining : null, creditsUnlimited),
     };
 }
@@ -181,11 +300,94 @@ async function fetchGitHubCopilotUsage(authStorage) {
         secondary,
         credits_remaining: null,
         credits_unlimited: false,
+        extra_usage: null,
         hint_short: buildCopilotHint(primary, secondary),
     };
 }
+async function fetchAnthropicOAuthProfile(accessToken) {
+    const res = await fetchJsonWithTimeout("https://api.anthropic.com/api/oauth/profile", {
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "PiClaw",
+            "anthropic-beta": ANTHROPIC_OAUTH_USAGE_BETA,
+        },
+    });
+    if (!res.ok)
+        return null;
+    return await res.json();
+}
+async function getAnthropicOrganizationUuid(accessToken) {
+    if (anthropicOrgUuidByAccessToken.has(accessToken)) {
+        return anthropicOrgUuidByAccessToken.get(accessToken) || null;
+    }
+    const profile = await fetchAnthropicOAuthProfile(accessToken);
+    const orgUuid = typeof profile?.organization?.uuid === "string" && profile.organization.uuid.trim()
+        ? profile.organization.uuid.trim()
+        : null;
+    anthropicOrgUuidByAccessToken.set(accessToken, orgUuid);
+    return orgUuid;
+}
+async function fetchAnthropicOverageCreditGrant(accessToken) {
+    const orgUuid = await getAnthropicOrganizationUuid(accessToken);
+    if (!orgUuid)
+        return null;
+    const res = await fetchJsonWithTimeout(`https://api.anthropic.com/api/oauth/organizations/${orgUuid}/overage_credit_grant`, {
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "PiClaw",
+            "anthropic-beta": ANTHROPIC_OAUTH_USAGE_BETA,
+            "x-organization-uuid": orgUuid,
+        },
+    });
+    if (!res.ok)
+        return null;
+    return await res.json();
+}
+async function fetchAnthropicUsage(authStorage) {
+    const credential = await getOAuthCredential(authStorage, "anthropic");
+    if (!credential?.access)
+        return null;
+    const usageResponse = await fetchJsonWithTimeout("https://api.anthropic.com/api/oauth/usage", {
+        headers: {
+            Authorization: `Bearer ${credential.access}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "PiClaw",
+            "anthropic-beta": ANTHROPIC_OAUTH_USAGE_BETA,
+        },
+    });
+    if (!usageResponse.ok)
+        return null;
+    const payload = (await usageResponse.json());
+    let overageGrant = null;
+    try {
+        overageGrant = await fetchAnthropicOverageCreditGrant(credential.access);
+    }
+    catch (error) {
+        debugSuppressedError(log, "Failed to fetch Anthropic overage credit grant; continuing without it.", error);
+    }
+    const primary = makeWindow("5h", payload?.five_hour?.utilization, payload?.five_hour?.resets_at ?? payload?.five_hour?.reset_at, 300);
+    const secondary = makeWindow("week", payload?.seven_day?.utilization, payload?.seven_day?.resets_at ?? payload?.seven_day?.reset_at, 7 * 24 * 60);
+    const extraUsage = makeExtraUsage(payload?.extra_usage, overageGrant);
+    return {
+        provider: "anthropic",
+        source: overageGrant?.granted === true ? "anthropic-oauth-usage-api+overage-credit-grant" : "anthropic-oauth-usage-api",
+        plan: firstNonEmptyString(payload?.plan, payload?.plan_type, payload?.subscription_type, credential?.plan, credential?.plan_type, credential?.subscriptionType, credential?.subscription_type),
+        fetched_at: new Date().toISOString(),
+        primary,
+        secondary,
+        credits_remaining: null,
+        credits_unlimited: false,
+        extra_usage: extraUsage,
+        hint_short: buildAnthropicHint(primary, secondary, extraUsage),
+    };
+}
 function isSupportedProviderId(providerId) {
-    return providerId === "openai-codex" || providerId === "github-copilot";
+    return providerId === "openai-codex" || providerId === "github-copilot" || providerId === "anthropic";
 }
 function getCachedUsageEntry(providerId) {
     return usageCache.get(providerId) ?? null;
@@ -197,7 +399,9 @@ function hasFreshCachedUsage(providerId) {
 async function fetchProviderUsage(authStorage, providerId) {
     return providerId === "openai-codex"
         ? await fetchCodexUsage(authStorage)
-        : await fetchGitHubCopilotUsage(authStorage);
+        : providerId === "github-copilot"
+            ? await fetchGitHubCopilotUsage(authStorage)
+            : await fetchAnthropicUsage(authStorage);
 }
 export function peekProviderUsage(providerId, options = {}) {
     if (!isSupportedProviderId(providerId))

@@ -19,13 +19,13 @@
     {
       "package_path": null,
       "output_file": "web/static/js/vendor/d3-mindmap.min.js",
-      "sha256": "eecb69134e5dc6a264b2f45baf498ada70cf39bed0511d30032e9768b6a4d102",
-      "size_bytes": 286534
+      "sha256": "bf87ab4dc348ba44b9f36aad8e2460d60a6ba7671a2836e4119f5fa00f2be63f",
+      "size_bytes": 286482
     }
   ],
   "metadata_file": "web/static/js/vendor/d3-mindmap.meta.json",
-  "sha256": "eecb69134e5dc6a264b2f45baf498ada70cf39bed0511d30032e9768b6a4d102",
-  "size_bytes": 286534,
+  "sha256": "bf87ab4dc348ba44b9f36aad8e2460d60a6ba7671a2836e4119f5fa00f2be63f",
+  "size_bytes": 286482,
   "build_command": [
     "bun",
     "build",

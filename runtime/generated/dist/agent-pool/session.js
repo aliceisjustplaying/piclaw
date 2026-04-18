@@ -12,7 +12,7 @@
  *     the agent session for a chat.
  *   - ensureSessionDir() is also used by agent-control/handlers/session.ts.
  */
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createInterface } from "readline";
@@ -367,6 +367,13 @@ function installPersistedToolResultSanitizer(runtime) {
     });
     sessionManager.__piclawPersistedToolResultSanitizerInstalled = true;
 }
+function getSystemPromptOverride() {
+    const path = join(getAgentDir(), "SYSTEM.md");
+    if (!existsSync(path))
+        return undefined;
+    const content = readFileSync(path, "utf-8").trim();
+    return content.length > 0 ? content : undefined;
+}
 /** Ensure the session directory exists for a chat and return its path. */
 export function ensureSessionDir(chatJid) {
     const chatSessionDir = join(SESSIONS_DIR, sanitiseJid(chatJid));
@@ -390,6 +397,7 @@ export async function createSessionInDir(sessionDir, options) {
     const appendSystemPromptOverride = getAppendSystemPromptOverride(channelSystemPromptAppendix);
     const additionalExtensionPaths = getBundledExtensionPaths(options.chatJid);
     const createRuntime = async ({ cwd, sessionManager, sessionStartEvent }) => {
+        const systemPrompt = getSystemPromptOverride();
         const services = await createAgentSessionServices({
             cwd,
             agentDir: AGENT_DIR,
@@ -401,6 +409,7 @@ export async function createSessionInDir(sessionDir, options) {
                     ? [...builtinExtensionFactories, ...options.extensionFactories]
                     : builtinExtensionFactories,
                 additionalExtensionPaths,
+                ...(systemPrompt ? { systemPrompt } : {}),
                 ...(appendSystemPromptOverride ? { appendSystemPromptOverride } : {}),
             },
         });

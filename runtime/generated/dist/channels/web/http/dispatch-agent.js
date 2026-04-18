@@ -1,7 +1,9 @@
 /**
  * web/http/dispatch-agent.ts – Agent route dispatch helpers.
  */
-import { handleWebPushPresence, handleWebPushSubscriptionDelete, handleWebPushSubscriptionUpsert, handleWebPushVapidPublicKey, } from "../push/web-push-routes.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+import { handleWebPushPresence, handleWebPushTest, handleWebPushSubscriptionDelete, handleWebPushSubscriptionUpsert, handleWebPushVapidPublicKey, } from "../push/web-push-routes.js";
+const log = createLogger("web.dispatch-agent");
 const EXACT_AGENT_ROUTES = [
     {
         method: "GET",
@@ -51,6 +53,86 @@ const EXACT_AGENT_ROUTES = [
         method: "POST",
         path: "/agent/autoresearch/dismiss",
         handle: (channel, req) => channel.handleAutoresearchDismiss(req),
+    },
+    {
+        method: "POST",
+        path: "/agent/codex/dismiss",
+        handle: async (_channel, req) => {
+            try {
+                let taskId = "";
+                const validTaskId = (value) => /^[a-zA-Z0-9_-]+$/.test(value);
+                try {
+                    const body = await req.json();
+                    if (typeof body?.key === "string" && body.key.startsWith("codex.dismiss.")) {
+                        const candidateTaskId = body.key.replace("codex.dismiss.", "").trim();
+                        taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
+                    }
+                }
+                catch (error) {
+                    debugSuppressedError(log, "Codex dismiss request had no usable JSON body; continuing.", error);
+                }
+                return Response.json({ ok: true });
+            }
+            catch (err) {
+                log.warn("Codex dismiss handler failed", { err });
+                return Response.json({ error: String(err) }, { status: 500 });
+            }
+        },
+    },
+    {
+        method: "POST",
+        path: "/agent/codex/stop",
+        handle: async (_channel, req) => {
+            try {
+                let taskId = "";
+                const validTaskId = (value) => /^[a-zA-Z0-9_-]+$/.test(value);
+                try {
+                    const body = await req.json();
+                    if (typeof body?.key === "string" && body.key.startsWith("codex.stop.")) {
+                        const candidateTaskId = body.key.replace("codex.stop.", "").trim();
+                        taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
+                    }
+                }
+                catch (error) {
+                    debugSuppressedError(log, "Codex stop request had no usable JSON body; continuing.", error);
+                }
+                const { spawnSync } = await import("node:child_process");
+                const { accessSync, constants } = await import("node:fs");
+                const searchPath = [
+                    ...(process.env.PATH || "").split(":"),
+                    "/run/current-system/sw/bin",
+                    "/etc/profiles/per-user/agent/bin",
+                    "/home/agent/.nix-profile/bin",
+                    "/nix/profile/bin",
+                    "/home/agent/.local/bin",
+                    "/home/agent/.bun/bin",
+                ].filter(Boolean);
+                let tmuxBin = "tmux";
+                for (const dir of searchPath) {
+                    const candidate = `${dir}/tmux`;
+                    try {
+                        accessSync(candidate, constants.X_OK);
+                        tmuxBin = candidate;
+                        break;
+                    }
+                    catch (error) {
+                        debugSuppressedError(log, "Skipped non-executable tmux candidate while resolving codex stop helper.", error, {
+                            candidate,
+                        });
+                    }
+                }
+                const env = { ...process.env, PATH: Array.from(new Set(searchPath)).join(":") };
+                const tmuxSession = taskId ? `codex-${taskId}` : "codex-delegate";
+                spawnSync(tmuxBin, ["send-keys", "-t", tmuxSession, "C-c", ""], { stdio: "ignore", env });
+                const killTimer = setTimeout(() => spawnSync(tmuxBin, ["kill-session", "-t", tmuxSession], { stdio: "ignore", env }), 2000);
+                killTimer.unref?.();
+                return Response.json({ ok: true });
+            }
+            catch (err) {
+                log.warn("Codex stop handler failed", { err });
+                return Response.json({ error: String(err) }, { status: 500 });
+            }
+        },
     },
     {
         method: "POST",
@@ -156,6 +238,11 @@ const EXACT_AGENT_ROUTES = [
         method: "POST",
         path: "/agent/push/presence",
         handle: (_channel, req) => handleWebPushPresence(req),
+    },
+    {
+        method: "POST",
+        path: "/agent/push/test",
+        handle: (_channel, req) => handleWebPushTest(req),
     },
     {
         method: "POST",

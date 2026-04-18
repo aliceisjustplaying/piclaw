@@ -326,3 +326,12 @@ export async function sendStoredWebPushNotification(payload, options = {}) {
         failed,
     };
 }
+export async function sendStoredWebPushTestNotification(options = {}) {
+    return await sendStoredWebPushNotification({
+        title: options.title || "PiClaw notifications enabled",
+        body: options.body || "Web Push is configured for this device.",
+        url: options.url || "/",
+        tag: options.tag || "piclaw:test",
+        sourceLabel: options.sourceLabel || "Web Push",
+    }, options);
+}
