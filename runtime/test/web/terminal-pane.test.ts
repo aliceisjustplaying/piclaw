@@ -7,6 +7,32 @@ import { tryRun } from "../helpers.js";
 
 import { buildTerminalTheme, getOrCreateAnonymousTerminalClientToken, relocateTerminalPaneRoot } from '../../web/src/panes/terminal-pane.js';
 
+function parseHexColor(input: string) {
+    const raw = String(input || '').trim().replace('#', '');
+    const full = raw.length === 3 ? raw.split('').map((part) => `${part}${part}`).join('') : raw;
+    return {
+        r: parseInt(full.slice(0, 2), 16),
+        g: parseInt(full.slice(2, 4), 16),
+        b: parseInt(full.slice(4, 6), 16),
+    };
+}
+
+function relativeLuminance(color: { r: number; g: number; b: number }) {
+    const toLinear = (value: number) => {
+        const s = value / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(color.r) + 0.7152 * toLinear(color.g) + 0.0722 * toLinear(color.b);
+}
+
+function contrastRatio(background: string, foreground: string) {
+    const a = parseHexColor(background);
+    const b = parseHexColor(foreground);
+    const lighter = Math.max(relativeLuminance(a), relativeLuminance(b));
+    const darker = Math.min(relativeLuminance(a), relativeLuminance(b));
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
 // --- Inline types (same as pane-types.ts, for Bun test runner) ---
 
 type PanePlacement = "tabs" | "dock";
@@ -192,6 +218,54 @@ test('buildTerminalTheme clamps terminal foreground to the highest-contrast vari
         expect(theme.white).toBe('#000000');
         expect(theme.brightWhite).toBe('#000000');
         expect(theme.selectionForeground).toBe('#000000');
+        expect(contrastRatio(theme.background, theme.cursor)).toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(theme.background, theme.blue)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(theme.background, theme.yellow)).toBeGreaterThanOrEqual(4.5);
+    } finally {
+        globalThis.getComputedStyle = originalGetComputedStyle;
+    }
+});
+
+test('buildTerminalTheme lifts low-contrast terminal palette entries on dark tinted themes', () => {
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    const fakeDocument: any = {
+        documentElement: {
+            getAttribute: () => 'dark',
+            classList: { contains: () => false },
+        },
+        body: {
+            classList: { contains: () => false },
+        },
+    };
+    const fakeWindow: any = {
+        matchMedia: () => ({ matches: true }),
+    };
+
+    globalThis.getComputedStyle = (() => ({
+        getPropertyValue(name: string) {
+            const vars: Record<string, string> = {
+                '--bg-primary': '#101418',
+                '--text-primary': '#7f8b96',
+                '--text-secondary': '#69757f',
+                '--accent-color': '#355e9a',
+                '--danger-color': '#7a3038',
+                '--success-color': '#2d6a45',
+                '--bg-hover': '#1c2127',
+                '--border-color': '#28313a',
+                '--accent-soft-strong': 'rgba(53,94,154,0.25)',
+            };
+            return vars[name] || '';
+        },
+    })) as any;
+
+    try {
+        const theme = buildTerminalTheme(fakeWindow, fakeDocument);
+        expect(contrastRatio(theme.background, theme.foreground)).toBeGreaterThanOrEqual(7);
+        expect(contrastRatio(theme.background, theme.blue)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(theme.background, theme.red)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(theme.background, theme.green)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(theme.background, theme.brightBlue)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(theme.background, theme.brightBlack)).toBeGreaterThanOrEqual(3);
     } finally {
         globalThis.getComputedStyle = originalGetComputedStyle;
     }
