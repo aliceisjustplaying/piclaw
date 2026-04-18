@@ -55,6 +55,60 @@ test("processMessages leaves lastAgentTimestamp unchanged when runAgent throws",
   });
 });
 
+test("processMessages persists lastAgentTimestamp after a recovered successful agent run without changing outbound text", async () => {
+  await withTempWorkspaceEnv("piclaw-message-loop-", { PICLAW_KEYCHAIN_KEY: "test-key" }, async () => {
+    const db = await importFresh<typeof import("../../src/db.js")>("../src/db.js");
+    const loop = await importFresh<typeof import("../../src/runtime/message-loop.js")>("../src/runtime/message-loop.js");
+    db.initDatabase();
+
+    const chatJid = `wa:${Date.now()}`;
+    const timestamp = "2026-04-17T01:05:00.000Z";
+    db.storeMessage(makeMessage(chatJid, "@Pi hello", timestamp));
+
+    let saveCalls = 0;
+    const outbound: string[] = [];
+    const state = {
+      lastAgentTimestamp: {} as Record<string, string>,
+      wasCommandProcessed: () => false,
+      markCommandProcessed: () => {},
+      saveTimestamps: () => {
+        saveCalls += 1;
+      },
+    };
+
+    const ok = await loop.processMessages(chatJid, {
+      state: state as any,
+      assistantName: "Pi",
+      triggerPattern: /@Pi/i,
+      whatsapp: {
+        sendMessage: async (_jid: string, text: string) => {
+          outbound.push(text);
+        },
+        setTyping: async () => {},
+      } as any,
+      agentPool: {
+        runAgent: async () => ({
+          status: "success",
+          result: "done",
+          recovery: {
+            attemptsUsed: 1,
+            totalElapsedMs: 1200,
+            recovered: true,
+            exhausted: false,
+            lastClassifier: "transient",
+            strategyHistory: ["retry"],
+          },
+        }),
+      } as any,
+    });
+
+    expect(ok).toBe(true);
+    expect(state.lastAgentTimestamp[chatJid]).toBe(timestamp);
+    expect(saveCalls).toBe(1);
+    expect(outbound).toEqual(["done"]);
+  });
+});
+
 test("processMessages persists lastAgentTimestamp after a successful agent run", async () => {
   await withTempWorkspaceEnv("piclaw-message-loop-", { PICLAW_KEYCHAIN_KEY: "test-key" }, async () => {
     const db = await importFresh<typeof import("../../src/db.js")>("../src/db.js");

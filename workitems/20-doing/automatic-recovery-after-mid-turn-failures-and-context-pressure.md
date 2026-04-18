@@ -268,9 +268,9 @@ turn paths should use the shared engine from the start.
 - [ ] exhausted web affordance tests for Continue + Retry cleanly
 - [ ] restart-during-recovery tests proving the system fails cleanly and does
       not attempt automatic cross-restart continuation in v1
-- [ ] autonomous-path tests proving the shared engine also covers scheduled /
+- [x] autonomous-path tests proving the shared engine also covers scheduled /
       background turn paths without web-only assumptions
-- [ ] counters/logging/diagnostic metadata tests for observability
+- [x] counters/logging/diagnostic metadata tests for observability
 
 ### Manual / smoke validation
 
@@ -426,6 +426,36 @@ turn paths should use the shared engine from the start.
   - web integration test proving successful recovery does **not** publish the
     timeout/compaction warning pair and instead stores the clean final answer
     plus recovery marker
+- Added non-web/autonomous verification and low-noise operator observability:
+  - scheduled agent tasks now keep user-facing outbound text clean while task
+    logs / `last_result` capture a concise automatic-recovery summary when a run
+    recovered or exhausted
+  - Dream model-pass summaries now include concise recovery notes for recovered
+    or exhausted runs
+  - WhatsApp/message-loop logging now records recovery metadata and a compact
+    summary without changing normal outbound assistant text
+  - remote execute responses now carry structured recovery metadata and remote
+    audit rows capture concise recovery summaries for operator diagnosis without
+    changing the remote success payload shape beyond the added metadata field
+  - shared per-turn recovery metadata now includes attempt-level diagnostic
+    entries (attempt failure vs compaction failure, classifier, strategy,
+    reason, error, elapsed time, and key safety/partial-output flags)
+  - agent disk logs now persist the richer recovery metadata so post-mortem
+    debugging does not depend on the caller surfacing every field directly
+  - autoresearch supervisor now treats long idle without max-iterations reached
+    as a failed/stalled end-state, humanizes terminal reasons for operators, and
+    only treats process-exit completion as successful when the max-iteration
+    budget was actually reached
+- Additional verification for this slice:
+  - `runtime/test/runtime/scheduler.test.ts`
+  - `runtime/test/dream-agent-turn.test.ts`
+  - `runtime/test/runtime/message-loop.test.ts`
+  - `runtime/test/remote/remote-interop.test.ts`
+  - `runtime/test/agent-pool/run-agent-orchestrator.test.ts`
+  - `runtime/test/extensions/autoresearch-supervisor-reasons.test.ts`
+  - `runtime/test/extensions/autoresearch-supervisor-messaging.test.ts`
+  - focused rerun also included `runtime/test/agent-pool/automatic-recovery.test.ts`
+  - `bunx tsc --noEmit -p runtime/tsconfig.json`
 
 ## Notes
 

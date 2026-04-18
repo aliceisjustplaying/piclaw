@@ -17,6 +17,7 @@
  */
 
 import type { AgentPool } from "../agent-pool.js";
+import { formatRecoverySummary } from "../agent-pool/automatic-recovery.js";
 import type { WhatsAppChannel } from "../channels/whatsapp.js";
 import { parseControlCommand, type AgentControlCommand } from "../agent-control/index.js";
 import { getMessagesSince, getNewMessages } from "../db.js";
@@ -135,6 +136,17 @@ export async function processMessages(chatJid: string, deps: MessageProcessingDe
     },
   });
 
+  const recoverySummary = formatRecoverySummary(output.recovery);
+
+  if (output.recovery?.recovered) {
+    log.info("Agent run recovered before outbound delivery", {
+      operation: "process_messages.prompt.recovered",
+      chatJid,
+      recovery: output.recovery,
+      recoverySummary,
+    });
+  }
+
   await deps.whatsapp.setTyping(chatJid, false);
 
   if (output.status === "error") {
@@ -142,6 +154,8 @@ export async function processMessages(chatJid: string, deps: MessageProcessingDe
       operation: "process_messages.prompt",
       chatJid,
       errorMessage: output.error,
+      recovery: output.recovery || null,
+      recoverySummary,
     });
     return true;
   }

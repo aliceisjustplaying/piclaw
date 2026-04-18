@@ -28,6 +28,7 @@ let signRequest: (identity: InteropIdentity, canonical: string) => string;
 let getRemotePeer: (id: string) => any;
 let getRemoteRequestById: (id: string) => any;
 let updatePairRequestStatus: (id: string, status: string) => void;
+let updateRemotePeer: (id: string, updates: any) => void;
 let upsertRemotePeer: (peer: any) => void;
 let initDatabase: () => void;
 let RemoteInteropService: any;
@@ -160,6 +161,7 @@ describe("remote interop", () => {
     getRemotePeer = remoteDbMod.getRemotePeer;
     getRemoteRequestById = remoteDbMod.getRemoteRequestById;
     updatePairRequestStatus = remoteDbMod.updatePairRequestStatus;
+    updateRemotePeer = remoteDbMod.updateRemotePeer;
     upsertRemotePeer = remoteDbMod.upsertRemotePeer;
 
     const serviceMod = await importFresh("../src/remote/service.js");
@@ -762,6 +764,148 @@ describe("remote interop", () => {
       })
     );
     expect(blocked.status).toBe(415);
+  });
+
+  test("execute returns recovery metadata and logs recovery summary on recovered success", async () => {
+    const peer = makeIdentity();
+    const pairRes = await service.handleRequest(
+      new Request("http://localhost/api/remote/pair-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instance_id: peer.instance_id,
+          public_key: peer.public_key,
+          display_name: "peer",
+          callback_url: `${TEST_REMOTE_BASE_URL}/api/remote/pair-confirm`,
+          protocol_version: "1",
+          nonce: "challenge",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      })
+    );
+    const pairBody = await pairRes.json();
+
+    const restoreFetch = installCallbackStub(peer);
+    await service.handleRequest(
+      buildSignedRequest(peer, "POST", "/api/remote/pair-confirm", {
+        request_id: pairBody.request_id,
+        challenge: "challenge",
+      })
+    );
+    restoreFetch();
+
+    updateRemotePeer(peer.instance_id, {
+      mode: "short-circuit",
+      profile: "full",
+      updated_at: new Date().toISOString(),
+    });
+
+    const serviceMod = await importFresh("../src/remote/service.js");
+    const recoveringService = new serviceMod.RemoteInteropService(
+      {
+        runAgent: async () => ({
+          status: "success",
+          result: "Recovered remote result",
+          recovery: {
+            attemptsUsed: 1,
+            totalElapsedMs: 900,
+            recovered: true,
+            exhausted: false,
+            lastClassifier: "context_pressure",
+            strategyHistory: ["compact_then_retry"],
+          },
+        }),
+      } as any,
+      {
+        enabled: true,
+        allowHttp: false,
+        shortCircuitEnabled: true,
+        instanceName: "",
+        decisionModel: "github-copilot/gpt-5-mini",
+      }
+    );
+
+    const response = await recoveringService.handleRequest(
+      buildSignedRequest(peer, "POST", "/api/remote/execute", { prompt: "hello" })
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.decision).toBe("accept_execute");
+    expect(body.result).toBe("Recovered remote result");
+    expect(body.recovery?.recovered).toBe(true);
+    expect(body.recovery?.strategyHistory).toEqual(["compact_then_retry"]);
+  });
+
+  test("execute returns recovery metadata on exhausted failure", async () => {
+    const peer = makeIdentity();
+    const pairRes = await service.handleRequest(
+      new Request("http://localhost/api/remote/pair-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instance_id: peer.instance_id,
+          public_key: peer.public_key,
+          display_name: "peer",
+          callback_url: `${TEST_REMOTE_BASE_URL}/api/remote/pair-confirm`,
+          protocol_version: "1",
+          nonce: "challenge",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      })
+    );
+    const pairBody = await pairRes.json();
+
+    const restoreFetch = installCallbackStub(peer);
+    await service.handleRequest(
+      buildSignedRequest(peer, "POST", "/api/remote/pair-confirm", {
+        request_id: pairBody.request_id,
+        challenge: "challenge",
+      })
+    );
+    restoreFetch();
+
+    updateRemotePeer(peer.instance_id, {
+      mode: "short-circuit",
+      profile: "full",
+      updated_at: new Date().toISOString(),
+    });
+
+    const serviceMod = await importFresh("../src/remote/service.js");
+    const exhaustedService = new serviceMod.RemoteInteropService(
+      {
+        runAgent: async () => ({
+          status: "error",
+          error: "Execution failed after retries",
+          recovery: {
+            attemptsUsed: 2,
+            totalElapsedMs: 5000,
+            recovered: false,
+            exhausted: true,
+            lastClassifier: "context_pressure",
+            strategyHistory: ["retry", "compact_then_retry"],
+          },
+        }),
+      } as any,
+      {
+        enabled: true,
+        allowHttp: false,
+        shortCircuitEnabled: true,
+        instanceName: "",
+        decisionModel: "github-copilot/gpt-5-mini",
+      }
+    );
+
+    const response = await exhaustedService.handleRequest(
+      buildSignedRequest(peer, "POST", "/api/remote/execute", { prompt: "hello" })
+    );
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.decision).toBe("deny");
+    expect(body.error).toBe("Execution failed after retries");
+    expect(body.recovery?.exhausted).toBe(true);
+    expect(body.recovery?.attemptsUsed).toBe(2);
   });
 
   test("execute is blocked without short-circuit enablement", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, truncateSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -466,6 +466,16 @@ test("runAgentPrompt retries a recoverable interrupted turn and returns one fina
     expect(result.result).toBe("recovered answer");
     expect(result.recovery?.recovered).toBe(true);
     expect(result.recovery?.attemptsUsed).toBe(1);
+    expect(result.recovery?.diagnostics).toEqual([
+      expect.objectContaining({
+        phase: "attempt_failure",
+        attempt: 1,
+        classifier: "transient",
+        strategy: "retry",
+        error: "Response ended with an error before finalization",
+        hadPartialOutput: true,
+      }),
+    ]);
     expect(session.promptCalls).toBe(2);
     expect(recoveryEvents).toEqual(["recovery_start", "recovery_end"]);
   } finally {
@@ -560,9 +570,98 @@ test("runAgentPrompt recovers a timeout-before-finalization when compaction was 
       lastClassifier: "context_pressure",
       strategyHistory: ["compact_then_retry"],
     }));
+    expect(result.recovery?.diagnostics).toEqual([
+      expect.objectContaining({
+        phase: "attempt_failure",
+        attempt: 1,
+        classifier: "context_pressure",
+        strategy: "compact_then_retry",
+        error: "Response timed out before finalization",
+        sawCompactionIntent: true,
+      }),
+    ]);
     expect(session.promptCalls).toBe(2);
     expect(session.compactCalls).toBe(1);
     expect(recoveryStarts).toEqual([{ classifier: "context_pressure", strategy: "compact_then_retry" }]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt writes recovery diagnostics into the agent log", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "partial draft" } });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "error",
+              errorMessage: "Response ended with an error before finalization",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "recovered answer" } });
+      }
+    }
+    async abort() {}
+  }
+
+  const logsDir = createTestLogsDir();
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("hello", "web:default", { timeoutMs: 0 }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir,
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    const logFile = tempLogsDirs.find((entry) => entry === logsDir);
+    expect(logFile).toBe(logsDir);
+    const logName = readdirSync(logsDir).find((entry: string) => entry.startsWith("agent-") && entry.endsWith(".log"));
+    expect(logName).toBeTruthy();
+    const content = readFileSync(join(logsDir, logName!), "utf8");
+    expect(content).toContain("RecoveryAttemptsUsed: 1");
+    expect(content).toContain("RecoveryRecovered: true");
+    expect(content).toContain("RecoveryDiagnostics:");
+    expect(content).toContain("Response ended with an error before finalization");
   } finally {
     restoreEnv();
   }

@@ -25,7 +25,7 @@ import {
   waitForSessionIdle,
 } from "./prompt-utils.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
-import type { AgentOutput, RunAgentOptions } from "./contracts.js";
+import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RunAgentOptions } from "./contracts.js";
 
 /** Dependencies required to run a main agent prompt. */
 export interface RunAgentOrchestratorOptions {
@@ -215,6 +215,52 @@ async function maybeAutoCompactSessionBeforePrompt(
 interface PromptAttemptResult {
   output: AgentOutput;
   snapshot: RecoveryAttemptSnapshot;
+}
+
+function buildRecoveryDiagnosticEntry(
+  phase: AgentRecoveryDiagnosticEntry["phase"],
+  attempt: number,
+  classifier: string,
+  strategy: string | null,
+  reason: string,
+  error: string,
+  elapsedMs: number,
+  snapshot: RecoveryAttemptSnapshot,
+): AgentRecoveryDiagnosticEntry {
+  return {
+    phase,
+    attempt,
+    classifier,
+    strategy,
+    reason,
+    error,
+    elapsedMs,
+    hadToolActivity: Boolean(snapshot.hadToolActivity),
+    hadPartialOutput: Boolean(snapshot.hadPartialOutput),
+    hadCompletedTurnOutput: Boolean(snapshot.hadCompletedTurnOutput),
+    sawCompactionIntent: Boolean(snapshot.sawCompactionIntent),
+    compactionErrorMessage: snapshot.compactionErrorMessage ?? null,
+  };
+}
+
+function buildRecoveryMetadata(
+  attemptsUsed: number,
+  totalElapsedMs: number,
+  recovered: boolean,
+  exhausted: boolean,
+  lastClassifier: string | null,
+  strategyHistory: string[],
+  diagnostics: AgentRecoveryDiagnosticEntry[],
+): AgentRecoveryMetadata {
+  return {
+    attemptsUsed,
+    totalElapsedMs,
+    recovered,
+    exhausted,
+    lastClassifier,
+    strategyHistory,
+    diagnostics,
+  };
 }
 
 function emitAgentSessionEvent(onEvent: RunAgentOptions["onEvent"], event: Record<string, unknown>): void {
@@ -412,6 +458,7 @@ export async function runAgentPrompt(
     let recoveryAttemptsUsed = 0;
     let lastClassifier: RecoveryClassifier | null = null;
     const strategyHistory: RecoveryStrategy[] = [];
+    const recoveryDiagnostics: AgentRecoveryDiagnosticEntry[] = [];
 
     return await withChatContext(chatJid, channel, async () => {
       while (true) {
@@ -428,7 +475,10 @@ export async function runAgentPrompt(
         if (attempt.output.status === "success") {
           const duration = Date.now() - startTime;
           const finalText = typeof attempt.output.result === "string" ? attempt.output.result : null;
-          writeAgentLog(options.logsDir, chatJid, duration, false, finalText, null);
+          const recoveryMeta = recoveryAttemptsUsed > 0
+            ? buildRecoveryMetadata(recoveryAttemptsUsed, duration, true, false, lastClassifier, strategyHistory, recoveryDiagnostics)
+            : null;
+          writeAgentLog(options.logsDir, chatJid, duration, false, finalText, null, recoveryMeta);
           options.onInfo?.("Agent run completed", {
             operation: "run_agent.complete",
             chatJid,
@@ -444,14 +494,15 @@ export async function runAgentPrompt(
               attemptsUsed: recoveryAttemptsUsed,
               classifier: lastClassifier,
             });
-            attempt.output.recovery = {
-              attemptsUsed: recoveryAttemptsUsed,
-              totalElapsedMs: duration,
-              recovered: true,
-              exhausted: false,
+            attempt.output.recovery = buildRecoveryMetadata(
+              recoveryAttemptsUsed,
+              duration,
+              true,
+              false,
               lastClassifier,
               strategyHistory,
-            };
+              recoveryDiagnostics,
+            );
           }
           return attempt.output;
         }
@@ -476,9 +527,23 @@ export async function runAgentPrompt(
           reason: decision.reason,
         });
 
+        recoveryDiagnostics.push(buildRecoveryDiagnosticEntry(
+          "attempt_failure",
+          recoveryAttemptsUsed + 1,
+          decision.classifier,
+          decision.strategy,
+          decision.reason,
+          errorText,
+          Date.now() - startTime,
+          attempt.snapshot,
+        ));
+
         if (!decision.recover || !decision.strategy) {
           const duration = Date.now() - startTime;
-          writeAgentLog(options.logsDir, chatJid, duration, false, null, errorText);
+          const recoveryMeta = recoveryAttemptsUsed > 0
+            ? buildRecoveryMetadata(recoveryAttemptsUsed, duration, false, true, lastClassifier, strategyHistory, recoveryDiagnostics)
+            : null;
+          writeAgentLog(options.logsDir, chatJid, duration, false, null, errorText, recoveryMeta);
           if (recoveryAttemptsUsed > 0) {
             emitAgentSessionEvent(runOptions.onEvent, {
               type: "recovery_end",
@@ -487,14 +552,15 @@ export async function runAgentPrompt(
               classifier: decision.classifier,
               errorMessage: errorText,
             });
-            attempt.output.recovery = {
-              attemptsUsed: recoveryAttemptsUsed,
-              totalElapsedMs: duration,
-              recovered: false,
-              exhausted: true,
+            attempt.output.recovery = buildRecoveryMetadata(
+              recoveryAttemptsUsed,
+              duration,
+              false,
+              true,
               lastClassifier,
               strategyHistory,
-            };
+              recoveryDiagnostics,
+            );
           }
           return attempt.output;
         }
@@ -529,8 +595,33 @@ export async function runAgentPrompt(
             });
             lastClassifier = compactDecision.classifier;
             if (!compactDecision.recover || compactDecision.strategy !== "retry") {
+              recoveryDiagnostics.push(buildRecoveryDiagnosticEntry(
+                "compaction_failure",
+                recoveryAttemptsUsed,
+                compactDecision.classifier,
+                compactDecision.strategy,
+                compactDecision.reason,
+                compactionResult.errorMessage,
+                Date.now() - startTime,
+                {
+                  hadToolActivity: false,
+                  hadPartialOutput: attempt.snapshot.hadPartialOutput,
+                  hadCompletedTurnOutput: attempt.snapshot.hadCompletedTurnOutput,
+                  compactionErrorMessage: compactionResult.errorMessage,
+                  sawCompactionIntent: true,
+                },
+              ));
               const duration = Date.now() - startTime;
-              writeAgentLog(options.logsDir, chatJid, duration, false, null, compactionResult.errorMessage);
+              const recoveryMeta = buildRecoveryMetadata(
+                recoveryAttemptsUsed,
+                duration,
+                false,
+                true,
+                lastClassifier,
+                strategyHistory,
+                recoveryDiagnostics,
+              );
+              writeAgentLog(options.logsDir, chatJid, duration, false, null, compactionResult.errorMessage, recoveryMeta);
               emitAgentSessionEvent(runOptions.onEvent, {
                 type: "recovery_end",
                 outcome: "exhausted",
@@ -542,14 +633,15 @@ export async function runAgentPrompt(
                 status: "error",
                 result: null,
                 error: compactionResult.errorMessage,
-                recovery: {
-                  attemptsUsed: recoveryAttemptsUsed,
-                  totalElapsedMs: duration,
-                  recovered: false,
-                  exhausted: true,
+                recovery: buildRecoveryMetadata(
+                  recoveryAttemptsUsed,
+                  duration,
+                  false,
+                  true,
                   lastClassifier,
                   strategyHistory,
-                },
+                  recoveryDiagnostics,
+                ),
               };
             }
           }
@@ -562,7 +654,7 @@ export async function runAgentPrompt(
     options.clearAttachments(chatJid);
     const duration = Date.now() - startTime;
     const errorMsg = err instanceof Error ? err.message : String(err);
-    writeAgentLog(options.logsDir, chatJid, duration, false, null, errorMsg);
+    writeAgentLog(options.logsDir, chatJid, duration, false, null, errorMsg, null);
     options.onError?.("Agent run failed", {
       operation: "run_agent",
       chatJid,

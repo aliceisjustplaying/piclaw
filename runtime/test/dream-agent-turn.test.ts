@@ -123,6 +123,40 @@ test("runDreamAgentTurn skips gracefully when another live Dream run holds the l
   }
 });
 
+test("runDreamAgentTurn records recovery summaries when the model pass succeeds after recovery", async () => {
+  const config = await import("../src/core/config.js");
+  rmSync(join(config.WORKSPACE_DIR, "notes"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "dream-backups"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "workspace-search"), { recursive: true, force: true });
+
+  const dream = await importFresh<typeof import("../src/dream.js")>("../src/dream.js");
+  const result = await dream.runDreamAgentTurn({
+    chatJid: "web:default",
+    days: 2,
+    mode: "auto",
+    agentPool: {
+      runAgent: async () => ({
+        status: "success",
+        result: "AutoDream complete.",
+        recovery: {
+          attemptsUsed: 1,
+          totalElapsedMs: 1200,
+          recovered: true,
+          exhausted: false,
+          lastClassifier: "context_pressure",
+          strategyHistory: ["compact_then_retry"],
+        },
+      }),
+      disposeChatSession: async () => {},
+    } as any,
+  });
+
+  expect(result.skipped).toBe(false);
+  expect(result.result).toContain("AutoDream complete.");
+  expect(result.result).toContain("Automatic recovery succeeded after 1 attempt");
+  expect(result.result).toContain("context_pressure");
+});
+
 test("runDreamAgentTurn falls back to deterministic refresh when the model pass errors", async () => {
   const config = await import("../src/core/config.js");
   rmSync(join(config.WORKSPACE_DIR, "notes"), { recursive: true, force: true });
@@ -138,7 +172,18 @@ test("runDreamAgentTurn falls back to deterministic refresh when the model pass 
     agentPool: {
       runAgent: async (_prompt: string, _chatJid: string, options?: { timeoutMs?: number }) => {
         capturedTimeoutMs = options?.timeoutMs;
-        return { status: "error", error: "Timed out after 3m" };
+        return {
+          status: "error",
+          error: "Timed out after 3m",
+          recovery: {
+            attemptsUsed: 2,
+            totalElapsedMs: 30000,
+            recovered: false,
+            exhausted: true,
+            lastClassifier: "budget_exhausted",
+            strategyHistory: ["retry", "compact_then_retry"],
+          },
+        };
       },
       disposeChatSession: async () => {},
     } as any,
@@ -148,6 +193,7 @@ test("runDreamAgentTurn falls back to deterministic refresh when the model pass 
   expect(result.result).toContain("model pass failed; deterministic refresh completed");
   expect(result.result).toContain("Timed out after 3m");
   expect(result.result).toContain("Memory refreshed after Dream: yes");
+  expect(result.result).toContain("Automatic recovery exhausted after 2 attempt");
   expect(capturedTimeoutMs).toBeGreaterThan(0);
   expect(existsSync(join(config.WORKSPACE_DIR, "notes", "memory", "MEMORY.md"))).toBe(true);
   expect(existsSync(join(config.WORKSPACE_DIR, "notes", "memory", ".dream.lock"))).toBe(false);

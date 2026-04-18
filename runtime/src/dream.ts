@@ -5,6 +5,7 @@ import type { Zippable } from "fflate";
 
 import type { AgentPool } from "./agent-pool.js";
 
+import { formatRecoverySummary } from "./agent-pool/automatic-recovery.js";
 import { buildDreamPrompt } from "./agent-memory/dream-prompt.js";
 import { inspectDailyNoteSummaryBacklog, refreshDailyNotesFromMessages } from "./agent-memory/daily-notes.js";
 import { refreshAgentMemoryFromDailyNotes, type RefreshAgentMemoryResult } from "./agent-memory/refresh.js";
@@ -486,6 +487,7 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
     });
     const refresh = refreshAgentMemoryFromDailyNotes({ recentDays: days });
     const workspaceIndexRefreshed = await refreshWorkspaceSearchIndex();
+    const recoverySummary = formatRecoverySummary(out.recovery);
     const suffix = [
       `- Daily notes refreshed before Dream: ${dailyNotesRefreshed ? "yes" : "no"}`,
       `- Memory refreshed after Dream: yes`,
@@ -494,7 +496,8 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
       `- Updated recent context: ${refresh.recentContextPath}`,
       `- Pre-Dream backup: ${backupPath || "(none)"}`,
       `- Workspace index refreshed: ${workspaceIndexRefreshed ? "yes" : "no"}`,
-    ].join("\n");
+      recoverySummary ? `- ${recoverySummary}` : null,
+    ].filter(Boolean).join("\n");
     if (out.status === "error") {
       log.warn("Dream agent turn failed; keeping deterministic memory refresh", {
         operation: "run_dream_agent_turn.fallback_refresh",
@@ -502,6 +505,7 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
         mode,
         days,
         error: out.error || "Dream agent run failed.",
+        recovery: out.recovery || null,
       });
       return {
         mode,

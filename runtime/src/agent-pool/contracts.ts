@@ -14,6 +14,21 @@ import type {
 
 import type { AttachmentInfo } from "./attachments.js";
 
+export interface AgentRecoveryDiagnosticEntry {
+  phase: "attempt_failure" | "compaction_failure";
+  attempt: number;
+  classifier: string;
+  strategy: string | null;
+  reason: string;
+  error: string;
+  elapsedMs: number;
+  hadToolActivity: boolean;
+  hadPartialOutput: boolean;
+  hadCompletedTurnOutput: boolean;
+  sawCompactionIntent: boolean;
+  compactionErrorMessage: string | null;
+}
+
 export interface AgentRecoveryMetadata {
   attemptsUsed: number;
   totalElapsedMs: number;
@@ -21,6 +36,7 @@ export interface AgentRecoveryMetadata {
   exhausted: boolean;
   lastClassifier: string | null;
   strategyHistory: string[];
+  diagnostics: AgentRecoveryDiagnosticEntry[];
 }
 
 /** Output from an agent run: response text, status, and token usage. */
