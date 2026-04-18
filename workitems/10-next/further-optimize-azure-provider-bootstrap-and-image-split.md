@@ -164,7 +164,7 @@ Why third:
 ## Links
 
 - Parent cold-path ticket: `workitems/20-doing/reduce-cold-session-bootstrap-memory-and-eager-extension-load.md`
-- Parent RAM work: `workitems/20-doing/runtime-ram-optimization-opportunities-2026-04-17.md`
+- Parent RAM work: `workitems/50-done/runtime-ram-optimization-opportunities-2026-04-17.md`
 - Memory history: `docs/performance/memory-footprint-history.md`
 - Azure provider implementation: `runtime/extensions/integrations/azure-openai.ts`
 - Azure session shim: `runtime/extensions/integrations/azure-openai-session/index.ts`
