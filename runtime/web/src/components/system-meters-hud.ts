@@ -71,6 +71,16 @@ export function buildCompactMetersSummary(metrics) {
     return parts.join(' • ');
 }
 
+export function resolveCurrentRssBytes(metrics) {
+    return Number(metrics?.process_memory?.vm_rss_bytes) > 0
+        ? Number(metrics.process_memory.vm_rss_bytes)
+        : Number(metrics?.process_memory?.rss_bytes) || 0;
+}
+
+export function shouldShowRss(metrics) {
+    return resolveCurrentRssBytes(metrics) > 0 && sanitizeSeries(metrics?.process_rss_series_bytes).length > 0;
+}
+
 function readIsNarrowLayout() {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(max-width: 900px)').matches;
@@ -181,10 +191,8 @@ export function SystemMetersHud({ mode = 'overlay' }) {
     const swapPath = useMemo(() => buildSparklinePath(metrics.swap_series, 56, 16, { min: 0, max: 100 }), [metrics.swap_series]);
     const rssPath = useMemo(() => buildSparklinePath(metrics.process_rss_series_bytes), [metrics.process_rss_series_bytes]);
     const showSwap = Number.isFinite(Number(metrics.swap_percent)) && metrics.swap_total_bytes > 0;
-    const currentRssBytes = Number(metrics.process_memory?.vm_rss_bytes) > 0
-        ? Number(metrics.process_memory.vm_rss_bytes)
-        : Number(metrics.process_memory?.rss_bytes) || 0;
-    const showRss = metrics.platform === 'linux' && currentRssBytes > 0 && metrics.process_rss_series_bytes.length > 0;
+    const currentRssBytes = resolveCurrentRssBytes(metrics);
+    const showRss = shouldShowRss(metrics);
     const compactSummary = useMemo(() => buildCompactMetersSummary(metrics), [metrics]);
 
     if (!enabled || !isActiveInstance) return null;
