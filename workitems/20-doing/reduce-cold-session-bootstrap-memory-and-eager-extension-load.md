@@ -512,6 +512,6 @@ Why last:
 
 ## Links
 
-- Parent RAM work: `workitems/20-doing/runtime-ram-optimization-opportunities-2026-04-17.md`
+- Parent RAM work: `workitems/50-done/runtime-ram-optimization-opportunities-2026-04-17.md`
 - Memory footprint history: `docs/performance/memory-footprint-history.md`
 - Regression planning reference: `workitems/regression-test-planning-reference.md`
