@@ -459,6 +459,10 @@ export async function runAgentPrompt(
     let lastClassifier: RecoveryClassifier | null = null;
     const strategyHistory: RecoveryStrategy[] = [];
     const recoveryDiagnostics: AgentRecoveryDiagnosticEntry[] = [];
+    let recoveryBudgetStartedAt: number | null = null;
+    const getRecoveryBudgetElapsedMs = () => (
+      recoveryBudgetStartedAt == null ? 0 : Math.max(0, Date.now() - recoveryBudgetStartedAt)
+    );
 
     return await withChatContext(chatJid, channel, async () => {
       while (true) {
@@ -512,7 +516,7 @@ export async function runAgentPrompt(
           config: recoveryConfig,
           errorText,
           recoveryAttemptsUsed,
-          elapsedMs: Date.now() - startTime,
+          elapsedMs: getRecoveryBudgetElapsedMs(),
           snapshot: attempt.snapshot,
         });
         lastClassifier = decision.classifier;
@@ -565,6 +569,10 @@ export async function runAgentPrompt(
           return attempt.output;
         }
 
+        if (recoveryBudgetStartedAt == null) {
+          recoveryBudgetStartedAt = Date.now();
+        }
+
         recoveryAttemptsUsed += 1;
         strategyHistory.push(decision.strategy);
         emitAgentSessionEvent(runOptions.onEvent, {
@@ -584,7 +592,7 @@ export async function runAgentPrompt(
               config: recoveryConfig,
               errorText: compactionResult.errorMessage,
               recoveryAttemptsUsed,
-              elapsedMs: Date.now() - startTime,
+              elapsedMs: getRecoveryBudgetElapsedMs(),
               snapshot: {
                 hadToolActivity: false,
                 hadPartialOutput: attempt.snapshot.hadPartialOutput,
