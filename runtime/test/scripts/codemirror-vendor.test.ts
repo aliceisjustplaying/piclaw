@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 test("generic vendored dependency build script writes codemirror bundle + metadata deterministically", () => {
   const base = join(tmpdir(), `piclaw-codemirror-vendor-${Date.now()}`);
@@ -63,6 +64,41 @@ test("generic vendored dependency build script writes codemirror bundle + metada
   expect(meta.size_bytes).toBe(bundle.byteLength);
   expect(meta.sha256).toBe(createHash("sha256").update(bundle).digest("hex"));
   expect(bundle.toString("utf8")).toContain("@codemirror/state");
+
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("codemirror vendor bundle keeps EditorState compatible with exported minimalSetup", async () => {
+  const base = join(tmpdir(), `piclaw-codemirror-vendor-runtime-${Date.now()}`);
+  const outFile = join(base, "codemirror.js");
+  mkdirSync(base, { recursive: true });
+
+  const proc = Bun.spawnSync(
+    [
+      "bun",
+      "/workspace/piclaw/runtime/scripts/build-vendored-dependency.ts",
+      "--manifest",
+      "vendor-manifests/codemirror-editor.json",
+      "--outfile",
+      outFile,
+    ],
+    {
+      cwd: "/workspace/piclaw/runtime",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+
+  if (proc.exitCode !== 0) {
+    throw new Error(`${proc.stdout.toString()}\n${proc.stderr.toString()}`.trim());
+  }
+
+  const mod = await import(pathToFileURL(outFile).href) as {
+    EditorState: { create: (input: { doc: string; extensions: unknown[] }) => unknown };
+    minimalSetup: unknown;
+  };
+
+  expect(() => mod.EditorState.create({ doc: "hello", extensions: [mod.minimalSetup] })).not.toThrow();
 
   rmSync(base, { recursive: true, force: true });
 });

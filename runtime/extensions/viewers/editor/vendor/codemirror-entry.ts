@@ -1,3 +1,22 @@
+import { EditorState } from "@codemirror/state";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  highlightWhitespace,
+  scrollPastEnd,
+  showPanel,
+  Decoration,
+  ViewPlugin,
+  WidgetType,
+  drawSelection,
+} from "@codemirror/view";
+import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultHighlightStyle, StreamLanguage, HighlightStyle, syntaxHighlighting, syntaxTree, indentOnInput, indentUnit } from "@codemirror/language";
+
 export { EditorState, Compartment, RangeSetBuilder, RangeSet, Prec } from "@codemirror/state";
 export {
   EditorView,
@@ -13,7 +32,6 @@ export {
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
-export { minimalSetup } from "codemirror";
 export { javascript } from "@codemirror/lang-javascript";
 export { python } from "@codemirror/lang-python";
 export { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -35,3 +53,20 @@ export { vim } from "@replit/codemirror-vim";
 export { indentationMarkers } from "@replit/codemirror-indentation-markers";
 export { githubLight, githubDark } from "@uiw/codemirror-theme-github";
 export { MergeView } from "@codemirror/merge";
+
+/**
+ * Keep the editor bootstrap on the direct @codemirror/* packages only.
+ * Importing minimalSetup from the aggregate `codemirror` package can pull a
+ * second @codemirror/state instance into the graph, which then breaks
+ * extension flattening with "Unrecognized extension value" errors.
+ */
+export const minimalSetup = [
+  highlightSpecialChars(),
+  history(),
+  drawSelection(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  keymap.of([
+    ...defaultKeymap,
+    ...historyKeymap,
+  ]),
+];
