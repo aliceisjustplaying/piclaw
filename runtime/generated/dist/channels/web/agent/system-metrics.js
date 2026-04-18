@@ -153,6 +153,9 @@ function normalizeRuntimeMemorySnapshot(snapshot) {
         queued_prewarms: snapshot.sessionManager.queuedPrewarms,
         prewarm_queue_length: snapshot.sessionManager.prewarmQueueLength,
         prewarm_cooldowns: snapshot.sessionManager.prewarmCooldowns,
+        recovery_attempts_total: snapshot.recovery.attemptsTotal,
+        recovery_recovered_runs: snapshot.recovery.recoveredRuns,
+        recovery_exhausted_runs: snapshot.recovery.exhaustedRuns,
     };
 }
 export class SystemMetricsSampler {
