@@ -6,7 +6,7 @@ import {
   readStoredMetersCollapsed,
   toggleMetersCollapsed,
 } from '../../web/src/ui/meters.ts';
-import { buildCompactMetersSummary, buildSparklinePath, formatBytesCompact } from '../../web/src/components/system-meters-hud.ts';
+import { buildCompactMetersSummary, buildSparklinePath, formatBytesCompact, resolveCurrentRssBytes, shouldShowRss } from '../../web/src/components/system-meters-hud.ts';
 
 const originalWindow = globalThis.window;
 
@@ -59,6 +59,35 @@ test('formatBytesCompact keeps RSS labels short enough for the HUD', () => {
   expect(formatBytesCompact(0)).toBe('0B');
   expect(formatBytesCompact(512 * 1024 * 1024)).toBe('512M');
   expect(formatBytesCompact(1536 * 1024 * 1024)).toBe('1.5G');
+});
+
+test('resolveCurrentRssBytes prefers Linux VmRSS but still exposes cross-platform RSS', () => {
+  expect(resolveCurrentRssBytes({ process_memory: { vm_rss_bytes: 256, rss_bytes: 128 } })).toBe(256);
+  expect(resolveCurrentRssBytes({ process_memory: { vm_rss_bytes: null, rss_bytes: 128 } })).toBe(128);
+  expect(resolveCurrentRssBytes({ process_memory: { vm_rss_bytes: 0, rss_bytes: 128 } })).toBe(128);
+});
+
+test('shouldShowRss allows Windows and macOS resident-memory meters when RSS data exists', () => {
+  expect(shouldShowRss({
+    platform: 'win32',
+    process_memory: { vm_rss_bytes: null, rss_bytes: 200 },
+    process_rss_series_bytes: [100, 200],
+  })).toBe(true);
+  expect(shouldShowRss({
+    platform: 'darwin',
+    process_memory: { vm_rss_bytes: null, rss_bytes: 300 },
+    process_rss_series_bytes: [150, 300],
+  })).toBe(true);
+  expect(shouldShowRss({
+    platform: 'linux',
+    process_memory: { vm_rss_bytes: 0, rss_bytes: 0 },
+    process_rss_series_bytes: [0, 0],
+  })).toBe(false);
+  expect(shouldShowRss({
+    platform: 'win32',
+    process_memory: { vm_rss_bytes: null, rss_bytes: 300 },
+    process_rss_series_bytes: [],
+  })).toBe(false);
 });
 
 test('toggleMetersCollapsed flips the stored collapsed state', () => {

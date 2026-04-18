@@ -4,7 +4,7 @@ title: "Runtime RAM optimization opportunities and execution plan"
 status: doing
 priority: high
 created: 2026-04-17
-updated: 2026-04-17
+updated: 2026-04-18
 tags:
   - work-item
   - kanban
@@ -128,7 +128,7 @@ Current instrumentation shows that the biggest live-footprint issue is not web o
 ## Definition of Done
 
 - [ ] RAM opportunities are all recorded with rationale
-- [ ] highest-return tranche lands with tests
+- [x] highest-return tranche lands with tests
 - [ ] idle RSS/PSS is re-measured after reload
 - [ ] controlled staged test report is refreshed
 - [ ] follow-up tickets are split out for deferred work if needed
@@ -145,6 +145,10 @@ Current instrumentation shows that the biggest live-footprint issue is not web o
 - Switched recent-chat background warmup to a lightweight path that primes session directories and extension-resolution caches without materializing a live `AgentSessionRuntime`.
 - Kept explicit/priority warmup and deferred-branch realization on the full-runtime path so forked branches still realize their seed eagerly when requested.
 - Added regression coverage proving lightweight recent prewarm does not increase cached-main-session counts while explicit warmup still does.
+- Lowered the default memory-pressure entry threshold from 512 MB to 384 MB so the aggressive main-session trim path activates sooner on the crash-prone VM before RSS reaches the earlier OOM-adjacent range.
+- Added regression coverage proving the default pressure path now trims cached main sessions at ~400 MB RSS even without explicit `PICLAW_MAIN_SESSION_PRESSURE_*` env overrides.
+- Removed the Linux-only HUD gate for the RSS row so Windows and macOS now show the existing `process.memoryUsage().rss` resident-memory equivalent, while Linux still prefers `VmRSS` when available.
+- Added HUD regression coverage for cross-platform RSS visibility and RSS-value selection.
 
 ## Links
 

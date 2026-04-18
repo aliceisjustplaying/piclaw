@@ -483,6 +483,57 @@ test("agent pool applies the pressure pool cap immediately after acquiring a sec
   await pool.shutdown();
 });
 
+test("agent pool enables the default pressure trim path before RSS reaches the old 512MB threshold", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_MAIN_SESSION_PRESSURE_RSS_BYTES: undefined,
+    PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE: undefined,
+    PICLAW_MAIN_SESSION_POOL_MAX_SIZE: undefined,
+    PICLAW_SESSION_POOL_MAX_SIZE: undefined,
+  });
+
+  const originalMemoryUsageRss = process.memoryUsage.rss;
+  (process.memoryUsage as typeof process.memoryUsage & { rss: () => number }).rss = () => 400 * 1024 * 1024;
+
+  try {
+    const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
+
+    let disposed = 0;
+    class StubSession {
+      subscribe(_listener: (event: any) => void) {
+        return () => {};
+      }
+      async prompt(_prompt: string) {}
+      async abort() {}
+      dispose() {
+        disposed += 1;
+      }
+    }
+
+    const pool = new AgentPool({
+      createSession: async () => createRuntime(new StubSession()) as any,
+    });
+
+    (pool as any).pool.set("web:one", { runtime: createRuntime(new StubSession()) as any, lastUsed: Date.now() - 5_000 });
+    (pool as any).pool.set("web:two", { runtime: createRuntime(new StubSession()) as any, lastUsed: Date.now() });
+
+    (pool as any).evictIdle();
+    await Bun.sleep(0);
+
+    expect((pool as any).pool.has("web:one")).toBe(false);
+    expect((pool as any).pool.has("web:two")).toBe(true);
+    expect(pool.getMemoryInstrumentationSnapshot().cachedMainSessions).toBe(1);
+    expect(disposed).toBe(1);
+
+    await pool.shutdown();
+  } finally {
+    (process.memoryUsage as typeof process.memoryUsage & { rss: typeof originalMemoryUsageRss }).rss = originalMemoryUsageRss;
+  }
+});
+
 test("agent pool trims cached main sessions more aggressively when RSS crosses the pressure threshold", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({
