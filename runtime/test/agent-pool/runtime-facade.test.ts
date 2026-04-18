@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
@@ -190,6 +190,63 @@ test("AgentRuntimeFacade restores persisted current model for a cold chat withou
     expect(available.current).toBe("azure-openai/gpt-5-mini");
     expect(available.thinking_level).toBe("high");
     expect(available.thinking_level_label).toBe("high");
+    expect(available.supports_thinking).toBe(true);
+  } finally {
+    rmSync(sessionDir, { recursive: true, force: true });
+  }
+});
+
+test("AgentRuntimeFacade uses the most recently modified persisted session when restoring cold model state", async () => {
+  const chatJid = "web:persisted-model-mtime-test";
+  const sessionDir = join(SESSIONS_DIR, sanitiseJid(chatJid));
+  rmSync(sessionDir, { recursive: true, force: true });
+  mkdirSync(sessionDir, { recursive: true });
+
+  const olderPath = join(sessionDir, "2026-04-18T15-00-00-000Z_newer-name-but-older-mtime.jsonl");
+  const newerPath = join(sessionDir, "2026-04-17T10-00-00-000Z_older-name-but-newer-mtime.jsonl");
+
+  writeFileSync(olderPath, [
+    JSON.stringify({ type: "session", version: 3, id: "old", timestamp: "2026-04-18T15:00:00.000Z", cwd: "/workspace" }),
+    JSON.stringify({ type: "model_change", id: "m1", parentId: null, timestamp: "2026-04-18T15:00:00.100Z", provider: "openai", modelId: "wrong-model" }),
+    "",
+  ].join("\n"));
+  writeFileSync(newerPath, [
+    JSON.stringify({ type: "session", version: 3, id: "new", timestamp: "2026-04-17T10:00:00.000Z", cwd: "/workspace" }),
+    JSON.stringify({ type: "model_change", id: "m2", parentId: null, timestamp: "2026-04-17T10:00:00.100Z", provider: "anthropic", modelId: "correct-model" }),
+    JSON.stringify({ type: "thinking_level_change", id: "t2", parentId: "m2", timestamp: "2026-04-17T10:00:00.200Z", thinkingLevel: "low" }),
+    "",
+  ].join("\n"));
+
+  const now = new Date();
+  const olderMtime = new Date(now.getTime() - 60_000);
+  const newerMtime = now;
+  utimesSync(olderPath, olderMtime, olderMtime);
+  utimesSync(newerPath, newerMtime, newerMtime);
+
+  try {
+    const facade = new AgentRuntimeFacade({
+      pool: new Map(),
+      getOrCreateRuntime: async () => { throw new Error("cold model lookup should not hydrate a runtime"); },
+      modelRegistry: {
+        refresh: () => {},
+        getAvailable: () => [
+          { provider: "openai", id: "wrong-model", name: "Wrong Model", contextWindow: 128000, reasoning: false },
+          { provider: "anthropic", id: "correct-model", name: "Correct Model", contextWindow: 200000, reasoning: true },
+        ],
+        getAll: () => [],
+        registerProvider: () => {},
+      } as any,
+      authStorage: { get: () => null } as any,
+      clearAttachments: () => {},
+      refreshRuntime: async () => {},
+      onWarn: () => {},
+      onError: () => {},
+    });
+
+    const available = await facade.getAvailableModels(chatJid);
+    expect(available.current).toBe("anthropic/correct-model");
+    expect(available.thinking_level).toBe("low");
+    expect(available.thinking_level_label).toBe("low");
     expect(available.supports_thinking).toBe(true);
   } finally {
     rmSync(sessionDir, { recursive: true, force: true });
