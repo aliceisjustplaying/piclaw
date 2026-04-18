@@ -2,6 +2,7 @@
  * remote/service-operations.ts – Signed remote peer operation endpoint handlers.
  */
 import { createUuid } from "../utils/ids.js";
+import { formatRecoverySummary } from "../agent-pool/automatic-recovery.js";
 import { getRemotePeer, storeRemoteRequest, updateRemotePeer } from "../db/remote-interop.js";
 import { verifySignedRequest } from "./auth.js";
 import { DEFAULT_MAX_PROMPT_BYTES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_REQUEST_HOP_LIMIT, } from "./limits.js";
@@ -143,18 +144,26 @@ export async function handleExecute(req, context) {
         const chatJid = `remote:${peer.instance_id}`;
         const output = await context.agentPool.runAgent(prompt, chatJid, { timeoutMs: 60_000 });
         const duration = Date.now() - start;
+        const recoverySummary = formatRecoverySummary(output.recovery);
         if (output.status === "error") {
-            logAudit(peer, "/api/remote/execute", "error", "error", output.error);
-            return jsonResponse({ decision: "deny", error: output.error || "Execution failed." }, 500);
+            logAudit(peer, "/api/remote/execute", "error", "error", recoverySummary
+                ? `${output.error || "Execution failed."} ${recoverySummary}`
+                : output.error);
+            return jsonResponse({
+                decision: "deny",
+                error: output.error || "Execution failed.",
+                recovery: output.recovery || null,
+            }, 500);
         }
         const resultText = output.result || "";
         if (Buffer.byteLength(resultText, "utf8") > DEFAULT_MAX_RESPONSE_BYTES) {
             return jsonResponse({ decision: "deny", error: "Response too large." }, 413);
         }
-        logAudit(peer, "/api/remote/execute", "ok", "accept_execute");
+        logAudit(peer, "/api/remote/execute", "ok", "accept_execute", recoverySummary || undefined);
         return jsonResponse({
             decision: "accept_execute",
             result: resultText,
+            recovery: output.recovery || null,
             usage: {
                 duration_ms: duration,
                 tool_calls: null,

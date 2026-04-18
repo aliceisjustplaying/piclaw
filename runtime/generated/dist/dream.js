@@ -1,5 +1,6 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join, relative, resolve } from "path";
+import { formatRecoverySummary } from "./agent-pool/automatic-recovery.js";
 import { buildDreamPrompt } from "./agent-memory/dream-prompt.js";
 import { inspectDailyNoteSummaryBacklog, refreshDailyNotesFromMessages } from "./agent-memory/daily-notes.js";
 import { refreshAgentMemoryFromDailyNotes } from "./agent-memory/refresh.js";
@@ -423,6 +424,7 @@ export async function runDreamAgentTurn(options) {
         });
         const refresh = refreshAgentMemoryFromDailyNotes({ recentDays: days });
         const workspaceIndexRefreshed = await refreshWorkspaceSearchIndex();
+        const recoverySummary = formatRecoverySummary(out.recovery);
         const suffix = [
             `- Daily notes refreshed before Dream: ${dailyNotesRefreshed ? "yes" : "no"}`,
             `- Memory refreshed after Dream: yes`,
@@ -431,7 +433,8 @@ export async function runDreamAgentTurn(options) {
             `- Updated recent context: ${refresh.recentContextPath}`,
             `- Pre-Dream backup: ${backupPath || "(none)"}`,
             `- Workspace index refreshed: ${workspaceIndexRefreshed ? "yes" : "no"}`,
-        ].join("\n");
+            recoverySummary ? `- ${recoverySummary}` : null,
+        ].filter(Boolean).join("\n");
         if (out.status === "error") {
             log.warn("Dream agent turn failed; keeping deterministic memory refresh", {
                 operation: "run_dream_agent_turn.fallback_refresh",
@@ -439,6 +442,7 @@ export async function runDreamAgentTurn(options) {
                 mode,
                 days,
                 error: out.error || "Dream agent run failed.",
+                recovery: out.recovery || null,
             });
             return {
                 mode,

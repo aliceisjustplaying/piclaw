@@ -77,6 +77,11 @@ export class AgentPool {
     cleanupTimer = null;
     shuttingDown = false;
     memoryPressureActive = false;
+    recoveryStats = {
+        attemptsTotal: 0,
+        recoveredRuns: 0,
+        exhaustedRuns: 0,
+    };
     // Shared across all sessions (expensive to create, safe to reuse)
     authStorage;
     modelRegistry;
@@ -166,7 +171,7 @@ export class AgentPool {
     }
     /** Run a prompt against the persistent session for `chatJid`. */
     async runAgent(prompt, chatJid, options = {}) {
-        return runAgentPrompt(prompt, chatJid, options, {
+        const output = await runAgentPrompt(prompt, chatJid, options, {
             getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
             turnCoordinator: this.turnCoordinator,
             clearAttachments: (nextChatJid) => this.attachments.clear(nextChatJid),
@@ -180,6 +185,15 @@ export class AgentPool {
             onWarn: (message, details) => log.warn(message, details),
             onError: (message, details) => log.error(message, details),
         });
+        const recovery = output.recovery;
+        if (recovery) {
+            this.recoveryStats.attemptsTotal += Math.max(0, recovery.attemptsUsed || 0);
+            if (recovery.recovered)
+                this.recoveryStats.recoveredRuns += 1;
+            if (recovery.exhausted)
+                this.recoveryStats.exhaustedRuns += 1;
+        }
+        return output;
     }
     async applyControlCommand(chatJid, command) {
         return this.runtimeFacade.applyControlCommand(chatJid, command);
@@ -328,6 +342,7 @@ export class AgentPool {
             activeForkBaseLeaves: this.activeForkBaseLeafByChat.size,
             activeChats: this.branchManager.listActiveChats().length,
             sessionManager: this.sessionManager.getInstrumentationSnapshot(),
+            recovery: { ...this.recoveryStats },
         };
     }
     findActiveChatByAgentName(agentName) {

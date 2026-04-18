@@ -63,5 +63,6 @@ export function storeAgentUserMessage(channel, chatJid, payload) {
     return channel.storeMessage(chatJid, payload.content, false, payload.mediaIds, {
         contentBlocks: payload.contentBlocks,
         linkPreviews: payload.linkPreviews,
+        threadId: payload.threadId ?? undefined,
     });
 }

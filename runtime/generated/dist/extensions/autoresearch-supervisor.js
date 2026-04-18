@@ -252,6 +252,37 @@ function postReportAttachment(chatJid, exp, report, state) {
         media_ids: [report.mediaId],
     }, chatJid);
 }
+export function describeAutoresearchTerminalReason(reason) {
+    const normalized = String(reason || "").trim().toLowerCase();
+    if (!normalized)
+        return null;
+    if (normalized === "process_exited") {
+        return "The autoresearch sub-agent process exited before the supervisor expected it to.";
+    }
+    if (normalized === "max_iterations_idle") {
+        return "The experiment reached its max-iteration budget and then went idle, so it was treated as complete.";
+    }
+    if (normalized === "general_idle") {
+        return "No new experiment activity was observed for 30 minutes; the sub-agent may have stalled, crashed, or hit a context/runtime limit.";
+    }
+    if (normalized === "user_stopped") {
+        return "Stopped by user request.";
+    }
+    return reason || null;
+}
+export function resolveAutoresearchIdleOutcome(maxReached) {
+    return maxReached
+        ? { state: "completed", reason: "max_iterations_idle" }
+        : { state: "failed", reason: "general_idle" };
+}
+export function resolveAutoresearchProcessExitState(summary, maxIterations) {
+    if ((summary.totalRuns || 0) <= 0)
+        return "failed";
+    if (Number.isFinite(maxIterations) && (maxIterations || 0) > 0 && (summary.totalRuns || 0) >= (maxIterations || 0)) {
+        return "completed";
+    }
+    return "failed";
+}
 function buildAutoresearchPanel(exp, state, options = {}) {
     if (!exp || state === "idle")
         return null;
@@ -267,6 +298,7 @@ function buildAutoresearchPanel(exp, state, options = {}) {
             options.report.downloadUrl ? `[Download report](${options.report.downloadUrl})` : "",
         ].filter(Boolean).join(" · ")
         : "";
+    const humanReason = describeAutoresearchTerminalReason(options.reason);
     const detailSections = [
         [
             "| Field | Value |",
@@ -278,7 +310,7 @@ function buildAutoresearchPanel(exp, state, options = {}) {
             exp.model ? `| Model | \`${exp.model}\` |` : "",
             exp.maxIterations ? `| Max runs | **${exp.maxIterations}** |` : "",
             exp.projectDir ? `| Project | \`${exp.projectDir}\` |` : "",
-            options.reason ? `| Reason | ${String(options.reason).replace(/\|/g, "\\|")} |` : "",
+            humanReason ? `| Reason | ${String(humanReason).replace(/\|/g, "\\|")} |` : "",
             reportLinks ? `| Report | ${reportLinks} |` : "",
         ].filter(Boolean).join("\n"),
     ].filter(Boolean);
@@ -696,7 +728,8 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
         if (!tmuxSessionExists(activeExperiment.tmuxSession)) {
             const jsonlP = activeExperiment.jsonlPath;
             stopPolling();
-            const finalState = existsSync(jsonlP) && buildExperimentSummary(parseJsonlFile(jsonlP)).totalRuns > 0 ? "completed" : "failed";
+            const summary = existsSync(jsonlP) ? buildExperimentSummary(parseJsonlFile(jsonlP)) : buildExperimentSummary([]);
+            const finalState = resolveAutoresearchProcessExitState(summary, activeExperiment.maxIterations);
             finalizeAutoresearchRun(activeExperiment, finalState, { reason: "process_exited", generateReport: true });
             activeExperiment = null;
             return;
@@ -707,7 +740,7 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
             const idleMs = Date.now() - activeExperiment.lastActivityAt;
             // Idle detection: two tiers
             // 1) max_iterations reached + 2 min idle → completed
-            // 2) general idle for 30 minutes (agent stopped, context limit, crash) → completed
+            // 2) general idle for 30 minutes without max_iterations reached → failed/stalled
             //    30 min allows for long-running experiments (ML training, large builds)
             const MAX_ITER_IDLE_MS = 2 * 60_000;
             const GENERAL_IDLE_MS = 30 * 60_000;
@@ -718,16 +751,17 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
             if (shouldStop) {
                 const expId = activeExperiment.id;
                 const tmux = activeExperiment.tmuxSession;
-                const reason = maxReached ? "max_iterations_idle" : "general_idle";
+                const outcome = resolveAutoresearchIdleOutcome(maxReached);
                 stopPolling();
-                finalizeAutoresearchRun(activeExperiment, "completed", { reason, generateReport: true });
+                finalizeAutoresearchRun(activeExperiment, outcome.state, { reason: outcome.reason, generateReport: true });
                 spawnSync("tmux", ["send-keys", "-t", tmux, "C-c", ""], { stdio: "ignore" });
                 setTimeout(() => spawnSync("tmux", ["kill-session", "-t", tmux], { stdio: "ignore" }), 2000);
-                log.info("Autoresearch experiment completed", {
+                log.info("Autoresearch experiment finished after idle detection", {
                     experimentId: expId,
                     runCount,
                     idleSeconds: Math.round(idleMs / 1000),
-                    reason,
+                    state: outcome.state,
+                    reason: outcome.reason,
                 });
                 activeExperiment = null;
                 return;
@@ -840,13 +874,22 @@ async function autoresearchStatus() {
     const alive = tmuxSessionExists(exp.tmuxSession);
     if (!alive) {
         stopPolling();
-        const { summary, reportPath, report } = finalizeAutoresearchRun(exp, existsSync(exp.jsonlPath) && parseJsonlFile(exp.jsonlPath).filter((entry) => entry.type !== "config").length > 0 ? "completed" : "failed", { reason: "process_exited", generateReport: true });
+        const existingSummary = existsSync(exp.jsonlPath)
+            ? buildExperimentSummary(parseJsonlFile(exp.jsonlPath))
+            : buildExperimentSummary([]);
+        const terminalState = resolveAutoresearchProcessExitState(existingSummary, exp.maxIterations);
+        const { summary, reportPath, report } = finalizeAutoresearchRun(exp, terminalState, { reason: "process_exited", generateReport: true });
         activeExperiment = null;
+        const reasonText = describeAutoresearchTerminalReason("process_exited");
         return buildResult(`Experiment ${exp.id} is no longer running (tmux session gone).` +
+            `\nFinal state: ${terminalState}.` +
+            (reasonText ? `\nReason: ${reasonText}` : "") +
             `\nLast state: ${summary.totalRuns} runs, ${summary.kept} kept.` +
             (reportPath ? `\nReport: ${reportPath}` : ""), {
             active: false,
             experiment_id: exp.id,
+            final_state: terminalState,
+            final_reason: "process_exited",
             report_path: reportPath,
             report_media_id: report?.mediaId ?? null,
             report_open_url: report?.openUrl ?? null,
@@ -1023,7 +1066,7 @@ export const autoresearchSupervisor = (pi) => {
                     const summary = existsSync(activeExperiment.jsonlPath)
                         ? buildExperimentSummary(parseJsonlFile(activeExperiment.jsonlPath))
                         : buildActiveExperimentSummary(activeExperiment);
-                    emitAutoresearchStatus(broadcastEvent, activeExperiment, summary.totalRuns > 0 ? "completed" : "failed", summary, "process_exited");
+                    emitAutoresearchStatus(broadcastEvent, activeExperiment, resolveAutoresearchProcessExitState(summary, activeExperiment.maxIterations), summary, "process_exited");
                     activeExperiment = null;
                     return;
                 }

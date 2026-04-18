@@ -35,6 +35,10 @@ function dispatchStoredReplyWebPush(interaction, dispatchWebPushNotification) {
 /** Persist the accumulated agent turn (text + attachments) to the database. */
 export function storeAgentTurn(channel, emitter, params) {
     const { mediaIds, contentBlocks } = buildAttachmentBlocks(params.attachments);
+    const mergedContentBlocks = [
+        ...contentBlocks,
+        ...(Array.isArray(params.extraContentBlocks) ? params.extraContentBlocks.filter((block) => block && typeof block === "object") : []),
+    ];
     const formatted = formatOutbound(params.text, params.channelName);
     const resolvedThreadId = params.threadId ?? undefined;
     if (!params.skipPlaceholder) {
@@ -43,7 +47,7 @@ export function storeAgentTurn(channel, emitter, params) {
             // Don't override the placeholder's thread_id — it was set correctly
             // when the /queue command created the placeholder (threaded under the
             // /queue message). Passing undefined preserves the original association.
-            const updated = channel.replaceQueuedFollowupPlaceholder(params.chatJid, placeholderId, formatted, mediaIds, contentBlocks.length > 0 ? contentBlocks : undefined, undefined, params.isTerminalAgentReply);
+            const updated = channel.replaceQueuedFollowupPlaceholder(params.chatJid, placeholderId, formatted, mediaIds, mergedContentBlocks.length > 0 ? mergedContentBlocks : undefined, undefined, params.isTerminalAgentReply);
             if (updated) {
                 channel.broadcastEvent?.("agent_followup_consumed", {
                     chat_jid: params.chatJid,
@@ -58,7 +62,7 @@ export function storeAgentTurn(channel, emitter, params) {
         }
     }
     const interaction = channel.storeMessage(params.chatJid, formatted, true, mediaIds, {
-        contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
+        contentBlocks: mergedContentBlocks.length > 0 ? mergedContentBlocks : undefined,
         threadId: resolvedThreadId,
         isTerminalAgentReply: params.isTerminalAgentReply,
     });

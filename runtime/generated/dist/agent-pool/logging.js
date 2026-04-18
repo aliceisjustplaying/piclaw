@@ -17,7 +17,7 @@ const log = createLogger("agent-pool.logging");
  * Filenames are timestamped to avoid collisions.
  * Errors during writing are silently ignored to avoid cascading failures.
  */
-export function writeAgentLog(logsDir, chatJid, duration, timedOut, result, error) {
+export function writeAgentLog(logsDir, chatJid, duration, timedOut, result, error, recovery = null) {
     try {
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
         const content = [
@@ -25,6 +25,12 @@ export function writeAgentLog(logsDir, chatJid, duration, timedOut, result, erro
             `Duration: ${duration}ms`,
             `TimedOut: ${timedOut}`,
             error ? `Error: ${error}` : null,
+            recovery ? `RecoveryAttemptsUsed: ${recovery.attemptsUsed}` : null,
+            recovery ? `RecoveryRecovered: ${recovery.recovered}` : null,
+            recovery ? `RecoveryExhausted: ${recovery.exhausted}` : null,
+            recovery?.lastClassifier ? `RecoveryLastClassifier: ${recovery.lastClassifier}` : null,
+            recovery && recovery.strategyHistory.length > 0 ? `RecoveryStrategyHistory: ${recovery.strategyHistory.join(" -> ")}` : null,
+            recovery && recovery.diagnostics.length > 0 ? `RecoveryDiagnostics: ${JSON.stringify(recovery.diagnostics)}` : null,
             "",
             "=== result ===",
             result?.slice(0, 50000) ?? "(none)",
