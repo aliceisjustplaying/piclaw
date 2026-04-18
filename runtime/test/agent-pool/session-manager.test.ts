@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { renameSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -92,6 +92,29 @@ test("AgentSessionManager creates, caches, and binds main sessions", async () =>
   expect(fixture.state.bound).toEqual(["web:default"]);
   expect(fixture.state.registered).toEqual(["web:default"]);
   expect(fixture.pool.get("web:default")?.runtime.session).toBe(session);
+});
+
+test("AgentSessionManager does not overwrite a restored session model with the default model", async () => {
+  const setModel = spyOn({
+    setModel: async () => true,
+  }, "setModel");
+  const session = {
+    model: { provider: "anthropic", id: "claude-3-7-sonnet", reasoning: true },
+    setModel,
+    dispose() {},
+  };
+  const fixture = createManager({
+    settingsManager: {
+      getDefaultProvider: () => "openai",
+      getDefaultModel: () => "gpt-4.1",
+    } as any,
+    createSession: async () => createRuntime(session) as any,
+  });
+
+  await fixture.manager.getOrCreate("web:default");
+
+  expect(session.model).toEqual({ provider: "anthropic", id: "claude-3-7-sonnet", reasoning: true });
+  expect(setModel).not.toHaveBeenCalled();
 });
 
 test("AgentSessionManager singleflights concurrent main-session creation for the same chat", async () => {
