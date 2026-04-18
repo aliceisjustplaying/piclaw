@@ -228,7 +228,6 @@ function getBundledExtensionPaths(chatJid?: string): string[] {
   return paths;
 }
 
-<<<<<<< HEAD
 function getChannelSystemPromptAppendix(chatJid?: string): string {
   const channel = chatJid ? detectChannel(chatJid) : undefined;
   const cacheKey = channel ?? "";

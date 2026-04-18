@@ -3,6 +3,7 @@
  */
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 import {
   handleWebPushPresence,
   handleWebPushTest,
@@ -16,6 +17,8 @@ interface ExactAgentRoute {
   path: string;
   handle: (channel: WebChannelLike, req: Request, url: URL) => Response | Promise<Response>;
 }
+
+const log = createLogger("web.dispatch-agent");
 
 const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   {
@@ -80,9 +83,12 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
             const candidateTaskId = body.key.replace("codex.dismiss.", "").trim();
             taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
           }
-        } catch {}
+        } catch (error) {
+          debugSuppressedError(log, "Codex dismiss request had no usable JSON body; continuing.", error);
+        }
         return Response.json({ ok: true });
       } catch (err) {
+        log.warn("Codex dismiss handler failed", { err });
         return Response.json({ error: String(err) }, { status: 500 });
       }
     },
@@ -100,7 +106,9 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
             const candidateTaskId = body.key.replace("codex.stop.", "").trim();
             taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
           }
-        } catch {}
+        } catch (error) {
+          debugSuppressedError(log, "Codex stop request had no usable JSON body; continuing.", error);
+        }
         const { spawnSync } = await import("node:child_process");
         const { accessSync, constants } = await import("node:fs");
         const searchPath = [
@@ -115,7 +123,15 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         let tmuxBin = "tmux";
         for (const dir of searchPath) {
           const candidate = `${dir}/tmux`;
-          try { accessSync(candidate, constants.X_OK); tmuxBin = candidate; break; } catch {}
+          try {
+            accessSync(candidate, constants.X_OK);
+            tmuxBin = candidate;
+            break;
+          } catch (error) {
+            debugSuppressedError(log, "Skipped non-executable tmux candidate while resolving codex stop helper.", error, {
+              candidate,
+            });
+          }
         }
         const env = { ...process.env, PATH: Array.from(new Set(searchPath)).join(":") };
         const tmuxSession = taskId ? `codex-${taskId}` : "codex-delegate";
@@ -124,6 +140,7 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         killTimer.unref?.();
         return Response.json({ ok: true });
       } catch (err) {
+        log.warn("Codex stop handler failed", { err });
         return Response.json({ error: String(err) }, { status: 500 });
       }
     },
