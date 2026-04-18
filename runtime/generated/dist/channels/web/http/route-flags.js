@@ -66,6 +66,7 @@ export function getRouteFlags(req, pathname) {
         isManifest: isGetOrHead && pathname === "/manifest.json",
         isFavicon: isGetOrHead && pathname === "/favicon.ico",
         isAppleIcon: isGetOrHead && APPLE_ICON_PATHS.has(pathname),
+        isServiceWorker: isGetOrHead && pathname === "/sw.js",
         isStaticAsset,
         isPublicStatic: isStaticAsset && isPublicStaticPath(pathname),
         isDocsAsset: pathname.startsWith("/docs/"),
@@ -92,6 +93,7 @@ export function shouldSkipAuthCheck(flags, hasInternalAccess) {
         flags.isManifest ||
         flags.isFavicon ||
         flags.isAppleIcon ||
+        flags.isServiceWorker ||
         flags.isPublicStatic ||
         flags.isAvatar);
 }

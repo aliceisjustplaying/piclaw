@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Piclaw Memory Optimization Work — 2026-04-18</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1220;
+      --panel: #111827;
+      --panel-2: #0f172a;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --line: #233045;
+      --blue: #60a5fa;
+      --green: #34d399;
+      --violet: #a78bfa;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --shadow: 0 16px 40px rgba(0,0,0,.28);
+      --radius: 20px;
+      --max: 1180px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: linear-gradient(180deg, #0b1220 0%, #101827 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    .page {
+      width: min(calc(100vw - 32px), var(--max));
+      margin: 0 auto;
+      padding: 28px 0 72px;
+    }
+    .hero, .section, .chart-shell, .footer-card {
+      background: rgba(17, 24, 39, .88);
+      border: 1px solid rgba(148, 163, 184, .14);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(6px);
+    }
+    .hero {
+      padding: 34px 36px 30px;
+      margin-bottom: 18px;
+      background:
+        radial-gradient(circle at top right, rgba(96,165,250,.18), transparent 28%),
+        radial-gradient(circle at top left, rgba(167,139,250,.16), transparent 24%),
+        rgba(17, 24, 39, .92);
+    }
+    .eyebrow {
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(32px, 4vw, 54px);
+      line-height: 1.02;
+      letter-spacing: -.04em;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 18px;
+      max-width: 940px;
+      margin-bottom: 24px;
+    }
+    .hero-grid, .metric-grid, .pillars, .results-grid, .timeline {
+      display: grid;
+      gap: 14px;
+    }
+    .hero-grid { grid-template-columns: 1.5fr 1fr; align-items: start; }
+    .metric-grid { grid-template-columns: repeat(4, 1fr); }
+    .metric, .mini-card, .pillar, .result, .timeline-item, .appendix-card {
+      background: linear-gradient(180deg, rgba(15,23,42,.86), rgba(17,24,39,.9));
+      border: 1px solid rgba(148,163,184,.12);
+      border-radius: 18px;
+      padding: 16px 18px;
+    }
+    .metric .label, .mini-card .label, .result .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    .metric .value {
+      font-size: 34px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    .metric .detail, .mini-card .detail, .result .detail {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .section {
+      padding: 26px 28px;
+      margin-top: 18px;
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      letter-spacing: -.03em;
+    }
+    .section-intro {
+      color: var(--muted);
+      margin-bottom: 18px;
+      max-width: 920px;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.08fr .92fr;
+      gap: 18px;
+      align-items: start;
+    }
+    .callout {
+      padding: 18px 20px;
+      border-radius: 18px;
+      border: 1px solid rgba(248,113,113,.2);
+      background: linear-gradient(180deg, rgba(127,29,29,.20), rgba(17,24,39,.95));
+    }
+    .callout h3, .timeline-item h3, .pillar h3, .appendix-card h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      letter-spacing: -.02em;
+    }
+    .callout p, .timeline-item p, .pillar p, .appendix-card p, li {
+      color: #cbd5e1;
+    }
+    ul {
+      margin: 10px 0 0 20px;
+      padding: 0;
+    }
+    .pillars {
+      grid-template-columns: repeat(4, 1fr);
+    }
+    .pillar .kicker {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 8px;
+    }
+    .timeline {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .timeline-item {
+      position: relative;
+      overflow: hidden;
+    }
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: linear-gradient(180deg, var(--blue), var(--violet));
+      opacity: .8;
+    }
+    .timeline-item .when {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      padding-left: 10px;
+    }
+    .timeline-item h3,
+    .timeline-item p,
+    .timeline-item ul { padding-left: 10px; }
+    .results-grid { grid-template-columns: repeat(3, 1fr); }
+    .chart-shell {
+      margin-top: 18px;
+      padding: 16px;
+      overflow: hidden;
+    }
+    .chart-shell svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 16px;
+    }
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      overflow: hidden;
+      border-radius: 16px;
+      background: rgba(15,23,42,.75);
+      border: 1px solid rgba(148,163,184,.12);
+    }
+    .comparison-table th,
+    .comparison-table td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid rgba(148,163,184,.10);
+      vertical-align: top;
+    }
+    .comparison-table th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      background: rgba(2, 6, 23, .32);
+    }
+    .good { color: var(--green); font-weight: 700; }
+    .warn { color: var(--amber); font-weight: 700; }
+    .bad { color: var(--red); font-weight: 700; }
+    .appendix {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 16px;
+    }
+    .footer-card {
+      margin-top: 18px;
+      padding: 18px 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .small { font-size: 13px; color: var(--muted); }
+    @media (max-width: 1024px) {
+      .hero-grid, .two-col, .appendix { grid-template-columns: 1fr; }
+      .metric-grid, .pillars, .results-grid, .timeline { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 760px) {
+      .page { width: min(calc(100vw - 20px), var(--max)); padding-top: 18px; }
+      .hero, .section { padding: 20px; }
+      .metric-grid, .pillars, .results-grid, .timeline { grid-template-columns: 1fr; }
+      h2 { font-size: 24px; }
+      .metric .value { font-size: 28px; }
+    }
+    @media print {
+      body { background: white; color: black; }
+      .hero, .section, .chart-shell, .footer-card, .metric, .mini-card, .pillar, .result, .timeline-item, .appendix-card {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+      .page { width: auto; margin: 0; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">Piclaw / Runtime Memory Work / 2026-04-18</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Memory optimization work, end to end</h1>
+          <div class="subtitle">
+            A single-page presentation of the diagnosis, mitigation, cold-path slimming, and live-runtime RAM work that brought Piclaw from restart-loop territory to a much smaller, measurable steady state.
+          </div>
+          <div class="metric-grid">
+            <div class="metric">
+              <div class="label">Cold-session RSS delta</div>
+              <div class="value">-80.3%</div>
+              <div class="detail">133.3 MB → 26.3 MB</div>
+            </div>
+            <div class="metric">
+              <div class="label">Cold-session elapsed</div>
+              <div class="value">-72.2%</div>
+              <div class="detail">630 ms → 175 ms</div>
+            </div>
+            <div class="metric">
+              <div class="label">Live-service RSS</div>
+              <div class="value">-50.9%</div>
+              <div class="detail">450.8 MB → 221.5 MB</div>
+            </div>
+            <div class="metric">
+              <div class="label">Latest post-start baseline</div>
+              <div class="value">212.7 MB</div>
+              <div class="detail">38.8 MB heap · 15.9 MB external</div>
+            </div>
+          </div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Executive summary</div>
+          <div class="detail">
+            The biggest issue was <strong>not normal cold start</strong>. It was hydrating a pathological persisted <span class="mono">web:default</span> session packed with oversized inline <span class="mono">toolResult</span> payloads. Once that root cause was contained, the rest of the work focused on slimming session bootstrap, delaying heavyweight extensions, and reducing retained main-session state in the live runtime.
+          </div>
+          <ul>
+            <li><strong>OOM root cause fixed</strong> via session rotation + persistence sanitization</li>
+            <li><strong>Cold path slimmed</strong> through gating, lazy loading, and Azure splits</li>
+            <li><strong>Live RSS lowered</strong> through warmup reduction, cache caps, cheaper prewarm, and earlier trimming</li>
+            <li><strong>Telemetry improved</strong> with startup snapshots and cross-platform RSS visibility</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>1. What broke, and why it mattered</h2>
+      <div class="section-intro">The first breakthrough was proving that the restart loop was driven by pathological persisted state rather than “ordinary startup cost”.</div>
+      <div class="two-col">
+        <div class="callout">
+          <h3>Root cause: pathological archived session</h3>
+          <p>The archived <span class="mono">web:default</span> session that triggered the restart loop was ~<strong>95.2 MB</strong>, with very large inline tool results and image reads persisted directly into JSONL transcript rows.</p>
+          <ul>
+            <li><strong>18,545</strong> lines total</li>
+            <li><strong>61.7 MB</strong> of persisted <span class="mono">toolResult</span> payloads</li>
+            <li><strong>42.8 MB</strong> from <span class="mono">toolResult:read</span> alone</li>
+            <li><strong>27.2 MB</strong> from only <strong>18</strong> inline image-read rows</li>
+            <li>Historical failed restarts peaked around <strong>475–477 MB</strong> RSS-equivalent</li>
+          </ul>
+        </div>
+        <div>
+          <table class="comparison-table">
+            <thead>
+              <tr>
+                <th>Hydration case</th>
+                <th>Elapsed</th>
+                <th>RSS delta</th>
+                <th>Heap delta</th>
+                <th>External delta</th>
+                <th>VmHWM</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Old archived <span class="mono">web:default</span></strong></td>
+                <td class="bad">~638 ms</td>
+                <td class="bad">409.6 MB</td>
+                <td>201.1 MB</td>
+                <td>175.2 MB</td>
+                <td>568.4 MB</td>
+              </tr>
+              <tr>
+                <td><strong>Trimmed current session</strong></td>
+                <td class="good">~248 ms</td>
+                <td class="good">28.6 MB</td>
+                <td>13.9 MB</td>
+                <td>4.6 MB</td>
+                <td>190.6 MB</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="small" style="margin-top:12px;">Conclusion: the crash loop was caused by hydrating huge persisted payloads, not by normal session creation.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. The four optimization pillars</h2>
+      <div class="section-intro">Once the root cause was pinned down, the work split naturally into four mutually reinforcing tranches.</div>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="kicker">Pillar 1</div>
+          <h3>Contain pathological state</h3>
+          <p>Rotate the oversized session, enable automatic rotation, sanitize oversized persisted tool results at load time and append time, and capture clean startup snapshots before further chat activity.</p>
+        </div>
+        <div class="pillar">
+          <div class="kicker">Pillar 2</div>
+          <h3>Slim the session cold path</h3>
+          <p>Move blocking work off <span class="mono">session_start</span>, gate extensions by platform/channel, lazy-load heavy Office/CDP/viewer code, and split Azure provider logic from image-generation code.</p>
+        </div>
+        <div class="pillar">
+          <div class="kicker">Pillar 3</div>
+          <h3>Cut retained live memory</h3>
+          <p>Reduce warmup fan-out, cap cached main sessions at two, make recent-chat prewarm lightweight, and lower the pressure threshold so trimming happens before the VM gets close to the historical OOM band.</p>
+        </div>
+        <div class="pillar">
+          <div class="kicker">Pillar 4</div>
+          <h3>Measure continuously</h3>
+          <p>Use <span class="mono">/agent/system-metrics</span>, startup-memory snapshots, controlled staged testing, and reproducible history/chart updates so each tranche is evidence-driven rather than intuitive.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3. Optimization timeline</h2>
+      <div class="section-intro">A condensed chronology of what we changed and what each tranche bought us.</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="when">Phase A · Immediate containment</div>
+          <h3>Session rotation + persistence sanitization</h3>
+          <p>Rotated the pathological <span class="mono">web:default</span> session, enabled automatic session rotation, bounded oversized tool-result persistence, and added clean post-start snapshots.</p>
+          <ul>
+            <li>Operational default pushed toward <span class="mono">sessionMaxSizeMb=32</span></li>
+            <li>Oversized image/blob payloads no longer re-accumulate inline</li>
+          </ul>
+        </div>
+        <div class="timeline-item">
+          <div class="when">Phase B · Cold-path decluttering</div>
+          <h3>Remove unnecessary work from session bootstrap</h3>
+          <p>Disabled startup warmup by default, removed active workspace-local extensions from the hot path, and moved workspace indexing out of blocking <span class="mono">session_start</span>.</p>
+          <ul>
+            <li>Real workspace benchmark dropped from <strong>630 ms / 133.3 MB</strong> toward the low-300 ms / ~80 MB range</li>
+            <li>OOM loop was no longer reproducible via ordinary restart</li>
+          </ul>
+        </div>
+        <div class="timeline-item">
+          <div class="when">Phase C · Extension/path gating</div>
+          <h3>Bundle gating + lazy heavy imports</h3>
+          <p>Gated bundled extensions by platform/channel, lazy-loaded Office and CDP modules, and replaced heavy web viewer session-load paths with lightweight shims plus lazy route registration.</p>
+          <ul>
+            <li>Non-web chats dropped from <strong>46 → 44</strong> tools</li>
+            <li>Cold web benchmark reached <strong>215 ms / 25.3 MB</strong> after lazy Office/CDP work</li>
+          </ul>
+        </div>
+        <div class="timeline-item">
+          <div class="when">Phase D · Azure cold-path split</div>
+          <h3>Move Azure provider work off ordinary session creation</h3>
+          <p>Shifted Azure provider bootstrap to process bootstrap, added a lightweight session shim, and then split image helpers into a separate module so normal chat sessions stop paying that import cost.</p>
+          <ul>
+            <li><strong>169 ms / 26.9 MB</strong> after provider-bootstrap + shim split</li>
+            <li><strong>175 ms / 26.3 MB</strong> after image-helper split</li>
+          </ul>
+        </div>
+        <div class="timeline-item">
+          <div class="when">Phase E · Live runtime RAM work</div>
+          <h3>Warmup reduction + cache cap + cheaper prewarm</h3>
+          <p>The 2026-04-18 tranche attacked retained main-session state directly with startup warmup controls, a main-session cap/LRU path, lightweight recent prewarm, earlier pressure trimming, and improved RSS visibility in the HUD.</p>
+          <ul>
+            <li>Hot-session budget settles at <strong>2 cached main sessions</strong> instead of ~6</li>
+            <li>Cross-platform HUD now shows RSS consistently</li>
+          </ul>
+        </div>
+        <div class="timeline-item">
+          <div class="when">Phase F · Post-reload verification</div>
+          <h3>Replace checkpoints until the process settles</h3>
+          <p>Repeated post-restart measurements were used to replace the leading checkpoint until the service fell closer to the new baseline, instead of locking in a noisier interactive sample too early.</p>
+          <ul>
+            <li>Latest fresh post-start baseline: <strong>212.7 MB RSS</strong></li>
+            <li>Latest light-load live sample: <strong>221.5 MB RSS / 220.4 MB PSS</strong></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>4. Results: before vs after</h2>
+      <div class="section-intro">Two different stories matter here: cold-session creation and live-service residency. Both improved materially, but for different reasons.</div>
+      <div class="results-grid">
+        <div class="result">
+          <div class="label">Cold path</div>
+          <div class="detail"><strong>Real workspace baseline:</strong> 630 ms / 133.3 MB RSS delta</div>
+          <div class="detail"><strong>Latest cold-path step:</strong> 175 ms / 26.3 MB</div>
+          <div class="detail"><span class="good">-80.3%</span> RSS delta · <span class="good">-72.2%</span> elapsed</div>
+        </div>
+        <div class="result">
+          <div class="label">Live service</div>
+          <div class="detail"><strong>Earlier live baseline:</strong> 450.8 MB RSS</div>
+          <div class="detail"><strong>Latest light-load sample:</strong> 221.5 MB RSS / 220.4 MB PSS</div>
+          <div class="detail"><span class="good">-50.9%</span> RSS vs 18:02Z baseline</div>
+        </div>
+        <div class="result">
+          <div class="label">RAM-work tranche</div>
+          <div class="detail"><strong>Pre-reload baseline artifact:</strong> 312.9 MB RSS / 313.3 MB VmRSS / 311.2 MB PSS</div>
+          <div class="detail"><strong>Post-reload steady-state average:</strong> ~276.0 MB RSS / ~274.7 MB PSS</div>
+          <div class="detail"><span class="good">~36–37 MB resident-memory reduction</span> while carrying two cached chats</div>
+        </div>
+      </div>
+
+      <div class="chart-shell">
+        <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="960" viewBox="0 0 1200 960" role="img" aria-labelledby="title desc">
+  <title id="title">Piclaw RAM reduction progress</title>
+  <desc id="desc">Cold-session experiment progression and chronological live-service memory history from docs/performance/memory-footprint-history.md.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="barBlue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <style>
+      .h1 { font: 700 28px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #f8fafc; }
+      .h2 { font: 700 18px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #e5e7eb; }
+      .body { font: 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #cbd5e1; }
+      .small { font: 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #94a3b8; }
+      .tiny { font: 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #7c8aa5; }
+      .axis { font: 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #94a3b8; }
+      .value { font: 700 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #f8fafc; }
+      .metric { font: 700 26px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #f8fafc; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="960" fill="url(#bg)"/>
+
+  <text x="40" y="48" class="h1">Piclaw RAM reduction progress</text>
+  <text x="40" y="74" class="body">Generated from docs/performance/memory-footprint-history.md · latest commit ca768600 · 10 cold experiment steps · 9 live snapshots</text>
+
+  <g filter="url(#shadow)">
+    <rect x="40" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="425" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+    <rect x="810" y="100" width="350" height="128" rx="18" fill="#111827" stroke="#1f2937"/>
+  </g>
+
+  <text x="62" y="132" class="small">Cold-session improvement vs real workspace baseline</text>
+  <text x="62" y="168" class="metric" fill="#60a5fa">-80.3%</text>
+  <text x="62" y="190" class="body">RSS delta 133.3 → 26.3 MB · elapsed 630 → 175 ms</text>
+
+  <text x="447" y="132" class="small">Live-service RSS progression (chronological)</text>
+  <text x="447" y="168" class="metric" fill="#a78bfa">-50.9%</text>
+  <text x="447" y="190" class="body">450.8 → 221.5 MB RSS · -53.7% from 478.7 MB peak</text>
+
+  <text x="832" y="132" class="small">Current live service snapshot</text>
+  <text x="832" y="162" class="small">Live settled</text>
+  <text x="832" y="184" class="metric">221.5 MB</text>
+  <text x="832" y="204" class="body">PSS 220.4 · heap 59.9 · external 27</text>
+  <text x="832" y="222" class="small">Fresh post-start 212.7 RSS · heap 38.8 · ext 15.9</text>
+
+  <g filter="url(#shadow)">
+    <rect x="40" y="240" width="550" height="330" rx="22" fill="#111827" stroke="#1f2937"/>
+    <rect x="610" y="240" width="550" height="330" rx="22" fill="#111827" stroke="#1f2937"/>
+  </g>
+
+  <text x="60" y="274" class="h2">Cold-session RSS delta (MB)</text>
+  <text x="60" y="294" class="small">Experiment-step progression — ordered by changes, not wall-clock time</text>
+  <text x="630" y="274" class="h2">Cold-session elapsed time (ms)</text>
+  <text x="630" y="294" class="small">Same experiment steps as left chart; labels S1–S8 match across both plots</text>
+
+  <line x1="70" y1="518.0" x2="570" y2="518.0" stroke="#233045" stroke-width="1"/>
+<text x="34" y="522.0" class="axis">0</text>
+<line x1="70" y1="448.0" x2="570" y2="448.0" stroke="#233045" stroke-width="1"/>
+<text x="34" y="452.0" class="axis">50</text>
+<line x1="70" y1="378.0" x2="570" y2="378.0" stroke="#233045" stroke-width="1"/>
+<text x="34" y="382.0" class="axis">100</text>
+<line x1="70" y1="308.0" x2="570" y2="308.0" stroke="#233045" stroke-width="1"/>
+<text x="34" y="312.0" class="axis">150</text>
+  <line x1="630" y1="518.0" x2="1130" y2="518.0" stroke="#233045" stroke-width="1"/>
+<text x="594" y="522.0" class="axis">0</text>
+<line x1="630" y1="465.5" x2="1130" y2="465.5" stroke="#233045" stroke-width="1"/>
+<text x="594" y="469.5" class="axis">200</text>
+<line x1="630" y1="413.0" x2="1130" y2="413.0" stroke="#233045" stroke-width="1"/>
+<text x="594" y="417.0" class="axis">400</text>
+<line x1="630" y1="360.5" x2="1130" y2="360.5" stroke="#233045" stroke-width="1"/>
+<text x="594" y="364.5" class="axis">600</text>
+<line x1="630" y1="308.0" x2="1130" y2="308.0" stroke="#233045" stroke-width="1"/>
+<text x="594" y="312.0" class="axis">800</text>
+  <rect x="88.0" y="401.4" width="31.6" height="116.6" rx="9" fill="url(#barBlue)"/>
+<text x="103.8" y="393.4" text-anchor="middle" class="value">83.3</text>
+<text x="103.8" y="531" text-anchor="middle" class="tiny">S1</text>
+<text x="103.8" y="545" text-anchor="middle" class="small">Empty</text>
+<text x="103.8" y="560" text-anchor="middle" class="small">baseline</text>
+<rect x="133.6" y="331.4" width="31.6" height="186.6" rx="9" fill="url(#barBlue)"/>
+<text x="149.4" y="323.4" text-anchor="middle" class="value">133.3</text>
+<text x="149.4" y="531" text-anchor="middle" class="tiny">S2</text>
+<text x="149.4" y="545" text-anchor="middle" class="small">Before</text>
+<text x="149.4" y="560" text-anchor="middle" class="small">ext rm</text>
+<rect x="179.2" y="404.2" width="31.6" height="113.8" rx="9" fill="url(#barBlue)"/>
+<text x="195.0" y="396.2" text-anchor="middle" class="value">81.3</text>
+<text x="195.0" y="531" text-anchor="middle" class="tiny">S3</text>
+<text x="195.0" y="545" text-anchor="middle" class="small">After</text>
+<text x="195.0" y="560" text-anchor="middle" class="small">ext rm</text>
+<rect x="224.8" y="408.0" width="31.6" height="110.0" rx="9" fill="url(#barBlue)"/>
+<text x="240.6" y="400.0" text-anchor="middle" class="value">78.6</text>
+<text x="240.6" y="531" text-anchor="middle" class="tiny">S4</text>
+<text x="240.6" y="545" text-anchor="middle" class="small">BG</text>
+<text x="240.6" y="560" text-anchor="middle" class="small">indexer</text>
+<rect x="270.4" y="400.0" width="31.6" height="118.0" rx="9" fill="url(#barBlue)"/>
+<text x="286.2" y="392.0" text-anchor="middle" class="value">84.3</text>
+<text x="286.2" y="531" text-anchor="middle" class="tiny">S5</text>
+<text x="286.2" y="545" text-anchor="middle" class="small">Hook</text>
+<text x="286.2" y="560" text-anchor="middle" class="small">trim</text>
+<rect x="316.0" y="406.0" width="31.6" height="112.0" rx="9" fill="url(#barBlue)"/>
+<text x="331.8" y="398.0" text-anchor="middle" class="value">80</text>
+<text x="331.8" y="531" text-anchor="middle" class="tiny">S6</text>
+<text x="331.8" y="545" text-anchor="middle" class="small">Gate</text>
+<text x="331.8" y="560" text-anchor="middle" class="small">web</text>
+<rect x="361.6" y="407.0" width="31.6" height="111.0" rx="9" fill="url(#barBlue)"/>
+<text x="377.4" y="399.0" text-anchor="middle" class="value">79.3</text>
+<text x="377.4" y="531" text-anchor="middle" class="tiny">S7</text>
+<text x="377.4" y="545" text-anchor="middle" class="small">Gate</text>
+<text x="377.4" y="560" text-anchor="middle" class="small">non-web</text>
+<rect x="407.2" y="482.6" width="31.6" height="35.4" rx="9" fill="url(#barBlue)"/>
+<text x="423.0" y="474.6" text-anchor="middle" class="value">25.3</text>
+<text x="423.0" y="531" text-anchor="middle" class="tiny">S8</text>
+<text x="423.0" y="545" text-anchor="middle" class="small">Lazy</text>
+<text x="423.0" y="560" text-anchor="middle" class="small">heavy</text>
+<rect x="452.8" y="480.3" width="31.6" height="37.7" rx="9" fill="url(#barBlue)"/>
+<text x="468.6" y="472.3" text-anchor="middle" class="value">26.9</text>
+<text x="468.6" y="531" text-anchor="middle" class="tiny">S9</text>
+<text x="468.6" y="545" text-anchor="middle" class="small">Azure</text>
+<text x="468.6" y="560" text-anchor="middle" class="small">bootstrap</text>
+<rect x="498.4" y="481.2" width="31.6" height="36.8" rx="9" fill="url(#barBlue)"/>
+<text x="514.2" y="473.2" text-anchor="middle" class="value">26.3</text>
+<text x="514.2" y="531" text-anchor="middle" class="tiny">S10</text>
+<text x="514.2" y="545" text-anchor="middle" class="small">Azure</text>
+<text x="514.2" y="560" text-anchor="middle" class="small">images</text>
+  <rect x="648.0" y="420.9" width="31.6" height="97.1" rx="9" fill="url(#barGreen)"/>
+<text x="663.8" y="412.9" text-anchor="middle" class="value">370</text>
+<text x="663.8" y="531" text-anchor="middle" class="tiny">S1</text>
+<text x="663.8" y="545" text-anchor="middle" class="small">Empty</text>
+<text x="663.8" y="560" text-anchor="middle" class="small">baseline</text>
+<rect x="693.6" y="352.6" width="31.6" height="165.4" rx="9" fill="url(#barGreen)"/>
+<text x="709.4" y="344.6" text-anchor="middle" class="value">630</text>
+<text x="709.4" y="531" text-anchor="middle" class="tiny">S2</text>
+<text x="709.4" y="545" text-anchor="middle" class="small">Before</text>
+<text x="709.4" y="560" text-anchor="middle" class="small">ext rm</text>
+<rect x="739.2" y="435.6" width="31.6" height="82.4" rx="9" fill="url(#barGreen)"/>
+<text x="755.0" y="427.6" text-anchor="middle" class="value">314</text>
+<text x="755.0" y="531" text-anchor="middle" class="tiny">S3</text>
+<text x="755.0" y="545" text-anchor="middle" class="small">After</text>
+<text x="755.0" y="560" text-anchor="middle" class="small">ext rm</text>
+<rect x="784.8" y="434.8" width="31.6" height="83.2" rx="9" fill="url(#barGreen)"/>
+<text x="800.6" y="426.8" text-anchor="middle" class="value">317</text>
+<text x="800.6" y="531" text-anchor="middle" class="tiny">S4</text>
+<text x="800.6" y="545" text-anchor="middle" class="small">BG</text>
+<text x="800.6" y="560" text-anchor="middle" class="small">indexer</text>
+<rect x="830.4" y="440.6" width="31.6" height="77.4" rx="9" fill="url(#barGreen)"/>
+<text x="846.2" y="432.6" text-anchor="middle" class="value">295</text>
+<text x="846.2" y="531" text-anchor="middle" class="tiny">S5</text>
+<text x="846.2" y="545" text-anchor="middle" class="small">Hook</text>
+<text x="846.2" y="560" text-anchor="middle" class="small">trim</text>
+<rect x="876.0" y="440.3" width="31.6" height="77.7" rx="9" fill="url(#barGreen)"/>
+<text x="891.8" y="432.3" text-anchor="middle" class="value">296</text>
+<text x="891.8" y="531" text-anchor="middle" class="tiny">S6</text>
+<text x="891.8" y="545" text-anchor="middle" class="small">Gate</text>
+<text x="891.8" y="560" text-anchor="middle" class="small">web</text>
+<rect x="921.6" y="445.3" width="31.6" height="72.7" rx="9" fill="url(#barGreen)"/>
+<text x="937.4" y="437.3" text-anchor="middle" class="value">277</text>
+<text x="937.4" y="531" text-anchor="middle" class="tiny">S7</text>
+<text x="937.4" y="545" text-anchor="middle" class="small">Gate</text>
+<text x="937.4" y="560" text-anchor="middle" class="small">non-web</text>
+<rect x="967.2" y="461.6" width="31.6" height="56.4" rx="9" fill="url(#barGreen)"/>
+<text x="983.0" y="453.6" text-anchor="middle" class="value">215</text>
+<text x="983.0" y="531" text-anchor="middle" class="tiny">S8</text>
+<text x="983.0" y="545" text-anchor="middle" class="small">Lazy</text>
+<text x="983.0" y="560" text-anchor="middle" class="small">heavy</text>
+<rect x="1012.8" y="473.6" width="31.6" height="44.4" rx="9" fill="url(#barGreen)"/>
+<text x="1028.6" y="465.6" text-anchor="middle" class="value">169</text>
+<text x="1028.6" y="531" text-anchor="middle" class="tiny">S9</text>
+<text x="1028.6" y="545" text-anchor="middle" class="small">Azure</text>
+<text x="1028.6" y="560" text-anchor="middle" class="small">bootstrap</text>
+<rect x="1058.4" y="472.1" width="31.6" height="45.9" rx="9" fill="url(#barGreen)"/>
+<text x="1074.2" y="464.1" text-anchor="middle" class="value">175</text>
+<text x="1074.2" y="531" text-anchor="middle" class="tiny">S10</text>
+<text x="1074.2" y="545" text-anchor="middle" class="small">Azure</text>
+<text x="1074.2" y="560" text-anchor="middle" class="small">images</text>
+
+  <g filter="url(#shadow)">
+    <rect x="40" y="600" width="1120" height="250" rx="22" fill="#111827" stroke="#1f2937"/>
+  </g>
+  <text x="60" y="634" class="h2">Live-service memory timeline</text>
+  <text x="60" y="654" class="small">Actual chronological service history from the live-snapshot table</text>
+  <rect x="840" y="623" width="14" height="14" rx="4" fill="#60a5fa"/><text x="862" y="634" class="small">RSS</text>
+  <rect x="920" y="623" width="14" height="14" rx="4" fill="#a78bfa"/><text x="942" y="634" class="small">PSS</text>
+  <line x1="90" y1="800.0" x2="1110" y2="800.0" stroke="#233045" stroke-width="1"/>
+<text x="56" y="804.0" class="axis">0</text>
+<line x1="90" y1="761.3" x2="1110" y2="761.3" stroke="#233045" stroke-width="1"/>
+<text x="56" y="765.3" class="axis">150</text>
+<line x1="90" y1="722.5" x2="1110" y2="722.5" stroke="#233045" stroke-width="1"/>
+<text x="56" y="726.5" class="axis">300</text>
+<line x1="90" y1="683.8" x2="1110" y2="683.8" stroke="#233045" stroke-width="1"/>
+<text x="56" y="687.8" class="axis">450</text>
+<line x1="90" y1="645.0" x2="1110" y2="645.0" stroke="#233045" stroke-width="1"/>
+<text x="56" y="649.0" class="axis">600</text>
+<path d="M 90.0 683.5 C 132.5 683.5, 175.0 676.3, 217.5 676.3 C 260.0 676.3, 302.5 727.5, 345.0 727.5 C 387.5 727.5, 430.0 740.7, 472.5 740.7 C 515.0 740.7, 557.5 743.8, 600.0 743.8 C 642.5 743.8, 685.0 734.4, 727.5 734.4 C 770.0 734.4, 812.5 729.9, 855.0 729.9 C 897.5 729.9, 940.0 742.9, 982.5 742.9 C 1025.0 742.9, 1067.5 742.8, 1110.0 742.8" fill="none" stroke="#60a5fa" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 90.0 683.8 C 132.5 683.8, 175.0 676.6, 217.5 676.6 C 260.0 676.6, 302.5 729.6, 345.0 729.6 C 387.5 729.6, 430.0 742.3, 472.5 742.3 C 515.0 742.3, 557.5 744.1, 600.0 744.1 C 642.5 744.1, 685.0 734.6, 727.5 734.6 C 770.0 734.6, 812.5 735.5, 855.0 735.5 C 897.5 735.5, 940.0 743.2, 982.5 743.2 C 1025.0 743.2, 1067.5 743.1, 1110.0 743.1" fill="none" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
+<circle cx="90.0" cy="683.5" r="5.5" fill="#60a5fa"/>
+<circle cx="90.0" cy="683.8" r="4.5" fill="#a78bfa"/>
+<text x="90.0" y="673.5" text-anchor="middle" class="value">450.8</text>
+<text x="90.0" y="824" text-anchor="middle" class="small">18:02Z</text>
+<text x="90.0" y="840" text-anchor="middle" class="tiny">bg index baseline</text>
+<circle cx="217.5" cy="676.3" r="5.5" fill="#60a5fa"/>
+<circle cx="217.5" cy="676.6" r="4.5" fill="#a78bfa"/>
+<text x="217.5" y="666.3" text-anchor="middle" class="value">478.7</text>
+<text x="217.5" y="824" text-anchor="middle" class="small">20:00Z</text>
+<text x="217.5" y="840" text-anchor="middle" class="tiny">interactive probe</text>
+<circle cx="345.0" cy="727.5" r="5.5" fill="#60a5fa"/>
+<circle cx="345.0" cy="729.6" r="4.5" fill="#a78bfa"/>
+<text x="345.0" y="717.5" text-anchor="middle" class="value">280.8</text>
+<text x="345.0" y="824" text-anchor="middle" class="small">20:25Z</text>
+<text x="345.0" y="840" text-anchor="middle" class="tiny">post rotate</text>
+<circle cx="472.5" cy="740.7" r="5.5" fill="#60a5fa"/>
+<circle cx="472.5" cy="742.3" r="4.5" fill="#a78bfa"/>
+<text x="472.5" y="730.7" text-anchor="middle" class="value">229.6</text>
+<text x="472.5" y="824" text-anchor="middle" class="small">20:54Z</text>
+<text x="472.5" y="840" text-anchor="middle" class="tiny">service after installing the</text>
+<circle cx="600.0" cy="743.8" r="5.5" fill="#60a5fa"/>
+<circle cx="600.0" cy="744.1" r="4.5" fill="#a78bfa"/>
+<text x="600.0" y="733.8" text-anchor="middle" class="value">217.7</text>
+<text x="600.0" y="824" text-anchor="middle" class="small">22:03Z</text>
+<text x="600.0" y="840" text-anchor="middle" class="tiny">service after installing the</text>
+<circle cx="727.5" cy="734.4" r="5.5" fill="#60a5fa"/>
+<circle cx="727.5" cy="734.6" r="4.5" fill="#a78bfa"/>
+<text x="727.5" y="724.4" text-anchor="middle" class="value">254.1</text>
+<text x="727.5" y="824" text-anchor="middle" class="small">22:58Z</text>
+<text x="727.5" y="840" text-anchor="middle" class="tiny">service after installing the</text>
+<circle cx="855.0" cy="729.9" r="5.5" fill="#60a5fa"/>
+<circle cx="855.0" cy="735.5" r="4.5" fill="#a78bfa"/>
+<text x="855.0" y="719.9" text-anchor="middle" class="value">271.5</text>
+<text x="855.0" y="824" text-anchor="middle" class="small">23:28Z</text>
+<text x="855.0" y="840" text-anchor="middle" class="tiny">service after the later 23:0</text>
+<circle cx="982.5" cy="742.9" r="5.5" fill="#60a5fa"/>
+<circle cx="982.5" cy="743.2" r="4.5" fill="#a78bfa"/>
+<text x="982.5" y="732.9" text-anchor="middle" class="value">220.9</text>
+<text x="982.5" y="824" text-anchor="middle" class="small">23:32Z</text>
+<text x="982.5" y="840" text-anchor="middle" class="tiny">service shortly after the 23</text>
+<circle cx="1110.0" cy="742.8" r="5.5" fill="#60a5fa"/>
+<circle cx="1110.0" cy="743.1" r="4.5" fill="#a78bfa"/>
+<text x="1110.0" y="732.8" text-anchor="middle" class="value">221.5</text>
+<text x="1110.0" y="824" text-anchor="middle" class="small">07:37Z</text>
+<text x="1110.0" y="840" text-anchor="middle" class="tiny">service after the most recen</text>
+
+  <g filter="url(#shadow)">
+    <rect x="40" y="860" width="1120" height="78" rx="18" fill="#111827" stroke="#1f2937"/>
+  </g>
+  <text x="60" y="885" class="body">Cold experiments: real-workspace RSS delta 133.3 MB → 26.3 MB (-80.3%); elapsed 630 ms → 175 ms (-72.2%).</text>
+  <text x="60" y="903" class="body">Live service: 450.8 MB RSS at 18:02Z → 221.5 MB at 07:37Z (-50.9%); peak was 478.7 MB at 20:00Z.</text>
+  <text x="60" y="921" class="body">Fresh post-start sample from the latest restart: 212.7 MB RSS / 38.8 MB heap / 15.9 MB external.</text>
+</svg>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>5. What the latest runtime tranche changed</h2>
+      <div class="section-intro">The 2026-04-18 RAM tranche was the first one targeted primarily at <em>retained live memory</em> rather than cold-start composition.</div>
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>Change</th>
+            <th>Why</th>
+            <th>Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Startup warmup env controls</td>
+            <td>Keep aggressive recent-chat prewarm disabled or explicitly tunable.</td>
+            <td>Less automatic runtime materialization at startup.</td>
+          </tr>
+          <tr>
+            <td>Main-session cache cap / LRU path</td>
+            <td>Stop the hot path from carrying too many main sessions resident.</td>
+            <td>Settles around <strong>2 cached main sessions</strong> instead of the previous ~6-shape.</td>
+          </tr>
+          <tr>
+            <td>Lightweight recent-chat prewarm</td>
+            <td>Warm directories and resolution caches without spinning full runtimes.</td>
+            <td>Prewarm becomes materially cheaper than full session creation.</td>
+          </tr>
+          <tr>
+            <td>Lower pressure threshold (512 → 384 MB)</td>
+            <td>Trim earlier on the crash-prone VM instead of waiting until the process is too close to the historical danger band.</td>
+            <td>Pressure-aware trimming activates sooner.</td>
+          </tr>
+          <tr>
+            <td>Cross-platform RSS HUD</td>
+            <td>Make RSS visible on Windows/macOS too; Linux still prefers VmRSS when available.</td>
+            <td>Operational telemetry is more comparable across environments.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>6. What remains</h2>
+      <div class="appendix">
+        <div class="appendix-card">
+          <h3>Open follow-ups</h3>
+          <ul>
+            <li>Audit retained session memory after the new cache cap</li>
+            <li>Retune session TTL and pressure defaults once the new steady state is better characterized</li>
+            <li>Refresh broader memory baselines and staged runner reporting</li>
+            <li>Inspect per-session retained heap/external contributors after the session-count cuts</li>
+          </ul>
+        </div>
+        <div class="appendix-card">
+          <h3>Key files / evidence</h3>
+          <ul>
+            <li><span class="mono">docs/performance/memory-footprint-history.md</span></li>
+            <li><span class="mono">docs/performance/session-bootstrap-oom-analysis-2026-04-17.md</span></li>
+            <li><span class="mono">workitems/50-done/runtime-ram-optimization-opportunities-2026-04-17.md</span></li>
+            <li><span class="mono">runtime/src/agent-pool/session.ts</span></li>
+            <li><span class="mono">runtime/src/agent-pool/session-manager.ts</span></li>
+            <li><span class="mono">runtime/src/channels/web/agent/system-metrics.ts</span></li>
+            <li><span class="mono">runtime/src/runtime/provider-bootstrap.ts</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer-card">
+      Prepared from the current workspace state on <span class="mono">/workspace/piclaw</span> using the live measurement history and work-item trail already recorded in the repository. This page is self-contained and can be opened directly in a browser or exported to PDF.
+    </div>
+  </main>
+</body>
+</html>

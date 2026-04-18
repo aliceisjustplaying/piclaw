@@ -9,6 +9,7 @@
 import { extname, isAbsolute, relative, resolve } from "path";
 import { statSync } from "fs";
 import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+import { WEB_RUNTIME_CONFIG } from "../../../core/config.js";
 const STATIC_DIR = resolve(import.meta.dir, "..", "..", "..", "..", "web", "static");
 const DOCS_DIR = resolve(import.meta.dir, "..", "..", "..", "..", "docs");
 const log = createLogger("web.static");
@@ -27,6 +28,7 @@ const MIME_TYPES = {
 };
 const APP_ASSET_VERSION_PLACEHOLDER = "__APP_ASSET_VERSION__";
 const LOGIN_ASSET_VERSION_PLACEHOLDER = "__LOGIN_ASSET_VERSION__";
+const NOTIFICATION_SOURCE_LABELS_PLACEHOLDER = "__PICLAW_NOTIFICATION_SOURCE_LABELS_FLAG__";
 const APP_VERSION_FILES = ["dist/app.bundle.js", "dist/app.bundle.css"];
 const LOGIN_VERSION_FILES = ["dist/login.bundle.js", "dist/login.bundle.css"];
 function readAssetVersion(relPaths) {
@@ -56,13 +58,14 @@ export function getLoginAssetVersion() {
     return readAssetVersion(LOGIN_VERSION_FILES);
 }
 function renderHtmlTemplate(relPath, html) {
+    const renderedWithSharedFlags = html.replaceAll(NOTIFICATION_SOURCE_LABELS_PLACEHOLDER, WEB_RUNTIME_CONFIG.notificationDebugLabels ? "1" : "0");
     if (relPath === "index.html") {
-        return html.replaceAll(APP_ASSET_VERSION_PLACEHOLDER, getAppAssetVersion());
+        return renderedWithSharedFlags.replaceAll(APP_ASSET_VERSION_PLACEHOLDER, getAppAssetVersion());
     }
     if (relPath === "login.html") {
-        return html.replaceAll(LOGIN_ASSET_VERSION_PLACEHOLDER, getLoginAssetVersion());
+        return renderedWithSharedFlags.replaceAll(LOGIN_ASSET_VERSION_PLACEHOLDER, getLoginAssetVersion());
     }
-    return html;
+    return renderedWithSharedFlags;
 }
 function isPathWithin(baseDir, filePath) {
     const rel = relative(baseDir, filePath);
@@ -90,10 +93,12 @@ export async function serveStatic(relPath, notFound) {
     // Everything else (fonts, icons, vendor libs): 1 hour cache.
     const cacheControl = ext === ".html"
         ? "no-cache, no-store, must-revalidate"
-        : (relPath === "dist" || relPath.startsWith("dist/") || relPath.includes("/dist/"))
+        : relPath === "sw.js"
             ? "no-cache, no-store, must-revalidate"
-            : "public, max-age=3600";
-    if (ext === ".html") {
+            : (relPath === "dist" || relPath.startsWith("dist/") || relPath.includes("/dist/"))
+                ? "no-cache, no-store, must-revalidate"
+                : "public, max-age=3600";
+    if (ext === ".html" || relPath === "sw.js") {
         const rendered = renderHtmlTemplate(relPath, await file.text());
         return new Response(rendered, {
             headers: {
@@ -102,11 +107,15 @@ export async function serveStatic(relPath, notFound) {
             },
         });
     }
+    const responseHeaders = {
+        "Content-Type": contentType,
+        "Cache-Control": cacheControl,
+    };
+    if (relPath === "sw.js") {
+        responseHeaders["Service-Worker-Allowed"] = "/";
+    }
     return new Response(file, {
-        headers: {
-            "Content-Type": contentType,
-            "Cache-Control": cacheControl,
-        },
+        headers: responseHeaders,
     });
 }
 /**

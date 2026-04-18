@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Piclaw Testing and Linting Flow</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1220;
+      --panel: rgba(17, 24, 39, 0.92);
+      --panel-2: rgba(15, 23, 42, 0.92);
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --line: rgba(148, 163, 184, 0.15);
+      --blue: #60a5fa;
+      --green: #34d399;
+      --violet: #a78bfa;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+      --radius: 20px;
+      --max: 1200px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: linear-gradient(180deg, #0b1220 0%, #101827 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    body { padding: 24px 16px 64px; }
+    .page {
+      width: min(100%, var(--max));
+      margin: 0 auto;
+    }
+    .hero, .section, .footer {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(6px);
+    }
+    .hero {
+      padding: 32px 34px;
+      margin-bottom: 18px;
+      background:
+        radial-gradient(circle at 80% 0%, rgba(96,165,250,.18), transparent 24%),
+        radial-gradient(circle at 0% 20%, rgba(167,139,250,.16), transparent 22%),
+        var(--panel);
+    }
+    .eyebrow {
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(34px, 4vw, 54px);
+      line-height: 1.03;
+      letter-spacing: -.04em;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 18px;
+      max-width: 920px;
+    }
+    .hero-grid, .metrics, .flow-grid, .layers, .check-grid, .appendix-grid {
+      display: grid;
+      gap: 16px;
+    }
+    .hero-grid {
+      grid-template-columns: 1.4fr .9fr;
+      align-items: start;
+      margin-top: 24px;
+    }
+    .metrics { grid-template-columns: repeat(4, 1fr); }
+    .metric, .side-card, .layer, .check, .flow-box, .appendix-card {
+      background: linear-gradient(180deg, rgba(15,23,42,.9), rgba(17,24,39,.96));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px 18px;
+    }
+    .metric .label, .side-card .label, .layer .label, .check .label, .appendix-card .label {
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .metric .value {
+      font-size: 32px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    .metric .detail, .side-card .detail, .layer .detail, .check .detail, .appendix-card .detail {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .section {
+      padding: 26px 28px;
+      margin-top: 18px;
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      letter-spacing: -.03em;
+    }
+    .intro {
+      color: var(--muted);
+      max-width: 920px;
+      margin-bottom: 18px;
+    }
+    .flow-grid {
+      grid-template-columns: repeat(5, 1fr);
+      align-items: stretch;
+    }
+    .flow-box {
+      position: relative;
+      min-height: 178px;
+    }
+    .flow-box:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 24px;
+      font-weight: 700;
+      z-index: 2;
+    }
+    .flow-box h3, .layer h3, .appendix-card h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      letter-spacing: -.02em;
+    }
+    .flow-box p, .layer p, .appendix-card p, li {
+      color: #cbd5e1;
+    }
+    ul {
+      margin: 10px 0 0 18px;
+      padding: 0;
+    }
+    .command {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid rgba(148,163,184,.16);
+      font: 600 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #dbeafe;
+      word-break: break-word;
+    }
+    .layers { grid-template-columns: repeat(2, 1fr); }
+    .check-grid { grid-template-columns: repeat(3, 1fr); }
+    .table-shell {
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(15,23,42,.75);
+      margin-top: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid rgba(148,163,184,.08);
+    }
+    th {
+      background: rgba(2,6,23,.34);
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .good { color: var(--green); font-weight: 700; }
+    .warn { color: var(--amber); font-weight: 700; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .appendix-grid { grid-template-columns: 1fr 1fr; }
+    .footer {
+      margin-top: 18px;
+      padding: 18px 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    @media (max-width: 1100px) {
+      .hero-grid, .flow-grid, .layers, .check-grid, .appendix-grid { grid-template-columns: 1fr 1fr; }
+      .flow-box::after { display: none; }
+    }
+    @media (max-width: 760px) {
+      body { padding: 16px 10px 48px; }
+      .hero, .section { padding: 20px; }
+      .metrics, .hero-grid, .flow-grid, .layers, .check-grid, .appendix-grid { grid-template-columns: 1fr; }
+      h2 { font-size: 24px; }
+      .metric .value { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">Piclaw / Testing + linting / 2026-04-18</div>
+      <h1>Testing and linting flow</h1>
+      <div class="subtitle">
+        A single-page map of how Piclaw validates changes locally and in CI — from focused developer loops, through lint/typecheck and staged tests, up to the canonical fast CI contract and the full local quality gate.
+      </div>
+      <div class="hero-grid">
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">Primary lint tool</div>
+            <div class="value">ESLint</div>
+            <div class="detail">Flat config over <span class="mono">runtime/src/**/*.ts</span> and <span class="mono">runtime/test/**/*.ts</span></div>
+          </div>
+          <div class="metric">
+            <div class="label">Primary type check</div>
+            <div class="value">tsc</div>
+            <div class="detail"><span class="mono">--noEmit -p runtime/tsconfig.json</span> for the standard typecheck path</div>
+          </div>
+          <div class="metric">
+            <div class="label">Default test path</div>
+            <div class="value">Controlled</div>
+            <div class="detail">Staged, sequential test runner with fresh Bun processes and memory reporting</div>
+          </div>
+          <div class="metric">
+            <div class="label">CI contract</div>
+            <div class="value">make ci-fast</div>
+            <div class="detail">Fast guardrails + focused tests + full web build</div>
+          </div>
+        </div>
+        <div class="side-card">
+          <div class="label">Why the flow looks like this</div>
+          <div class="detail">
+            Piclaw is a Bun + TypeScript repo with runtime, web, vendored assets, and a large test surface. The validation flow is intentionally layered:
+          </div>
+          <ul>
+            <li><strong>fast local iterations</strong> for touched files and focused regressions</li>
+            <li><strong>repo-wide lint + typecheck</strong> for static safety</li>
+            <li><strong>controlled staged tests</strong> to reduce memory spikes and SQLite concurrency issues</li>
+            <li><strong>a canonical fast CI target</strong> that exercises the highest-signal checks cheaply</li>
+            <li><strong>a full quality gate</strong> that adds pack/stale-dist/import-boundary/static-analysis checks</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>1. The flow at a glance</h2>
+      <div class="intro">The repo uses a layered workflow rather than one giant command for every edit. This keeps normal work fast while still preserving a stronger final gate.</div>
+      <div class="flow-grid">
+        <div class="flow-box">
+          <h3>Focused developer check</h3>
+          <p>Run only the tests that cover the touched area, usually from <span class="mono">runtime/</span>, with SQLite-safe sequential execution.</p>
+          <div class="command">cd runtime &amp;&amp; bun test --max-concurrency=1 …</div>
+        </div>
+        <div class="flow-box">
+          <h3>Static validation</h3>
+          <p>Run lint and typecheck via repo-aware wrapper scripts so tooling is resolved from the worktree and installed automatically if missing.</p>
+          <div class="command">bun run lint<br/>bun run typecheck</div>
+        </div>
+        <div class="flow-box">
+          <h3>Default full test path</h3>
+          <p><span class="mono">bun run test</span> resolves to the controlled staged test runner, not a single monolithic <span class="mono">bun test</span> process.</p>
+          <div class="command">bun run test</div>
+        </div>
+        <div class="flow-box">
+          <h3>Fast CI contract</h3>
+          <p>The canonical GitHub Actions path runs a deliberately bounded contract: selected check scripts, focused tests, and the full web build.</p>
+          <div class="command">make ci-fast</div>
+        </div>
+        <div class="flow-box">
+          <h3>Full local quality gate</h3>
+          <p>Before bigger merges or release prep, run the superset quality command with lint, typecheck, tests, and structural hygiene checks.</p>
+          <div class="command">bun run quality</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. Command hierarchy</h2>
+      <div class="intro">The same concepts are exposed through both root-level Bun scripts and top-level Make targets. The Makefile is the human-friendly surface; <span class="mono">package.json</span> holds the actual script composition.</div>
+      <div class="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>Intent</th>
+              <th>Human-facing command</th>
+              <th>Underlying implementation</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Lint</td>
+              <td><span class="mono">make lint</span></td>
+              <td><span class="mono">cd runtime &amp;&amp; bun run lint</span> → root <span class="mono">bun run runtime/scripts/repo-dev-command.ts lint</span></td>
+              <td>Runs ESLint with repo-local resolution against <span class="mono">src/**/*.ts</span> and <span class="mono">test/**/*.ts</span>.</td>
+            </tr>
+            <tr>
+              <td>Typecheck</td>
+              <td><span class="mono">make build-ts</span> or <span class="mono">bun run typecheck</span></td>
+              <td><span class="mono">repo-dev-command.ts typecheck</span> → <span class="mono">tsc --noEmit -p runtime/tsconfig.json</span></td>
+              <td>Separate from the build path, which uses <span class="mono">tsc -p tsconfig.json</span> after clearing <span class="mono">runtime/generated/dist</span>.</td>
+            </tr>
+            <tr>
+              <td>Default tests</td>
+              <td><span class="mono">make test</span> / <span class="mono">bun run test</span></td>
+              <td><span class="mono">runtime/scripts/controlled-test-runner.ts</span></td>
+              <td>Sequential staged execution with memory sampling and JSON report output.</td>
+            </tr>
+            <tr>
+              <td>Raw tests</td>
+              <td><span class="mono">bun run test:raw</span></td>
+              <td><span class="mono">cd runtime &amp;&amp; PICLAW_DB_IN_MEMORY=1 bun test --max-concurrency=1</span></td>
+              <td>Useful when you want a direct Bun test pass rather than staged orchestration.</td>
+            </tr>
+            <tr>
+              <td>Fast CI</td>
+              <td><span class="mono">make ci-fast</span></td>
+              <td><span class="mono">bun run ci:fast</span></td>
+              <td>Also the GitHub Actions CI job entrypoint.</td>
+            </tr>
+            <tr>
+              <td>Full quality gate</td>
+              <td><span class="mono">bun run quality</span></td>
+              <td>Composes lint, typecheck, tests, and multiple repo hygiene checks.</td>
+              <td>Best “everything important” local gate before larger merges/releases.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3. Linting and typecheck flow</h2>
+      <div class="intro">Static validation is funneled through <span class="mono">runtime/scripts/repo-dev-command.ts</span>, which resolves repo-local binaries, auto-installs them if missing, and standardizes command invocation.</div>
+      <div class="layers">
+        <div class="layer">
+          <div class="label">Lint path</div>
+          <h3>ESLint via repo-dev wrapper</h3>
+          <p>The lint command resolves the repo root, switches into <span class="mono">runtime/</span>, and runs:</p>
+          <div class="command">eslint --config runtime/eslint.config.js src/**/*.ts test/**/*.ts</div>
+          <ul>
+            <li>ignores <span class="mono">dist/**</span>, <span class="mono">web/static/**</span>, and <span class="mono">node_modules/**</span></li>
+            <li>uses TypeScript parser/plugin plus JS recommended rules</li>
+            <li>project overrides include unused-vars enforcement and relaxed <span class="mono">any</span>/<span class="mono">ts-comment</span> rules</li>
+          </ul>
+        </div>
+        <div class="layer">
+          <div class="label">Typecheck path</div>
+          <h3>Two related but distinct commands</h3>
+          <p>The standard typecheck path is non-emitting:</p>
+          <div class="command">tsc --noEmit -p runtime/tsconfig.json</div>
+          <p>There is also a build-oriented TypeScript path:</p>
+          <div class="command">tsc -p runtime/tsconfig.json</div>
+          <ul>
+            <li><strong>typecheck</strong> = static safety, no build output</li>
+            <li><strong>build</strong> = validation/inspection output under <span class="mono">runtime/generated/dist</span></li>
+            <li>build clears old generated dist first</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>4. How the default test runner works</h2>
+      <div class="intro">Piclaw does not treat “full test suite” as a single long Bun process by default. Instead it uses a controlled runner designed to keep the suite stable and observable.</div>
+      <div class="check-grid">
+        <div class="check">
+          <div class="label">Discovery</div>
+          <h3>Find test files automatically</h3>
+          <p>Discovers <span class="mono">runtime/test/**/*.test.ts</span> unless explicit files are passed.</p>
+        </div>
+        <div class="check">
+          <div class="label">Staging</div>
+          <h3>Chunk into stages</h3>
+          <p>Splits files into stages of <strong>25</strong> by default, running one stage after another.</p>
+        </div>
+        <div class="check">
+          <div class="label">Execution</div>
+          <h3>Fresh Bun process per stage</h3>
+          <p>Each stage runs in a fresh child process to bound heap/resource accumulation.</p>
+        </div>
+        <div class="check">
+          <div class="label">Concurrency</div>
+          <h3>SQLite-safe by default</h3>
+          <p>Forces <span class="mono">--max-concurrency=1</span> unless the caller already supplied a different value.</p>
+        </div>
+        <div class="check">
+          <div class="label">Isolation</div>
+          <h3>In-memory DB by default</h3>
+          <p>Sets <span class="mono">PICLAW_DB_IN_MEMORY=1</span> unless explicitly disabled.</p>
+        </div>
+        <div class="check">
+          <div class="label">Telemetry</div>
+          <h3>Memory-aware reporting</h3>
+          <p>Samples process-tree RSS and cgroup memory, emits a JSON report to <span class="mono">runtime/generated/controlled-test-report.json</span>.</p>
+        </div>
+      </div>
+      <div class="table-shell" style="margin-top:16px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Runner behavior</th>
+              <th>Why it exists</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Sequential stage execution</td>
+              <td>Reduces flaky concurrency interactions and keeps SQLite access safe.</td>
+            </tr>
+            <tr>
+              <td>Fresh runtime per stage</td>
+              <td>Prevents one huge Bun process from hiding stage-specific memory spikes.</td>
+            </tr>
+            <tr>
+              <td>Peak RSS + cgroup sampling</td>
+              <td>Makes test-memory regressions measurable rather than anecdotal.</td>
+            </tr>
+            <tr>
+              <td>Passthrough args + explicit files</td>
+              <td>Keeps the staged runner usable for focused suites, not just all-tests runs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>5. The fast CI contract</h2>
+      <div class="intro">GitHub Actions intentionally runs a bounded contract instead of the entire local quality superset on every push/PR.</div>
+      <div class="layers">
+        <div class="layer">
+          <div class="label">Workflow</div>
+          <h3><span class="mono">.github/workflows/ci.yml</span></h3>
+          <ul>
+            <li>checkout</li>
+            <li>setup Bun</li>
+            <li><span class="mono">bun install --frozen-lockfile</span></li>
+            <li><span class="mono">make ci-fast</span></li>
+          </ul>
+          <p>This keeps the CI contract legible and anchored to one repo-visible target.</p>
+        </div>
+        <div class="layer">
+          <div class="label">What ci-fast actually does</div>
+          <h3>High-signal fast checks</h3>
+          <div class="command">bun run check:silent-swallows
+bun run check:structured-logging
+cd runtime &amp;&amp; PICLAW_DB_IN_MEMORY=1 bun test test/channels/web/tool-status-hints.test.ts test/web/status-hints.test.ts
+cd .. &amp;&amp; make build-web</div>
+          <ul>
+            <li>static guardrails for silent catch/logging regressions</li>
+            <li>two focused status-hints tests</li>
+            <li>full web build, which itself reruns web-build-related tests</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>6. The full local quality gate</h2>
+      <div class="intro">The strongest repo-local gate is broader than CI fast. It is intended for higher-confidence local validation before larger merges, release prep, or more invasive refactors.</div>
+      <div class="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>Phase</th>
+              <th>Command</th>
+              <th>What it catches</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Static correctness</td>
+              <td><span class="mono">bun run lint</span><br/><span class="mono">bun run typecheck</span></td>
+              <td>Style/bug patterns + TS structural breakage</td>
+            </tr>
+            <tr>
+              <td>Behavioral regressions</td>
+              <td><span class="mono">bun run test</span></td>
+              <td>Controlled staged runtime/web/test regressions</td>
+            </tr>
+            <tr>
+              <td>Packaging hygiene</td>
+              <td><span class="mono">bun run check:pack-hygiene</span><br/><span class="mono">bun run check:stale-dist</span></td>
+              <td>Broken package contents and stale build artefacts</td>
+            </tr>
+            <tr>
+              <td>Architecture constraints</td>
+              <td><span class="mono">bun run check:import-boundaries</span><br/><span class="mono">bun run check:unused-exports</span></td>
+              <td>Boundary violations and dead exported surface</td>
+            </tr>
+            <tr>
+              <td>Code health audits</td>
+              <td><span class="mono">bun run check:hook-tdz</span><br/><span class="mono">bun run check:silent-swallows</span><br/><span class="mono">bun run check:structured-logging</span></td>
+              <td>Runtime foot-guns and repo-wide hygiene policies</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="intro" style="margin-top:14px; margin-bottom:0;">In practice: <span class="mono">ci-fast</span> is the canonical shared contract; <span class="mono">quality</span> is the stronger local “I want high confidence” gate.</p>
+    </section>
+
+    <section class="section">
+      <h2>7. Practical day-to-day flow</h2>
+      <div class="intro">This is the most useful operational reading of the repo’s test/lint system: which commands to run when you are changing code.</div>
+      <div class="layers">
+        <div class="layer">
+          <div class="label">Fastest loop</div>
+          <h3>While actively editing</h3>
+          <ul>
+            <li>run focused tests in <span class="mono">runtime/test/…</span> for the touched surface</li>
+            <li>rerun <span class="mono">bun run lint</span> and <span class="mono">bun run typecheck</span> before considering the change stable</li>
+            <li>use raw or focused Bun test invocation when you only need a narrow regression pass</li>
+          </ul>
+        </div>
+        <div class="layer">
+          <div class="label">Before pushing</div>
+          <h3>Canonical shared gate</h3>
+          <ul>
+            <li>run <span class="mono">make ci-fast</span></li>
+            <li>this matches the GitHub Actions CI contract</li>
+            <li>if your change touches web bundles, this is especially important because <span class="mono">build-web</span> includes bundle validation tests</li>
+          </ul>
+        </div>
+        <div class="layer">
+          <div class="label">Before bigger merges</div>
+          <h3>High-confidence local sweep</h3>
+          <ul>
+            <li>run <span class="mono">bun run quality</span></li>
+            <li>optionally run <span class="mono">make build-piclaw</span> if you need the complete vendor + web + TS build path</li>
+            <li>for install/release work, add <span class="mono">make local-install</span> or smoke scripts after validation</li>
+          </ul>
+        </div>
+        <div class="layer">
+          <div class="label">When debugging test memory</div>
+          <h3>Use the controlled runner report</h3>
+          <ul>
+            <li>inspect <span class="mono">runtime/generated/controlled-test-report.json</span></li>
+            <li>adjust stage size / sampling if you need sharper memory evidence</li>
+            <li>use the report as an audit artifact, not just a pass/fail signal</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>8. Key takeaways</h2>
+      <div class="appendix-grid">
+        <div class="appendix-card">
+          <div class="label">Mental model</div>
+          <h3>There is no single “one true” command</h3>
+          <p>Piclaw’s testing/linting flow is intentionally layered: narrow checks for editing speed, a bounded shared CI contract, and a broader local quality gate when you want stronger assurance.</p>
+        </div>
+        <div class="appendix-card">
+          <div class="label">Most important fact</div>
+          <h3>Default tests are staged on purpose</h3>
+          <p>The default <span class="mono">bun run test</span> path is not just cosmetic wrapping — it materially changes execution strategy to control memory growth and improve suite stability.</p>
+        </div>
+        <div class="appendix-card">
+          <div class="label">Fast CI scope</div>
+          <h3>CI optimizes for signal, not exhaustiveness</h3>
+          <p><span class="mono">make ci-fast</span> deliberately checks a focused slice: important static audits, targeted tests, and a full web build. That keeps pull-request feedback quick and reliable.</p>
+        </div>
+        <div class="appendix-card">
+          <div class="label">Full gate</div>
+          <h3>Quality is the local superset</h3>
+          <p>If you need the strongest local confidence short of release smoke tests, <span class="mono">bun run quality</span> is the repo’s best single umbrella command.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      Sources used: <span class="mono">package.json</span>, <span class="mono">Makefile</span>, <span class="mono">.github/workflows/ci.yml</span>, <span class="mono">docs/development.md</span>, <span class="mono">runtime/scripts/repo-dev-command.ts</span>, <span class="mono">runtime/scripts/controlled-test-runner.ts</span>, and <span class="mono">runtime/eslint.config.js</span>. This page is self-contained and can be opened directly in a browser or exported to PDF.
+    </div>
+  </main>
+</body>
+</html>

@@ -100,6 +100,7 @@ test("plain import covers config module init branches with isolated argv and env
           internalSecret: "config-secret",
           passkeyMode: "passkey-only",
           terminalEnabled: true,
+          notificationDebugLabels: false,
           vncAllowDirect: false,
           vncTargetsRaw: "",
           debugCardSubmissions: false,

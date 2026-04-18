@@ -8,6 +8,9 @@
  * Consumers: channels/web.ts and web/agent-events.ts write to this store.
  */
 import { formatOutbound } from "../../../router.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+import { sendStoredAgentReplyWebPushNotification } from "../push/web-push-service.js";
+const log = createLogger("web.agent-message-store");
 function buildAttachmentBlocks(attachments) {
     const mediaIds = attachments.map((a) => a.id);
     const contentBlocks = attachments.map((a) => ({
@@ -18,6 +21,16 @@ function buildAttachmentBlocks(attachments) {
         size: a.size,
     }));
     return { mediaIds, contentBlocks };
+}
+function dispatchStoredReplyWebPush(interaction, dispatchWebPushNotification) {
+    if (!interaction)
+        return;
+    void (dispatchWebPushNotification || sendStoredAgentReplyWebPushNotification)(interaction).catch((error) => {
+        debugSuppressedError(log, "Failed to dispatch Web Push for stored agent reply.", error, {
+            chatJid: interaction.chat_jid,
+            rowId: interaction.id,
+        });
+    });
 }
 /** Persist the accumulated agent turn (text + attachments) to the database. */
 export function storeAgentTurn(channel, emitter, params) {
@@ -37,6 +50,9 @@ export function storeAgentTurn(channel, emitter, params) {
                     thread_id: params.threadId ?? null,
                     row_id: placeholderId,
                 });
+                if (params.isTerminalAgentReply) {
+                    dispatchStoredReplyWebPush(updated, params.dispatchWebPushNotification);
+                }
                 return true;
             }
         }
@@ -48,6 +64,9 @@ export function storeAgentTurn(channel, emitter, params) {
     });
     if (interaction) {
         emitter.response(interaction);
+        if (params.isTerminalAgentReply) {
+            dispatchStoredReplyWebPush(interaction, params.dispatchWebPushNotification);
+        }
         return true;
     }
     return false;

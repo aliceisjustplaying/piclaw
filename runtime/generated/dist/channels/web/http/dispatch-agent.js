@@ -1,6 +1,7 @@
 /**
  * web/http/dispatch-agent.ts – Agent route dispatch helpers.
  */
+import { handleWebPushPresence, handleWebPushSubscriptionDelete, handleWebPushSubscriptionUpsert, handleWebPushVapidPublicKey, } from "../push/web-push-routes.js";
 const EXACT_AGENT_ROUTES = [
     {
         method: "GET",
@@ -135,6 +136,26 @@ const EXACT_AGENT_ROUTES = [
         method: "POST",
         path: "/agent/card-action",
         handle: (channel, req) => channel.handleAdaptiveCardAction(req),
+    },
+    {
+        method: "GET",
+        path: "/agent/push/vapid-public-key",
+        handle: () => handleWebPushVapidPublicKey(),
+    },
+    {
+        method: "POST",
+        path: "/agent/push/subscription",
+        handle: (_channel, req) => handleWebPushSubscriptionUpsert(req),
+    },
+    {
+        method: "DELETE",
+        path: "/agent/push/subscription",
+        handle: (_channel, req) => handleWebPushSubscriptionDelete(req),
+    },
+    {
+        method: "POST",
+        path: "/agent/push/presence",
+        handle: (_channel, req) => handleWebPushPresence(req),
     },
     {
         method: "POST",
