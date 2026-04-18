@@ -729,6 +729,9 @@ class VncPaneInstance implements PaneInstance {
         this.canvas.style.cursor = 'crosshair';
         this.canvas.style.touchAction = 'none';
 
+        // Track pressed mask per pointer so touch/pen pointerup (button=-1) still releases correctly
+        const pressedMaskByPointer = new Map<number, number>();
+
         this.canvas.addEventListener('contextmenu', (event) => {
             event.preventDefault();
         });
@@ -743,19 +746,27 @@ class VncPaneInstance implements PaneInstance {
             event.preventDefault();
             this.canvas?.focus?.();
             try { this.canvas?.setPointerCapture?.(event.pointerId); } catch { /* expected: pointer capture can fail when the canvas loses the pointer stream mid-gesture. */ }
-            this.pointerButtonMask |= vncButtonMaskForPointerButton(event.button);
+            const bit = vncButtonMaskForPointerButton(event.button);
+            pressedMaskByPointer.set(event.pointerId, (pressedMaskByPointer.get(event.pointerId) ?? 0) | bit);
+            this.pointerButtonMask |= bit;
             this.sendPointerEvent(this.pointerButtonMask, point.x, point.y);
         });
         this.canvas.addEventListener('pointerup', (event) => {
             const point = this.getFramebufferPointFromEvent(event);
             if (!point) return;
             event.preventDefault();
-            this.pointerButtonMask &= ~vncButtonMaskForPointerButton(event.button);
+            // On touch/pen, event.button is -1 on pointerup; use the mask we recorded on pointerdown.
+            const pressedBit = event.button === -1
+                ? (pressedMaskByPointer.get(event.pointerId) ?? vncButtonMaskForPointerButton(0))
+                : vncButtonMaskForPointerButton(event.button);
+            pressedMaskByPointer.delete(event.pointerId);
+            this.pointerButtonMask &= ~pressedBit;
             this.sendPointerEvent(this.pointerButtonMask, point.x, point.y);
             try { this.canvas?.releasePointerCapture?.(event.pointerId); } catch { /* expected: pointer capture may already be gone when the gesture ends. */ }
         });
         this.canvas.addEventListener('pointercancel', (event) => {
             const point = this.getFramebufferPointFromEvent(event) || { x: 0, y: 0 };
+            pressedMaskByPointer.delete(event.pointerId);
             this.pointerButtonMask = 0;
             this.sendPointerEvent(0, point.x, point.y);
             try { this.canvas?.releasePointerCapture?.(event.pointerId); } catch { /* expected: pointer capture may already be gone on cancellation. */ }
