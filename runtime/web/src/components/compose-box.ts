@@ -141,6 +141,10 @@ export function resolveComposeSubmitButtonState(isAgentActive, canSend, isCompac
     };
 }
 
+export function isComposeSubmitAbortMode(mode) {
+    return mode === 'abort' || mode === 'compacting';
+}
+
 /**
  * Tiny SVG pie chart showing context window usage.
  * Green when <75%, amber 75–90%, red >90%. Tooltip shows exact numbers.
@@ -2267,7 +2271,7 @@ export function ComposeBox({
                                     class=${submitButtonState.className}
                                     type="button"
                                     onClick=${() => {
-                                        if (submitButtonState.mode === 'abort') {
+                                        if (isComposeSubmitAbortMode(submitButtonState.mode)) {
                                             void handleSubmit('/abort', 'steer');
                                             return;
                                         }
@@ -2281,13 +2285,13 @@ export function ComposeBox({
                                         ? html`
                                             <span class="compose-submit-spinner" aria-hidden="true">
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                                    <circle class="compose-submit-spinner-ring" cx="12" cy="12" r="8" stroke-width="2.25" stroke-linecap="round"></circle>
-                                                    <rect class="compose-submit-spinner-stop" x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor"></rect>
+                                                    <circle class="compose-submit-spinner-ring" cx="12" cy="12" r="8.5" stroke-width="2.25" stroke-linecap="round"></circle>
+                                                    <rect class="compose-submit-spinner-stop" x="7" y="7" width="10" height="10" rx="1.75" fill="currentColor"></rect>
                                                 </svg>
                                             </span>
                                         `
                                         : submitButtonState.mode === 'abort'
-                                            ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`
+                                            ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.25"/></svg>`
                                             : html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`}
                                 </button>
                             `}

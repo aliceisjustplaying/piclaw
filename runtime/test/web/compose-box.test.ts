@@ -11,6 +11,7 @@ import {
   parseQueuedContent,
   resolveComposePrefillRequest,
   resolveComposeSubmitButtonState,
+  isComposeSubmitAbortMode,
   resolveUiOnlyCommandNotice,
 } from '../../web/src/components/compose-box.ts';
 import { CONTROL_COMMAND_DEFINITIONS } from '../../src/agent-control/command-registry.ts';
@@ -210,6 +211,13 @@ test('resolveComposeSubmitButtonState stays coherent across send, stop, and comp
     ariaLabel: 'Send message',
     disabled: true,
   });
+});
+
+test('isComposeSubmitAbortMode keeps compacting on the abort path', () => {
+  expect(isComposeSubmitAbortMode('abort')).toBe(true);
+  expect(isComposeSubmitAbortMode('compacting')).toBe(true);
+  expect(isComposeSubmitAbortMode('send')).toBe(false);
+  expect(isComposeSubmitAbortMode(null)).toBe(false);
 });
 
 test('resolveUiOnlyCommandNotice only surfaces read-only model and thinking queries', () => {
