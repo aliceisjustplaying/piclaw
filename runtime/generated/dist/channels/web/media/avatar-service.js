@@ -262,8 +262,9 @@ export async function buildAvatarResponse(kind, source, req) {
                 },
             });
         }
-        catch {
+        catch (e) {
             // sharp unavailable — fall through to original format
+            log.debug("PNG conversion unavailable for favicon", { err: e });
         }
     }
     const size = file.size ?? 0;
