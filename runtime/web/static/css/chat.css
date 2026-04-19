@@ -1358,6 +1358,44 @@
     background-color: color-mix(in srgb, var(--warning-color, var(--danger-color)) 12%, transparent);
 }
 
+.send-btn.compacting-mode {
+    color: var(--warning-color, var(--danger-color));
+}
+
+.send-btn.compacting-mode:hover,
+.send-btn.compacting-mode:focus-visible {
+    color: var(--warning-color, var(--danger-color));
+    background-color: color-mix(in srgb, var(--warning-color, var(--danger-color)) 12%, transparent);
+}
+
+.compose-submit-spinner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+
+.compose-submit-spinner svg {
+    display: block;
+}
+
+.compose-submit-spinner-ring {
+    stroke: currentColor;
+    stroke-dasharray: 16 12;
+    transform-origin: 12px 12px;
+    animation: composeSubmitSpinnerRotate 0.9s linear infinite;
+}
+
+.compose-submit-spinner-stop {
+    transform-origin: 12px 12px;
+}
+
+@keyframes composeSubmitSpinnerRotate {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .media-files-preview {
     display: flex;
     flex-wrap: wrap;

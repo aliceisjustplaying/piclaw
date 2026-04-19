@@ -111,7 +111,17 @@ export function resolveUiOnlyCommandNotice(commandText, response) {
     return null;
 }
 
-export function resolveComposeSubmitButtonState(isAgentActive, canSend) {
+export function resolveComposeSubmitButtonState(isAgentActive, canSend, isCompacting = false) {
+    if (isAgentActive && isCompacting) {
+        return {
+            mode: 'compacting',
+            className: 'icon-btn send-btn abort-mode compacting-mode',
+            title: 'Compacting context — Stop response',
+            ariaLabel: 'Compacting context — Stop response',
+            disabled: false,
+        };
+    }
+
     if (isAgentActive) {
         return {
             mode: 'abort',
@@ -734,7 +744,7 @@ export function ComposeBox({
     const connectionStatusPresentation = useConnectionStatusPresentation(connectionStatus);
     const connectionStatusLabel = connectionStatusPresentation.label;
     const connectionStatusTitle = connectionStatusPresentation.title;
-    const submitButtonState = resolveComposeSubmitButtonState(isAgentActive, canSend);
+    const submitButtonState = resolveComposeSubmitButtonState(isAgentActive, canSend, statusNoticeIsCompaction);
 
     const mentionAgents = (Array.isArray(activeChatAgents) ? activeChatAgents : [])
         .filter((chat) => !chat?.archived_at);
@@ -2267,9 +2277,18 @@ export function ComposeBox({
                                     title=${submitButtonState.title}
                                     aria-label=${submitButtonState.ariaLabel}
                                 >
-                                    ${submitButtonState.mode === 'abort'
-                                        ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`
-                                        : html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`}
+                                    ${submitButtonState.mode === 'compacting'
+                                        ? html`
+                                            <span class="compose-submit-spinner" aria-hidden="true">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                                    <circle class="compose-submit-spinner-ring" cx="12" cy="12" r="8" stroke-width="2.25" stroke-linecap="round"></circle>
+                                                    <rect class="compose-submit-spinner-stop" x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor"></rect>
+                                                </svg>
+                                            </span>
+                                        `
+                                        : submitButtonState.mode === 'abort'
+                                            ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`
+                                            : html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`}
                                 </button>
                             `}
                         </div>
