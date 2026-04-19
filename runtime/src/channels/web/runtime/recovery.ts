@@ -19,6 +19,10 @@ import { createLogger } from "../../../utils/logger.js";
 
 const log = createLogger("web.recovery");
 
+function isBranchChat(chatJid: string): boolean {
+  return chatJid.includes(":branch:");
+}
+
 function recoveryLaneKey(chatJid: string): string {
   return `chat:${chatJid}`;
 }
@@ -151,6 +155,15 @@ export function recoverStaleInflightRun(
   }
 
   if (replyState === "none" && inflightAge >= minAgeMs) {
+    // Branch chats lose session context on restart; replaying into a blank
+    // session just produces zero output. Skip the replay for branches.
+    if (isBranchChat(chatJid)) {
+      log.info("Runtime stale-inflight recovery skipped replay for branch chat", {
+        operation: "recover_stale_inflight_run.branch_skip_replay",
+        chatJid,
+      });
+      return true;
+    }
     ctx.enqueue(async () => {
       if ((ctx.recoveryDelayMs ?? 0) > 0) {
         await (ctx.sleep ? ctx.sleep(ctx.recoveryDelayMs!) : Bun.sleep(ctx.recoveryDelayMs!));
@@ -224,6 +237,17 @@ export function recoverInflightRuns(
           inflightAgeSeconds: Math.round(inflightAge / 1000),
         });
         store.rollbackInflightRun(inflight.chatJid, inflight.prevTs);
+
+        // Branch chats lose their in-memory session on restart. Replaying
+        // into a fresh contextless session produces zero output reliably,
+        // so skip the replay and just clear the marker for branches.
+        if (isBranchChat(inflight.chatJid)) {
+          log.info("Branch inflight run cleared without replay (session context lost on restart)", {
+            operation: "recover_inflight_runs.branch_skip_replay",
+            chatJid: inflight.chatJid,
+          });
+          store.clearInflightMarker(inflight.chatJid);
+        }
       }
     });
   } catch (error) {
@@ -245,6 +269,10 @@ export function recoverInflightRuns(
 
   for (const { inflight, replyState } of decisions) {
     if (replyState === "none" && rolledBack.has(inflight.chatJid)) {
+      // Branch chats were already cleared without rollback above;
+      // skip the replay enqueue for them.
+      if (isBranchChat(inflight.chatJid)) continue;
+
       log.info("Recovering interrupted run", {
         operation: "recover_inflight_runs.enqueue_recovery",
         chatJid: inflight.chatJid,
