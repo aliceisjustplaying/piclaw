@@ -76,7 +76,7 @@ bun peer.ts decide <request-id> reject
 ```
 
 - **accept**: writes an IPC task file that triggers the runtime to execute the proposal through the agent pool. The runtime handles execution, stores the result, and pushes a signed result callback to the requesting peer. Equivalent to `/pair approve <id>`.
-- **reject**: updates the proposal status in the database and pushes a signed rejection callback (`decision: "deny"`) to the requesting peer's `/api/remote/result` endpoint. Equivalent to `/pair reject <id>`.
+- **reject**: writes an IPC task file that triggers the runtime to reject the proposal. The runtime handles the DB update and pushes a signed rejection callback (`decision: "deny"`) to the requesting peer's `/api/remote/result` endpoint. Equivalent to `/pair reject <id>`.
 
 ---
 
@@ -89,7 +89,7 @@ bun peer.ts decide-all reject
 
 Same semantics as `decide` but applied to every pending proposal at once.
 - **accept**: queues all pending proposals for execution via IPC task files.
-- **reject**: rejects all and pushes rejection callbacks to each requesting peer.
+- **reject**: queues all for rejection via IPC task files; the runtime pushes rejection callbacks to each requesting peer.
 
 ---
 

@@ -290,39 +290,15 @@ function writeExecuteProposalIpc(proposalId: string): void {
 }
 
 /**
- * Push a signed rejection callback to the requesting peer's /api/remote/result endpoint.
- * Best-effort — failures are logged but don't block the local decision.
+ * Write an IPC task file to trigger proposal rejection via the runtime.
+ * The runtime handles DB update + signed rejection callback push.
+ * This mirrors what `/pair reject` does in the runtime.
  */
-async function pushRejectionCallback(
-  db: InstanceType<typeof Database>,
-  proposal: RemoteRequest,
-  reason?: string,
-): Promise<void> {
-  const peer = db
-    .query("SELECT * FROM remote_peers WHERE instance_id = ? AND status = 'paired'")
-    .get(proposal.peer_instance_id) as RemotePeer | null;
-  if (!peer?.base_url) return;
-
-  const identity = loadIdentity();
-  const endpoint = "/api/remote/result";
-  const body = JSON.stringify({
-    negotiation_id: proposal.id,
-    decision: "deny",
-    reason: reason || "Rejected by operator.",
-  });
-
-  const headers = buildSignedHeaders(identity, peer, endpoint, body);
-
-  try {
-    await fetch(`${peer.base_url.replace(/\/$/, "")}${endpoint}`, {
-      method: "POST",
-      headers,
-      body,
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`  (could not notify peer: ${msg})`);
-  }
+function writeRejectProposalIpc(proposalId: string, reason?: string): void {
+  const dir = join(DATA_DIR, "ipc", "tasks");
+  mkdirSync(dir, { recursive: true });
+  const payload = JSON.stringify({ type: "reject_proposal", proposal_id: proposalId, reason: reason || undefined });
+  writeFileSync(join(dir, `reject-${proposalId}-${Date.now()}.json`), payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +383,7 @@ function cmdPending(): void {
   }
 }
 
-async function cmdDecide(id: string | undefined, verdict: string | undefined): Promise<void> {
+function cmdDecide(id: string | undefined, verdict: string | undefined): void {
   if (!id || !verdict || !["accept", "reject"].includes(verdict)) {
     console.error("Usage: peer.ts decide <request-id> accept|reject");
     process.exit(1);
@@ -425,18 +401,12 @@ async function cmdDecide(id: string | undefined, verdict: string | undefined): P
     writeExecuteProposalIpc(id);
     console.log(`Request ${id} → queued for execution.`);
   } else {
-    db.run("UPDATE remote_requests SET status = ?, decision = ?, error = ? WHERE id = ?", [
-      "rejected",
-      "rejected",
-      "Rejected by operator.",
-      id,
-    ]);
-    await pushRejectionCallback(db, proposal);
-    console.log(`Request ${id} → rejected.`);
+    writeRejectProposalIpc(id);
+    console.log(`Request ${id} → queued for rejection.`);
   }
 }
 
-async function cmdDecideAll(verdict: string | undefined): Promise<void> {
+function cmdDecideAll(verdict: string | undefined): void {
   if (!verdict || !["accept", "reject"].includes(verdict)) {
     console.error("Usage: peer.ts decide-all accept|reject");
     process.exit(1);
@@ -448,22 +418,14 @@ async function cmdDecideAll(verdict: string | undefined): Promise<void> {
     return;
   }
 
-  let count = 0;
   for (const proposal of rows) {
     if (verdict === "accept") {
       writeExecuteProposalIpc(proposal.id);
     } else {
-      db.run("UPDATE remote_requests SET status = ?, decision = ?, error = ? WHERE id = ?", [
-        "rejected",
-        "rejected",
-        "Rejected by operator.",
-        proposal.id,
-      ]);
-      await pushRejectionCallback(db, proposal);
+      writeRejectProposalIpc(proposal.id);
     }
-    count++;
   }
-  console.log(`${count} request(s) → ${verdict === "accept" ? "queued for execution" : "rejected"}.`);
+  console.log(`${rows.length} request(s) → ${verdict === "accept" ? "queued for execution" : "queued for rejection"}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -490,10 +452,10 @@ switch (cmd) {
     cmdPending();
     break;
   case "decide":
-    await cmdDecide(args[0], args[1]);
+    cmdDecide(args[0], args[1]);
     break;
   case "decide-all":
-    await cmdDecideAll(args[0]);
+    cmdDecideAll(args[0]);
     break;
   default:
     console.log(
