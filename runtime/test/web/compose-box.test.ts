@@ -178,8 +178,16 @@ test('resolveComposeModelPickerState keeps the model picker visible for cold cha
   });
 });
 
-test('resolveComposeSubmitButtonState swaps send for stop while preserving button identity', () => {
-  expect(resolveComposeSubmitButtonState(true, false)).toEqual({
+test('resolveComposeSubmitButtonState stays coherent across send, stop, and compacting states', () => {
+  expect(resolveComposeSubmitButtonState(true, false, true)).toEqual({
+    mode: 'compacting',
+    className: 'icon-btn send-btn abort-mode compacting-mode',
+    title: 'Compacting context — Stop response',
+    ariaLabel: 'Compacting context — Stop response',
+    disabled: false,
+  });
+
+  expect(resolveComposeSubmitButtonState(true, false, false)).toEqual({
     mode: 'abort',
     className: 'icon-btn send-btn abort-mode',
     title: 'Stop response',
@@ -187,7 +195,7 @@ test('resolveComposeSubmitButtonState swaps send for stop while preserving butto
     disabled: false,
   });
 
-  expect(resolveComposeSubmitButtonState(false, true)).toEqual({
+  expect(resolveComposeSubmitButtonState(false, true, true)).toEqual({
     mode: 'send',
     className: 'icon-btn send-btn',
     title: 'Send (Enter)',
@@ -195,7 +203,7 @@ test('resolveComposeSubmitButtonState swaps send for stop while preserving butto
     disabled: false,
   });
 
-  expect(resolveComposeSubmitButtonState(false, false)).toEqual({
+  expect(resolveComposeSubmitButtonState(false, false, false)).toEqual({
     mode: 'send',
     className: 'icon-btn send-btn',
     title: 'Send (Enter)',
