@@ -154,6 +154,7 @@ export interface WebChannelLike
   handleAgentStatus(req: Request): Response;
   handleAgentContext(req: Request): Promise<Response>;
   handleAgentDebug(req: Request): Promise<Response>;
+  handleAgentCommands(req: Request): Promise<Response>;
   handleAutoresearchStatus(req: Request): Promise<Response>;
   handleAutoresearchStop(req: Request): Promise<Response>;
   handleAutoresearchDismiss(req: Request): Promise<Response>;

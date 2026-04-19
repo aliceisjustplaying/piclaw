@@ -8,6 +8,7 @@ import {
   handleAgentStatusRequest,
 } from "../agent/agent-status.js";
 import { handleAgentDebugRequest } from "../agent/agent-debug.js";
+import { handleAgentCommandsRequest } from "../agent/agent-commands.js";
 import {
   handleSessionTreeRequest,
 } from "../agent/session-tree.js";
@@ -156,6 +157,14 @@ export class WebChannelEndpointFacadeService {
 
   async handleAgentDebug(req: Request): Promise<Response> {
     return await handleAgentDebugRequest(req, {
+      defaultChatJid: this.options.defaultChatJid,
+      agentPool: this.options.agentPool,
+      json: (payload: unknown, status = 200) => this.options.json(payload, status),
+    });
+  }
+
+  async handleAgentCommands(req: Request): Promise<Response> {
+    return await handleAgentCommandsRequest(req, {
       defaultChatJid: this.options.defaultChatJid,
       agentPool: this.options.agentPool,
       json: (payload: unknown, status = 200) => this.options.json(payload, status),

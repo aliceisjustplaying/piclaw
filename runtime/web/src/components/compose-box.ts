@@ -641,6 +641,7 @@ export function ComposeBox({
     const [slashMatches, setSlashMatches] = useState([]);
     const [slashIndex, setSlashIndex] = useState(0);
     const [showSlash, setShowSlash] = useState(false);
+    const dynamicCommandsRef = useRef(null);
     const [mentionMatches, setMentionMatches] = useState([]);
     const [mentionIndex, setMentionIndex] = useState(0);
     const [showMention, setShowMention] = useState(false);
@@ -704,6 +705,23 @@ export function ComposeBox({
         historyIndexRef.current = -1;
         historyDraftRef.current = '';
     }, [historyStorageKey]);
+
+    // Fetch dynamic commands from the server for autocomplete
+    useEffect(() => {
+        let cancelled = false;
+        const chatJid = currentChatJid || 'web:default';
+        fetch(`/agent/commands?chat_jid=${encodeURIComponent(chatJid)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (cancelled || !data?.commands) return;
+                dynamicCommandsRef.current = data.commands.map(c => ({
+                    name: c.name,
+                    description: c.description || '',
+                }));
+            })
+            .catch(() => { /* keep hardcoded fallback */ });
+        return () => { cancelled = true; };
+    }, [currentChatJid]);
 
     useEffect(() => {
         const resolved = resolveComposePrefillRequest(prefillRequest, lastPrefillTokenRef.current, searchMode);
@@ -849,7 +867,8 @@ export function ComposeBox({
             setSlashMatches([]);
             return;
         }
-        const matches = SLASH_COMMANDS.filter(cmd =>
+        const commandList = dynamicCommandsRef.current || SLASH_COMMANDS;
+        const matches = commandList.filter(cmd =>
             cmd.name.startsWith(prefix) || cmd.name.replace(/-/g, '').startsWith(prefix.replace(/-/g, ''))
         );
         if (matches.length > 0 && !(matches.length === 1 && matches[0].name === prefix)) {
