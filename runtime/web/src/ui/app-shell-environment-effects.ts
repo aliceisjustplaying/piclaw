@@ -228,7 +228,14 @@ export function useAppShellEnvironmentEffects(options: UseAppShellEnvironmentEff
       const cacheBust = avatarUrl
         ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}v=${avatarVersion || Date.now()}`
         : baseHref;
-      favicon.setAttribute('href', cacheBust);
+      // Safari ignores href changes on existing <link rel="icon"> elements.
+      // Replace the node entirely so Safari picks up the new favicon.
+      const replacement = document.createElement('link');
+      replacement.id = 'dynamic-favicon';
+      replacement.rel = 'icon';
+      replacement.setAttribute('data-default', defaultHref);
+      replacement.href = cacheBust;
+      favicon.parentNode?.replaceChild(replacement, favicon);
       brandingRef.current.avatarBase = avatarKey;
     }
   }, [brandingRef]);
