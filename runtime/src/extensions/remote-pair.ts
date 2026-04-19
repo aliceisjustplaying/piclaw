@@ -676,87 +676,6 @@ export async function runSetModeFlow(idOrFingerprint: string, mode: string, pi: 
   pi.sendMessage({ customType: "remote-pair", content: `Set mode to \`${mode}\` for peer \`${formatFingerprint(peer.instance_id)}\`.`, display: true });
 }
 
-// ─── /ask ─────────────────────────────────────────────────────────────────────
-
-export async function runAskFlow(idOrFingerprint: string, prompt: string, pi: ExtensionAPI): Promise<void> {
-  let peer = getRemotePeer(idOrFingerprint);
-  if (!peer) peer = getRemotePeerByFingerprint(idOrFingerprint);
-  if (!peer) {
-    pi.sendMessage({ customType: "remote-ask", content: `Ask failed: no peer found for \`${idOrFingerprint}\`.`, display: true });
-    return;
-  }
-  if (peer.status !== "paired") {
-    pi.sendMessage({ customType: "remote-ask", content: `Ask failed: peer is not paired (status: ${peer.status}).`, display: true });
-    return;
-  }
-  if (!peer.base_url) {
-    pi.sendMessage({ customType: "remote-ask", content: `Ask failed: peer has no base_url recorded.`, display: true });
-    return;
-  }
-
-  const identity = loadOrCreateIdentity();
-  const useExecute = peer.mode === "short-circuit" && peer.profile === "full";
-  const endpoint = useExecute ? "/api/remote/execute" : "/api/remote/proposal";
-  const bodyText = JSON.stringify({ prompt });
-  const bodyBytes = new TextEncoder().encode(bodyText);
-  const headers = buildSignedRequestHeaders(identity, endpoint, bodyBytes, peer.trust_epoch ?? undefined);
-  headers["X-Request-Hop"] = "0";
-  headers["X-Request-Chain-Id"] = randomUUID();
-
-  let res: Response;
-  try {
-    res = await fetch(`${peer.base_url}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: bodyText,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    pi.sendMessage({ customType: "remote-ask", content: `Ask failed: could not reach ${peer.base_url} — ${msg}`, display: true });
-    return;
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await res.json() as Record<string, unknown>;
-  } catch {
-    pi.sendMessage({ customType: "remote-ask", content: `Ask failed: invalid response from peer.`, display: true });
-    return;
-  }
-
-  const decision = typeof body.decision === "string" ? body.decision : "";
-  switch (decision) {
-    case "accept_execute": {
-      const result = typeof body.result === "string" ? body.result : JSON.stringify(body.result ?? "");
-      pi.sendMessage({ customType: "remote-ask", content: `**Remote executed:**\n${result}`, display: true });
-      break;
-    }
-    case "accept_defer": {
-      const negId = typeof body.negotiation_id === "string" ? body.negotiation_id : null;
-      pi.sendMessage({ customType: "remote-ask", content: `Remote deferred your request.${negId ? ` Negotiation ID: \`${negId}\`` : ""} It will execute when ready.`, display: true });
-      break;
-    }
-    case "human_required": {
-      const negId = typeof body.negotiation_id === "string" ? body.negotiation_id : null;
-      pi.sendMessage({ customType: "remote-ask", content: `Remote side queued your request for operator review.${negId ? ` Negotiation ID: \`${negId}\`` : ""}`, display: true });
-      break;
-    }
-    case "negotiate": {
-      const scope = typeof body.proposed_scope === "string" ? body.proposed_scope : JSON.stringify(body.proposed_scope ?? "");
-      pi.sendMessage({ customType: "remote-ask", content: `Remote proposed a counter-scope:\n${scope}`, display: true });
-      break;
-    }
-    case "deny": {
-      const reason = typeof body.reason === "string" ? body.reason : "";
-      pi.sendMessage({ customType: "remote-ask", content: `Remote denied the request${reason ? ": " + reason : "."}`, display: true });
-      break;
-    }
-    default: {
-      pi.sendMessage({ customType: "remote-ask", content: `Unexpected response from remote (decision: \`${decision || "none"}\`).`, display: true });
-    }
-  }
-}
-
 /** Extension factory for /pair command. Only active when PICLAW_REMOTE_INTEROP_ENABLED=1. */
 export const remotePair: ExtensionFactory = (pi: ExtensionAPI) => {
   const interopEnabled =
@@ -953,25 +872,6 @@ export const remotePair: ExtensionFactory = (pi: ExtensionAPI) => {
           "  `/pair revoke <id>` — revoke a pairing",
         ].join("\n"),
         display: true,
-      });
-    },
-  });
-
-  pi.registerCommand("ask", {
-    description: "Send a signed proposal to a paired remote peer. Usage: /ask <id | fingerprint> <prompt>",
-    handler: async (args: string) => {
-      const trimmed = (args || "").trim();
-      const spaceIdx = trimmed.indexOf(" ");
-      if (spaceIdx === -1 || !trimmed.slice(spaceIdx + 1).trim()) {
-        pi.sendMessage({ customType: "remote-ask", content: "Usage: /ask <instance_id | fingerprint> <prompt text>", display: true });
-        return;
-      }
-      const idOrFingerprint = trimmed.slice(0, spaceIdx);
-      const prompt = trimmed.slice(spaceIdx + 1).trim();
-      runAskFlow(idOrFingerprint, prompt, pi).catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        log.error("Ask flow error", { operation: "remote-ask.flow", err });
-        pi.sendMessage({ customType: "remote-ask", content: `Ask error: ${msg}`, display: true });
       });
     },
   });
