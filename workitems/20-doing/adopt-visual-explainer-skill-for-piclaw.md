@@ -435,6 +435,21 @@ Outputs:
 
 ## Updates
 
+### 2026-04-19 — Slice 9: validation complete
+- Generated representative artifacts for 3 command modes:
+  - architecture explainer: `.pi/artifacts/piclaw-architecture.html`
+  - data table: `.pi/artifacts/active-workitems-table.html`
+  - draw.io diagram: `.pi/artifacts/piclaw-runtime-overview.drawio`
+- Playwright validation results:
+  - Vendored libraries: beautifulMermaid ✓, echarts ✓, d3 ✓
+  - Vendored fonts: IBM Plex Sans ✓ loaded, JetBrains Mono NF ✓ loaded
+  - ECharts canvas rendering: ✓
+  - draw.io XML: valid, 19 cells
+- Note: the vendored Mermaid bundle exposes `window.beautifulMermaid` (not
+  `window.mermaid`); the libraries.md reference should be updated to document
+  the correct API for generated artifacts.
+- All slices 0–9 are now complete. Ticket ready for review/closeout.
+
 ### 2026-04-19 — Slices 7–8 implemented
 - Slice 7: fonts approved and vendored (IBM Plex Sans + JetBrains Mono Nerd Font Mono)
 - Slice 8: cross-reference pass complete — all 9 visual-artifact-producing skills
