@@ -1349,23 +1349,23 @@
 }
 
 .send-btn.abort-mode {
-    color: var(--warning-color, var(--danger-color));
+    color: var(--danger-color);
 }
 
 .send-btn.abort-mode:hover,
 .send-btn.abort-mode:focus-visible {
-    color: var(--warning-color, var(--danger-color));
-    background-color: color-mix(in srgb, var(--warning-color, var(--danger-color)) 12%, transparent);
+    color: var(--danger-color);
+    background-color: color-mix(in srgb, var(--danger-color) 12%, transparent);
 }
 
 .send-btn.compacting-mode {
-    color: var(--warning-color, var(--danger-color));
+    color: var(--danger-color);
 }
 
 .send-btn.compacting-mode:hover,
 .send-btn.compacting-mode:focus-visible {
-    color: var(--warning-color, var(--danger-color));
-    background-color: color-mix(in srgb, var(--warning-color, var(--danger-color)) 12%, transparent);
+    color: var(--danger-color);
+    background-color: color-mix(in srgb, var(--danger-color) 12%, transparent);
 }
 
 .compose-submit-spinner {
@@ -1381,8 +1381,8 @@
 
 .compose-submit-spinner-ring {
     stroke: currentColor;
-    stroke-dasharray: 11 15.7035;
-    stroke-dashoffset: 5.5;
+    stroke-dasharray: 13.5 19.4867;
+    stroke-dashoffset: 6.75;
     transform-origin: 12px 12px;
     animation: composeSubmitSpinnerRotate 0.9s linear infinite;
 }

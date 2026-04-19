@@ -2285,8 +2285,8 @@ export function ComposeBox({
                                         ? html`
                                             <span class="compose-submit-spinner" aria-hidden="true">
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                                    <circle class="compose-submit-spinner-ring" cx="12" cy="12" r="8.5" stroke-width="2.25" stroke-linecap="round"></circle>
-                                                    <rect class="compose-submit-spinner-stop" x="7" y="7" width="10" height="10" rx="1.75" fill="currentColor"></rect>
+                                                    <circle class="compose-submit-spinner-ring" cx="12" cy="12" r="10.5" stroke-width="2.25" stroke-linecap="round"></circle>
+                                                    <rect class="compose-submit-spinner-stop" x="6" y="6" width="12" height="12" rx="0" fill="currentColor"></rect>
                                                 </svg>
                                             </span>
                                         `
