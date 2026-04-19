@@ -60,7 +60,7 @@ export interface SessionIdleWaitResult {
 
 export const DEFAULT_SESSION_IDLE_SETTLE_TICKS = 20;
 export const DEFAULT_SESSION_IDLE_MAX_WAIT_MS = 10_000;
-export const DEFAULT_SESSION_IDLE_COMPACTION_MAX_WAIT_MS = 30_000;
+export const DEFAULT_SESSION_IDLE_COMPACTION_MAX_WAIT_MS = 300_000;
 
 function parseEnvPositiveInt(name: string, fallback: number): number {
   const raw = process.env[name];
