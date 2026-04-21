@@ -1520,8 +1520,8 @@ export async function processChat(
     // a recovery card and the cursor does not silently advance past the prompt.
     const title = "Agent produced no response";
     const detail =
-      "The turn ended without a persisted reply. The session may be stalled, oversized, or internally inconsistent. " +
-      "Use `/compact` to repair and rewrite the session, or `/new-session` to start fresh.";
+      "The model returned an empty reply. This can happen when the context is too large for the current model. " +
+      "Try `/compact` to shrink the session, switch to a model with a larger context window, or `/new-session` to start fresh.";
     const previewBlock = preview ? `\n\n> ${preview}` : "";
     const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
 
