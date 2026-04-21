@@ -19,12 +19,10 @@ import { fileURLToPath } from "url";
 import { createInterface } from "readline";
 import { finished } from "stream/promises";
 import {
+  createAgentSession,
+  DefaultResourceLoader,
   type AgentSessionRuntime,
-  type CreateAgentSessionRuntimeFactory,
   type ExtensionFactory,
-  createAgentSessionFromServices,
-  createAgentSessionRuntime,
-  createAgentSessionServices,
   getAgentDir,
   SessionManager,
   type AuthStorage,
@@ -81,7 +79,7 @@ function ensureValidProcessCwd(): void {
 }
 
 type AgentSessionCreateOptions = {
-  tools: NonNullable<NonNullable<Parameters<typeof createAgentSessionFromServices>[0]>["tools"]>;
+  tools: NonNullable<NonNullable<Parameters<typeof createAgentSession>[0]>["tools"]>;
   extensionFactories?: ExtensionFactory[];
 };
 
@@ -461,42 +459,51 @@ export async function createSessionInDir(
   const appendSystemPromptOverride = getAppendSystemPromptOverride(channelSystemPromptAppendix);
   const additionalExtensionPaths = getBundledExtensionPaths(options.chatJid);
 
-  const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-    const services = await createAgentSessionServices({
-      cwd,
-      agentDir: AGENT_DIR,
-      authStorage: options.authStorage,
-      modelRegistry: options.modelRegistry,
-      settingsManager: options.settingsManager,
-      resourceLoaderOptions: {
-        extensionFactories: options.extensionFactories?.length
-          ? [...builtinExtensionFactories, ...options.extensionFactories]
-          : builtinExtensionFactories,
-        additionalExtensionPaths,
-        ...(appendSystemPromptOverride ? { appendSystemPromptOverride } : {}),
-      },
-    });
-
-    return {
-      ...(await createAgentSessionFromServices({
-        services,
-        sessionManager,
-        sessionStartEvent,
-        tools: options.tools,
-        customTools: options.customTools as any,
-      })),
-      services,
-      diagnostics: services.diagnostics,
-    };
-  };
-
   const workspaceDir = getWorkspaceDir();
   await sanitizePersistedSessionFileBeforeLoad(sessionDir);
-  const runtime = await createAgentSessionRuntime(createRuntime, {
+
+  const resourceLoader = new DefaultResourceLoader({
     cwd: workspaceDir,
     agentDir: AGENT_DIR,
+    settingsManager: options.settingsManager,
+    extensionFactories: options.extensionFactories?.length
+      ? [...builtinExtensionFactories, ...options.extensionFactories]
+      : builtinExtensionFactories,
+    additionalExtensionPaths,
+    ...(appendSystemPromptOverride ? { appendSystemPromptOverride } : {}),
+  });
+  await resourceLoader.reload();
+
+  const result = await createAgentSession({
+    cwd: workspaceDir,
+    agentDir: AGENT_DIR,
+    authStorage: options.authStorage,
+    modelRegistry: options.modelRegistry,
+    settingsManager: options.settingsManager,
+    tools: options.tools,
+    customTools: options.customTools as any,
+    resourceLoader,
     sessionManager: SessionManager.continueRecent(workspaceDir, sessionDir),
   });
+
+  const diagnostics = [
+    ...(result.extensionsResult?.errors ?? []),
+    ...(resourceLoader.getSkills().diagnostics ?? []),
+    ...(resourceLoader.getPrompts().diagnostics ?? []),
+    ...(resourceLoader.getThemes().diagnostics ?? []),
+  ];
+
+  const runtime = {
+    session: result.session,
+    cwd: workspaceDir,
+    diagnostics,
+    modelFallbackMessage: result.modelFallbackMessage,
+    extensionsResult: result.extensionsResult,
+    services: { resourceLoader },
+    dispose: async () => {
+      result.session.dispose();
+    },
+  } as unknown as AgentSessionRuntime;
 
   installPersistedToolResultSanitizer(runtime);
   bindImmediateToolActivation(runtime.session as any);
