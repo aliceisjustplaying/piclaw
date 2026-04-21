@@ -1954,9 +1954,6 @@ export function ComposeBox({
                     ${statusNoticeDetail && html`<div class="compose-inline-status-detail">${statusNoticeDetail}</div>`}
                 </div>
             `}
-            ${submitError && html`
-                <div class="compose-submit-error compose-submit-error-top" role="status" aria-live="polite">${submitError}</div>
-            `}
             ${submitNotice && html`
                 <div class="compose-inline-status compose-command-notice" role="status" aria-live="polite">
                     <div class="compose-inline-status-detail compose-command-notice-text">${submitNotice}</div>
