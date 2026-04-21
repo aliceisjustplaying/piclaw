@@ -1,51 +1,9 @@
 /**
- * secure/shell-secrets.test.ts – Tests for no-op redaction stubs
- * and injected shell command building.
- *
- * Redaction was removed; these tests verify the passthrough behaviour.
+ * secure/shell-secrets.test.ts – Tests for injected shell command building.
+ * Redaction was removed; only command-building tests remain.
  */
 import { describe, expect, test } from "bun:test";
-import {
-  createKeychainOutputRedactor,
-  createStreamingTextRedactor,
-  buildInjectedExecCommand,
-} from "../../src/secure/shell-secrets.js";
-
-// ── TextRedactor (no-op after redaction removal) ──────────────────────
-
-describe("createKeychainOutputRedactor", () => {
-  test("returns a no-op redactor", async () => {
-    const redactor = await createKeychainOutputRedactor();
-    expect(redactor.hasReplacements).toBe(false);
-    expect(redactor.maxNeedleLength).toBe(0);
-    expect(redactor.redact("some secret text")).toBe("some secret text");
-  });
-
-  test("no-op redactor handles empty string", async () => {
-    const redactor = await createKeychainOutputRedactor();
-    expect(redactor.redact("")).toBe("");
-  });
-});
-
-// ── StreamingTextRedactor (no-op after redaction removal) ─────────────
-
-describe("createStreamingTextRedactor", () => {
-  test("passes text through unchanged", async () => {
-    const redactor = await createKeychainOutputRedactor();
-    const stream = createStreamingTextRedactor(redactor);
-    expect(stream.push("hello")).toBe("hello");
-    expect(stream.push(" world")).toBe(" world");
-    expect(stream.flush()).toBe("");
-  });
-
-  test("does not buffer or redact secrets", async () => {
-    const redactor = await createKeychainOutputRedactor();
-    const stream = createStreamingTextRedactor(redactor);
-    const r1 = stream.push("token=ABCDEF");
-    const r2 = stream.flush();
-    expect(r1 + r2).toBe("token=ABCDEF");
-  });
-});
+import { buildInjectedExecCommand } from "../../src/secure/shell-secrets.js";
 
 // ── buildInjectedExecCommand ──────────────────────────────────────────
 
@@ -74,7 +32,6 @@ describe("buildInjectedExecCommand", () => {
   test("posix quotes arguments with single quotes", async () => {
     const result = await buildInjectedExecCommand("posix", "echo", ["it's a test"]);
     expect(result.commandArgs[1]).toContain("it");
-    // Should be shell-quoted
     expect(result.command).toBe("sh");
     expect(result.env).toEqual({});
   });

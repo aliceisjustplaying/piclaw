@@ -4,7 +4,6 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBashTool, createEditTool, createReadTool, createWriteTool, } from "@mariozechner/pi-coding-agent";
 import { buildInjectedShellEnv, getKeychainEntry, resolveKeychainPlaceholders } from "../secure/keychain.js";
-import { createKeychainOutputRedactor, createStreamingTextRedactor } from "../secure/shell-secrets.js";
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 300;
 const PERSISTENT_WRITE_MAX_BYTES = 256 * 1024;
 const DEFAULT_PERSISTENT_INTERRUPT_GRACE_MS = 3000;
@@ -326,9 +325,7 @@ export class PersistentRemoteShell {
         if (safeLen > this.streamedBytes) {
             const newData = outputSoFar.slice(this.streamedBytes, safeLen);
             if (newData.length > 0) {
-                const redacted = running.stdoutRedactor.push(newData);
-                if (redacted)
-                    running.onData(Buffer.from(redacted, "utf-8"));
+                running.onData(Buffer.from(newData, "utf-8"));
                 this.streamedBytes = safeLen;
             }
         }
@@ -343,18 +340,11 @@ export class PersistentRemoteShell {
             return;
         if (this.streamedBytes < parsed.output.length) {
             const remaining = parsed.output.slice(this.streamedBytes);
-            const redacted = running.stdoutRedactor.push(remaining);
-            if (redacted)
-                running.onData(Buffer.from(redacted, "utf-8"));
+            running.onData(Buffer.from(remaining, "utf-8"));
         }
-        const stdoutTail = running.stdoutRedactor.flush();
-        if (stdoutTail)
-            running.onData(Buffer.from(stdoutTail, "utf-8"));
         const stderrText = Buffer.concat(running.stderrChunks).toString("utf-8");
         if (stderrText.length > 0) {
-            const redactedStderr = `${running.stderrRedactor.push(stderrText)}${running.stderrRedactor.flush()}`;
-            if (redactedStderr)
-                running.onData(Buffer.from(redactedStderr, "utf-8"));
+            running.onData(Buffer.from(stderrText, "utf-8"));
         }
         const exitCode = parsed.exitCode;
         const timedOut = running.timedOut;
@@ -426,7 +416,6 @@ export class PersistentRemoteShell {
         this.seenStartMarker = false;
         this.startMarkerEnd = 0;
         const effectiveTimeout = options.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
-        const outputRedactor = await createKeychainOutputRedactor();
         return await new Promise((resolve, reject) => {
             const running = {
                 startMarker,
@@ -438,8 +427,6 @@ export class PersistentRemoteShell {
                 timedOut: false,
                 stdoutChunks: [],
                 stderrChunks: [],
-                stdoutRedactor: createStreamingTextRedactor(outputRedactor),
-                stderrRedactor: createStreamingTextRedactor(outputRedactor),
                 resolve,
                 reject,
             };

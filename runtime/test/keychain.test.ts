@@ -184,7 +184,7 @@ test("auto-injects only referenced env-style keychain entries for shell use", as
   });
 });
 
-test("builds injected POSIX and PowerShell exec commands and redacts secret values", async () => {
+test("builds injected POSIX and PowerShell exec commands", async () => {
   await withKeychainContext(async ({ keychain }) => {
     await keychain.setKeychainEntry({
       name: "STRIPE_KEY",
@@ -243,35 +243,6 @@ test("builds injected POSIX and PowerShell exec commands and redacts secret valu
     expect(exitCodeQuoted).toBe(0);
     expect(stderrQuoted).toBe("");
     expect(stdoutQuoted).toBe("it's-secret");
-
-    // Redaction removed — passthrough
-    await expect(shellSecrets.redactKeychainSecretsInText("value=stripe-secret")).resolves.toBe("value=stripe-secret");
-  });
-});
-
-test("redaction removed — passthrough for all secret types", async () => {
-  await withKeychainContext(async ({ keychain }) => {
-    await keychain.setKeychainEntry({
-      name: "restic/azure-account-name",
-      type: "secret",
-      secret: "piclawstorage",
-    });
-    await keychain.setKeychainEntry({
-      name: "service/shared-secret",
-      type: "secret",
-      secret: "shared-secret-value",
-    });
-    await keychain.setKeychainEntry({
-      name: "ssh/piclaw",
-      type: "secret",
-      secret: "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
-    });
-
-    const shellSecrets = await import("../src/secure/shell-secrets.js");
-
-    await expect(shellSecrets.redactKeychainSecretsInText("account=piclawstorage")).resolves.toBe("account=piclawstorage");
-    await expect(shellSecrets.redactKeychainSecretsInText("secret=shared-secret-value")).resolves.toBe("secret=shared-secret-value");
-    await expect(shellSecrets.redactKeychainSecretsInText("key=-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----")).resolves.toBe("key=-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----");
   });
 });
 

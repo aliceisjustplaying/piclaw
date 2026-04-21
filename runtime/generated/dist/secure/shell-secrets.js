@@ -5,32 +5,6 @@ function shellQuote(value) {
 function powerShellQuote(value) {
     return `'${value.replace(/'/g, "''")}'`;
 }
-const NOOP_REDACTOR = {
-    redact: (text) => text,
-    maxNeedleLength: 0,
-    hasReplacements: false,
-    needles: [],
-};
-const NOOP_STREAMING_REDACTOR = {
-    push: (text) => text,
-    flush: () => "",
-};
-/** @deprecated Redaction has been removed. Returns a no-op redactor. */
-export async function createKeychainOutputRedactor() {
-    return NOOP_REDACTOR;
-}
-/** @deprecated Redaction has been removed. Returns a no-op streaming passthrough. */
-export function createStreamingTextRedactor(_redactor) {
-    return NOOP_STREAMING_REDACTOR;
-}
-/** @deprecated Redaction has been removed. Returns the input text unchanged. */
-export async function redactKeychainSecretsInText(text) {
-    return text;
-}
-/** @deprecated Redaction has been removed. Returns the input value unchanged. */
-export async function redactKeychainSecretsInValue(value) {
-    return value;
-}
 async function resolveInjectedExecParts(command, args) {
     const resolvedCommand = await resolveKeychainPlaceholders(command);
     const resolvedArgs = await Promise.all(args.map((value) => resolveKeychainPlaceholders(value)));

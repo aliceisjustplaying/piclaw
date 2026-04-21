@@ -15,7 +15,6 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { buildInjectedShellEnv, getKeychainEntry, resolveKeychainPlaceholders } from "../secure/keychain.js";
-import { createKeychainOutputRedactor, createStreamingTextRedactor, type StreamingTextRedactor } from "../secure/shell-secrets.js";
 import type { SshConfig } from "../types.js";
 
 interface SshBootstrapConnection {
@@ -55,8 +54,6 @@ interface RunningCommand {
   abortHandler?: () => void;
   stdoutChunks: Buffer[];
   stderrChunks: Buffer[];
-  stdoutRedactor: StreamingTextRedactor;
-  stderrRedactor: StreamingTextRedactor;
   resolve: (value: { exitCode: number | null }) => void;
   reject: (error: Error) => void;
 }
@@ -416,8 +413,7 @@ export class PersistentRemoteShell {
     if (safeLen > this.streamedBytes) {
       const newData = outputSoFar.slice(this.streamedBytes, safeLen);
       if (newData.length > 0) {
-        const redacted = running.stdoutRedactor.push(newData);
-        if (redacted) running.onData(Buffer.from(redacted, "utf-8"));
+        running.onData(Buffer.from(newData, "utf-8"));
         this.streamedBytes = safeLen;
       }
     }
@@ -433,17 +429,12 @@ export class PersistentRemoteShell {
 
     if (this.streamedBytes < parsed.output.length) {
       const remaining = parsed.output.slice(this.streamedBytes);
-      const redacted = running.stdoutRedactor.push(remaining);
-      if (redacted) running.onData(Buffer.from(redacted, "utf-8"));
+      running.onData(Buffer.from(remaining, "utf-8"));
     }
-
-    const stdoutTail = running.stdoutRedactor.flush();
-    if (stdoutTail) running.onData(Buffer.from(stdoutTail, "utf-8"));
 
     const stderrText = Buffer.concat(running.stderrChunks).toString("utf-8");
     if (stderrText.length > 0) {
-      const redactedStderr = `${running.stderrRedactor.push(stderrText)}${running.stderrRedactor.flush()}`;
-      if (redactedStderr) running.onData(Buffer.from(redactedStderr, "utf-8"));
+      running.onData(Buffer.from(stderrText, "utf-8"));
     }
 
     const exitCode = parsed.exitCode;
@@ -520,7 +511,6 @@ export class PersistentRemoteShell {
     this.seenStartMarker = false;
     this.startMarkerEnd = 0;
     const effectiveTimeout = options.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
-    const outputRedactor = await createKeychainOutputRedactor();
 
     return await new Promise((resolve, reject) => {
       const running: RunningCommand = {
@@ -533,8 +523,6 @@ export class PersistentRemoteShell {
         timedOut: false,
         stdoutChunks: [],
         stderrChunks: [],
-        stdoutRedactor: createStreamingTextRedactor(outputRedactor),
-        stderrRedactor: createStreamingTextRedactor(outputRedactor),
         resolve,
         reject,
       };
