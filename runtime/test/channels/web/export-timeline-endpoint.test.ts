@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTempWorkspace, importFresh, setEnv } from "../../helpers.js";
+import { debugSuppressedError } from "../../../src/utils/logger.js";
+import { createLogger } from "../../../src/utils/logger.js";
+
+const log = createLogger("test.export-timeline-endpoint");
 
 let restoreEnv: (() => void) | null = null;
 let cleanupWorkspace: (() => void) | null = null;
@@ -25,8 +29,8 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     db?.closeDatabase?.();
-  } catch {
-    // ignore already-closed in-memory DB handles
+  } catch (err) {
+    debugSuppressedError(log, "Failed to close in-memory test DB handle; already closed.", err);
   }
   restoreEnv?.();
   cleanupWorkspace?.();
