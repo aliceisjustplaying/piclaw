@@ -298,7 +298,7 @@ function handlePairList(pi: ExtensionAPI, filter?: string): void {
       const fp = formatFingerprint(r.instance_id);
       const name = r.display_name ? ` (${r.display_name})` : "";
       let origin = "unknown";
-      if (r.callback_url) { try { const u = new URL(r.callback_url); origin = `${u.protocol}//${u.host}`; } catch {} }
+      if (r.callback_url) { try { const u = new URL(r.callback_url); origin = `${u.protocol}//${u.host}`; } catch (err) { debugSuppressedError(log, "Malformed callback URL in pending request.", err, { callback_url: r.callback_url }); } }
       const source = r.source_ip ? ` src:\`${r.source_ip}\`` : "";
       return `- \`${r.id}\` — \`${fp}\`${name} — origin:\`${origin}\`${source} — ${r.created_at}`;
     });
