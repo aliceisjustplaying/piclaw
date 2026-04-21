@@ -237,7 +237,7 @@ validate_supervisor_config() {
     if [ ! -f "$conf" ]; then
         return 1
     fi
-    "$SUPERVISORD_BIN" -n -c "$conf" -t >/tmp/piclaw-supervisord-validate.log 2>&1
+    "$SUPERVISORD_BIN" -c "$conf" -t >/tmp/piclaw-supervisord-validate.log 2>&1
 }
 
 forward_supervisor_signal() {
