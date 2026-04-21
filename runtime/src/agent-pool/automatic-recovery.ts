@@ -69,7 +69,7 @@ export function getAutomaticRecoveryConfig(): Readonly<AutomaticRecoveryConfig> 
 
 export function isContextPressureFailure(errorText: string | null | undefined): boolean {
   if (!errorText) return false;
-  return /context(?: window| length)?|maximum context length|context_length|token limit|too many tokens|prompt too long|reduce (?:the )?length|overflow|out of extra usage|out of usage|request too large/i.test(errorText);
+  return /context(?: window| length)?|maximum context length|context_length|token limit|too many tokens|prompt too long|reduce (?:the )?length|overflow|request too large/i.test(errorText);
 }
 
 export function isTransientFailure(errorText: string | null | undefined): boolean {
@@ -164,6 +164,18 @@ export function decideAutomaticRecovery(input: RecoveryDecisionInput): RecoveryD
     };
   }
 
+  // Context pressure must be checked before non-recoverable because error
+  // payloads like `invalid_request_error` with `context_length_exceeded` match
+  // both patterns.  Context overflow is always recoverable via compaction.
+  if (isContextPressureFailure(errorText) || input.snapshot.sawCompactionIntent) {
+    return {
+      recover: true,
+      classifier: "context_pressure",
+      strategy: "compact_then_retry",
+      reason: "Failure looks context-related; compacting before retrying.",
+    };
+  }
+
   if (isNonRecoverableFailure(errorText)) {
     return {
       recover: false,
@@ -187,15 +199,6 @@ export function decideAutomaticRecovery(input: RecoveryDecisionInput): RecoveryD
       classifier: "compaction_failure",
       strategy: null,
       reason: "Compaction failure classified as hard failure for this recovery cycle.",
-    };
-  }
-
-  if (isContextPressureFailure(errorText) || input.snapshot.sawCompactionIntent) {
-    return {
-      recover: true,
-      classifier: "context_pressure",
-      strategy: "compact_then_retry",
-      reason: "Failure looks context-related; compacting before retrying.",
     };
   }
 
