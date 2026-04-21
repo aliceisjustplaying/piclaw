@@ -1,7 +1,7 @@
 ---
 id: audit-built-in-extensions-for-pi-0.68.0-adoption
 title: Audit built-in extensions for Pi 0.68.0 adoption
-status: done
+status: review
 priority: high
 created: 2026-04-21
 updated: 2026-04-21

@@ -1,7 +1,7 @@
 ---
 id: audit-core-pi-0.68.0-runtime-and-web-surfaces
 title: Audit core Pi 0.68.0 runtime and web surfaces
-status: done
+status: review
 priority: high
 created: 2026-04-21
 updated: 2026-04-21
