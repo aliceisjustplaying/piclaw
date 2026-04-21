@@ -1,7 +1,7 @@
 ---
 id: audit-and-improve-azure-extensions-after-pi-0.68.0
 title: Audit and improve Azure extensions after Pi 0.68.0
-status: doing
+status: done
 priority: high
 created: 2026-04-21
 updated: 2026-04-21
@@ -55,12 +55,12 @@ Upstream 0.68.0 includes session/caching/header behavior fixes and new lifecycle
 
 ## Acceptance Criteria
 
-- [ ] Audit the Azure extension stack end to end.
-- [ ] Adopt `session_shutdown` metadata if it improves behavior.
-- [ ] Document whether upstream session/cache/header fixes reduce Piclaw-local complexity.
-- [ ] Decide whether Azure bootstrap/image flows should surface richer web progress/status.
-- [ ] Implement at least the highest-value safe improvement discovered, or record a no-change rationale.
-- [ ] Add/update Azure-focused regression coverage for any changed behavior.
+- [x] Audit the Azure extension stack end to end.
+- [x] Adopt `session_shutdown` metadata if it improves behavior.
+- [x] Document whether upstream session/cache/header fixes reduce Piclaw-local complexity.
+- [x] Decide whether Azure bootstrap/image flows should surface richer web progress/status.
+- [x] Implement at least the highest-value safe improvement discovered, or record a no-change rationale.
+- [x] Add/update Azure-focused regression coverage for any changed behavior.
 
 ## Files in scope
 
@@ -120,14 +120,14 @@ Upstream 0.68.0 includes session/caching/header behavior fixes and new lifecycle
 
 ## Definition of Done
 
-- [ ] All acceptance criteria satisfied and verified
-- [ ] Tests added or updated — passing locally
-- [ ] Type check clean
-- [ ] Docs and notes updated with links to ticket
-- [ ] Operational impact assessed
-- [ ] Follow-up tickets created for deferred scope
-- [ ] Update history complete with evidence
-- [ ] Ticket front matter updated
+- [x] All acceptance criteria satisfied and verified
+- [x] Tests added or updated — passing locally (102 pass, 0 fail across 8 Azure test files)
+- [x] Type check clean (`bunx tsc --noEmit -p runtime/tsconfig.json`)
+- [x] Docs and notes updated with links to ticket
+- [x] Operational impact assessed — no behavioral regressions; cache-retention centralisation is additive
+- [x] Follow-up tickets created for deferred scope — none required; no deferred scope identified
+- [x] Update history complete with evidence
+- [x] Ticket front matter updated
 
 ## Updates
 
@@ -147,6 +147,14 @@ Upstream 0.68.0 includes session/caching/header behavior fixes and new lifecycle
 - Added explicit image-command UX coverage in `runtime/test/extensions/azure-openai-image-output.test.ts`, proving `/image` and `/flux` emit an immediate status message before final success/failure delivery.
 - Current audit conclusion for image progress/status: the existing placeholder/status-message flow is sufficient for now; no extra web-only working-indicator surface is required beyond the already posted image/flux status messages.
 - Remaining Azure audit scope is now primarily request/session/cache simplification rather than lifecycle/status adoption.
+- Committed `b25b8d38` — Align Azure cache-retention session affinity.
+
+### Audit conclusions
+- **session_shutdown**: Already adopted in `ssh-core`; Azure bootstrap uses `setStatus`/teardown and does not benefit from additional `session_shutdown` metadata.
+- **Upstream cache/header overlap**: `resolveCacheRetention`/`resolveCacheSessionId` now centralise what was previously implicit per-caller logic. Stale `x-ms-client-request-id` cleanup prevents header leakage across requests.
+- **Image progress/status**: The existing `/image` and `/flux` status-message flow is sufficient; no extra web-only working-indicator surface is needed.
+- **Replay sanitisation**: Still necessary — Azure's silent `response.failed` on bad `arguments` and orphan reasoning items has no upstream equivalent.
+- **Tool-call-limit guards**: Still necessary — Azure's streaming TPM exhaustion shape requires proactive input trimming.
 
 ## Links
 
