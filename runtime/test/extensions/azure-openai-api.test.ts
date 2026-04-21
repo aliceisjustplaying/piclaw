@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import {
   applySessionCorrelationHeaders,
+  buildBaseOptions,
   processResponsesStream,
   resolvePiAiResponsesSharedModulePath,
 } from "../../src/extensions/azure-openai-api.js";
@@ -91,6 +92,78 @@ test("applySessionCorrelationHeaders optionally includes x-ms-client-request-id"
     session_id: "sess_456",
     "x-client-request-id": "sess_456",
     "x-ms-client-request-id": "sess_456",
+  });
+});
+
+test("applySessionCorrelationHeaders leaves headers untouched when no session id is provided", () => {
+  const headers = { existing: "value" };
+  const next = applySessionCorrelationHeaders(headers, undefined);
+
+  expect(next).toEqual({ existing: "value" });
+  expect(next).not.toBe(headers);
+  expect(headers).toEqual({ existing: "value" });
+});
+
+test("applySessionCorrelationHeaders overwrites stale correlation headers consistently", () => {
+  expect(applySessionCorrelationHeaders({
+    existing: "value",
+    session_id: "old-session",
+    "x-client-request-id": "old-request",
+    "x-ms-client-request-id": "old-azure-request",
+  }, "sess_789", { includeAzureClientRequestId: true })).toEqual({
+    existing: "value",
+    session_id: "sess_789",
+    "x-client-request-id": "sess_789",
+    "x-ms-client-request-id": "sess_789",
+  });
+});
+
+test("buildBaseOptions preserves session/cache-affinity fields for downstream requests", () => {
+  const signal = new AbortController().signal;
+  const onPayload = () => {};
+  const headers = { existing: "value" };
+  const metadata = { phase: "commentary" };
+
+  expect(buildBaseOptions({ maxTokens: 64000 }, {
+    temperature: 0.2,
+    maxTokens: 4096,
+    signal,
+    cacheRetention: "ephemeral",
+    sessionId: "sess_abc",
+    headers,
+    onPayload,
+    maxRetryDelayMs: 15000,
+    metadata,
+  }, "token-from-bootstrap")).toEqual({
+    temperature: 0.2,
+    maxTokens: 4096,
+    signal,
+    apiKey: "token-from-bootstrap",
+    cacheRetention: "ephemeral",
+    sessionId: "sess_abc",
+    headers,
+    onPayload,
+    maxRetryDelayMs: 15000,
+    metadata,
+  });
+});
+
+
+test("buildBaseOptions falls back to model maxTokens and options apiKey when bootstrap key is absent", () => {
+  expect(buildBaseOptions({ maxTokens: 12000 }, {
+    apiKey: "token-from-options",
+    sessionId: "sess_xyz",
+  }, undefined)).toEqual({
+    temperature: undefined,
+    maxTokens: 12000,
+    signal: undefined,
+    apiKey: "token-from-options",
+    cacheRetention: undefined,
+    sessionId: "sess_xyz",
+    headers: undefined,
+    onPayload: undefined,
+    maxRetryDelayMs: undefined,
+    metadata: undefined,
   });
 });
 

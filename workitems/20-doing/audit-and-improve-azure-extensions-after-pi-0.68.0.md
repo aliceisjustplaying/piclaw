@@ -136,6 +136,10 @@ Upstream 0.68.0 includes session/caching/header behavior fixes and new lifecycle
 - Added failure-path UI cleanup/notification coverage in `runtime/test/extensions/azure-openai-bootstrap.test.ts`.
 - Adopted the same lifecycle/status pattern in `runtime/extensions/experimental/azure-openai.harness.ts`, including shutdown metadata logging and timer cleanup, with coverage in `runtime/test/extensions/azure-openai-harness-bootstrap.test.ts`.
 - Added lazy-loading regression coverage for the lightweight session shim in `runtime/test/extensions/azure-openai-session.test.ts`, proving provider/image modules are only loaded on the matching hook/command path.
+- Added request/session-affinity regression coverage in `runtime/test/extensions/azure-openai-api.test.ts` for:
+  - non-mutating correlation-header application
+  - stale correlation-header overwrite behavior
+  - `buildBaseOptions()` preservation of `sessionId`, `cacheRetention`, headers, retry delay, and metadata
 - Remaining Azure audit scope is now primarily request/session/cache simplification rather than lifecycle/status adoption.
 
 ## Links
