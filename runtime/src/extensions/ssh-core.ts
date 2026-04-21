@@ -66,6 +66,7 @@ export type SshStrictHostKeyCheckingMode = "yes" | "accept-new" | "no";
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 300;
 const PERSISTENT_WRITE_MAX_BYTES = 256 * 1024;
 const DEFAULT_PERSISTENT_INTERRUPT_GRACE_MS = 3000;
+const SSH_WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 let persistentSshSpawn = (
   args: string[],
@@ -966,6 +967,39 @@ export function setSshConnectionResolverForTests(
   resolveConfiguredConnectionImpl = resolver ?? resolveConfiguredConnection;
 }
 
+type SshLifecycleUi = {
+  setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => void;
+  setWorkingMessage: (message?: string) => void;
+  setStatus: (key: string, value: string | undefined) => void;
+  notify: (message: string, level?: "error" | "info" | "warning") => void;
+  theme: { fg: (color: any, text: string) => string };
+};
+
+function startSshUiProgress(
+  ctx: { hasUI?: boolean; ui?: SshLifecycleUi },
+  message: string,
+): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingIndicator({ frames: SSH_WORKING_FRAMES, intervalMs: 90 });
+  ctx.ui.setWorkingMessage(message);
+}
+
+function finishSshUiProgress(
+  ctx: { hasUI?: boolean; ui?: SshLifecycleUi },
+): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingMessage(undefined);
+  ctx.ui.setWorkingIndicator({ frames: [] });
+}
+
+function formatSshEnabledMessage(connection: Pick<SshConnection, "sshTarget" | "remoteCwd" | "port">): string {
+  return `ssh-core enabled: ${connection.sshTarget}:${connection.remoteCwd} (port ${connection.port})`;
+}
+
+function formatSshShutdownMessage(event: { reason?: string; targetSessionFile?: string }): string {
+  return `[ssh-core] session shutdown (${event.reason ?? "unknown"})${event.targetSessionFile ? ` → ${event.targetSessionFile}` : ""}`;
+}
+
 function registerSshCoreExtension(pi: ExtensionAPI, resolveConfig: (pi: ExtensionAPI) => SshCoreResolvedConfig | null): void {
   pi.registerFlag("ssh", {
     description: "SSH target as user@host or user@host:/absolute/remote/path",
@@ -1044,8 +1078,9 @@ function registerSshCoreExtension(pi: ExtensionAPI, resolveConfig: (pi: Extensio
     const resolvedConfig = resolveConfig(pi);
     if (!resolvedConfig) return;
 
+    startSshUiProgress(ctx, `SSH: connecting to ${resolvedConfig.target}…`);
     try {
-      connection = await resolveConfiguredConnection(
+      connection = await resolveConfiguredConnectionImpl(
         resolvedConfig.target,
         localCwd,
         localHome,
@@ -1055,7 +1090,7 @@ function registerSshCoreExtension(pi: ExtensionAPI, resolveConfig: (pi: Extensio
         resolvedConfig.strictHostKeyChecking,
       );
       transport = new SshTransport(connection);
-      const enabledMessage = `ssh-core enabled: ${connection.sshTarget}:${connection.remoteCwd} (port ${connection.port})`;
+      const enabledMessage = formatSshEnabledMessage(connection);
       console.log(enabledMessage);
       if (ctx.hasUI) {
         ctx.ui.setStatus(
@@ -1077,10 +1112,13 @@ function registerSshCoreExtension(pi: ExtensionAPI, resolveConfig: (pi: Extensio
         ctx.ui.notify(`ssh-core failed to connect: ${message}`, "error");
       }
       throw error;
+    } finally {
+      finishSshUiProgress(ctx);
     }
   });
 
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (event) => {
+    console.log(formatSshShutdownMessage(event));
     if (transport) {
       await transport.dispose();
       transport = null;
@@ -1186,11 +1224,14 @@ export function createChatSshCoreExtension(
     });
 
     pi.on("session_start", async (_event, ctx) => {
+      if (initialConfig) {
+        startSshUiProgress(ctx, `SSH: connecting to ${initialConfig.target}…`);
+      }
       try {
         await registerLiveChatSshSession(chatJid, { localCwd, localHome, config: initialConfig ?? null });
         const state = getLiveChatSshState(chatJid);
         if (!state?.connection) return;
-        const enabledMessage = `ssh-core enabled: ${state.connection.sshTarget}:${state.connection.remoteCwd} (port ${state.connection.port})`;
+        const enabledMessage = formatSshEnabledMessage(state.connection);
         console.log(enabledMessage);
         if (ctx.hasUI) {
           ctx.ui.setStatus(
@@ -1208,10 +1249,13 @@ export function createChatSshCoreExtension(
           ctx.ui.notify(`ssh-core failed to connect: ${message}`, "error");
         }
         throw error;
+      } finally {
+        if (initialConfig) finishSshUiProgress(ctx);
       }
     });
 
-    pi.on("session_shutdown", async () => {
+    pi.on("session_shutdown", async (event) => {
+      console.log(formatSshShutdownMessage(event));
       await unregisterLiveChatSshSession(chatJid);
     });
 
