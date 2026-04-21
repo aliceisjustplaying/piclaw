@@ -4,7 +4,7 @@ Piclaw has two related memory-maintenance features that keep the workspace memor
 layer coherent across sessions:
 
 - **`Dream`** — triggered manually via `/dream [days]`
-- **`AutoDream`** — the built-in nightly maintenance cycle (cron `0 0 * * *`)
+- **`AutoDream`** — the built-in nightly maintenance cycle (default cron `0 1 * * *`, i.e. 01:00 in the runtime timezone)
 
 Both run as **out-of-band agent turns** on a dedicated temporary `dream:` channel
 that is cleaned up after the run, so Dream work does not appear in normal chat history.
@@ -51,7 +51,8 @@ Default window: last 7 days.
 
 ### AutoDream
 
-Built-in scheduled task `builtin-dream-midnight` runs nightly at `0 0 * * *`.
+Built-in scheduled task `builtin-dream-midnight` runs nightly at `0 1 * * *` by default.
+That is 01:00 in the runtime timezone (for example, 01:00 Lisbon time when `TZ=Europe/Lisbon`).
 Uses a 2-day window. Runs silently unless you inspect task results.
 Skips when no sessions have occurred since the last consolidation.
 

@@ -345,7 +345,7 @@ test("runAgentPrompt aborts a stuck pre-prompt compaction and continues", async 
   }
 });
 
-test("runAgentPrompt recovers when tool activity only produced partial output and no completed turn", async () => {
+test("runAgentPrompt does not auto-recover generic failures after tool activity", async () => {
   const restoreEnv = setEnv({
     PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
     PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
@@ -372,32 +372,34 @@ test("runAgentPrompt recovers when tool activity only produced partial output an
     }
     async prompt() {
       this.promptCalls += 1;
-      if (this.promptCalls === 1) {
-        for (const listener of this.listeners) {
-          listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "write_file", args: { path: "x" } });
-          listener({
-            type: "message_update",
-            assistantMessageEvent: {
-              type: "text_start",
-              contentIndex: 0,
-              partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
-            },
-          });
-          listener({
-            type: "message_update",
-            assistantMessageEvent: {
-              type: "text_delta",
-              delta: "draft",
-              contentIndex: 0,
-              partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
-            },
-          });
-        }
-        return;
-      }
       for (const listener of this.listeners) {
-        listener({ type: "message_update", assistantMessageEvent: { type: "text_start" } });
-        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } });
+        listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "write_file", args: { path: "x" } });
+        listener({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_start",
+            contentIndex: 0,
+            partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
+          },
+        });
+        listener({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            delta: "draft",
+            contentIndex: 0,
+            partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
+          },
+        });
+        listener({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            stopReason: "error",
+            errorMessage: "Timed out after 30s",
+            content: [],
+          },
+        });
       }
     }
     async abort() {}
@@ -428,11 +430,11 @@ test("runAgentPrompt recovers when tool activity only produced partial output an
       clearActiveForkBaseLeaf: () => {},
     });
 
-    expect(result.status).toBe("success");
-    expect(result.result).toBe("done");
-    expect(session.promptCalls).toBe(2);
-    expect(session.compactCalls).toBe(1);
-    expect(events).toEqual(["recovery_start", "compaction_start", "compaction_end", "recovery_end"]);
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("Timed out after 30s");
+    expect(session.promptCalls).toBe(1);
+    expect(session.compactCalls).toBe(0);
+    expect(events).toEqual([]);
   } finally {
     restoreEnv();
   }
@@ -971,7 +973,7 @@ test("runAgentPrompt auto-compacts and retries when tool activity produced no te
       this.promptCalls += 1;
       for (const listener of this.listeners) {
         listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "write_file", args: { path: "x" } });
-        listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "Timed out after 5s", content: [] } });
+        listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "maximum context length exceeded", content: [] } });
       }
     }
     async compact() {
@@ -999,7 +1001,7 @@ test("runAgentPrompt auto-compacts and retries when tool activity produced no te
     });
 
     expect(result.status).toBe("error");
-    expect(result.error).toContain("Timed out after 5s");
+    expect(result.error).toContain("maximum context length exceeded");
     expect(session.promptCalls).toBe(3);
     expect(session.compactCalls).toBe(2);
     expect(result.recovery).toMatchObject({

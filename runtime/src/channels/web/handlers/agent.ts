@@ -25,12 +25,13 @@ import { handleUiMetersCommand } from "../ui-meters-commands.js";
 import {
   beginChatRun,
   endChatRun,
-  endChatRunWithError,
   getChatCursor,
+  getFailedRun,
   getInflightMessageId,
   getMessageRowIdById,
   getMessagesSince,
   getDb,
+  rollbackChatRunWithError,
   rollbackInflightRun,
   setChatCursor,
 } from "../../../db.js";
@@ -583,7 +584,9 @@ export async function handleAgentMessage(
         supports_thinking: supportsThinking,
       });
       if (command.type === "model" || command.type === "cycle_model") {
-        channel.skipFailedOnModelSwitch(chatJid);
+        if (channel.retryFailedOnModelSwitch(chatJid)) {
+          channel.resumeChat(chatJid);
+        }
       }
     }
 
@@ -671,7 +674,10 @@ export async function handleAgentMessage(
   );
 
   const emitCommandStatus = (payload: Record<string, unknown>) => {
-    const nextPayload = withAgentStatusProgressMetadata(payload, channel.getAgentStatus(chatJid));
+    const activeStatus = typeof channel.getAgentStatus === "function"
+      ? channel.getAgentStatus(chatJid)
+      : null;
+    const nextPayload = withAgentStatusProgressMetadata(payload, activeStatus);
     channel.updateAgentStatus(chatJid, nextPayload);
     channel.broadcastEvent("agent_status", withAgentProfile(nextPayload));
   };
@@ -840,7 +846,9 @@ export async function handleAgentMessage(
     }
 
     if (result.status === "success" && (command.type === "model" || command.type === "cycle_model")) {
-      channel.skipFailedOnModelSwitch(chatJid);
+      if (channel.retryFailedOnModelSwitch(chatJid)) {
+        channel.resumeChat(chatJid);
+      }
     }
 
     emitCommandStatus({
@@ -1053,6 +1061,19 @@ export async function processChat(
   // queue/turn finalization ordering nondeterministic.
   const currentMessage = messages[0];
   if (!currentMessage) return;
+
+  const unresolvedFailedRun = getFailedRun(chatJid);
+  if (unresolvedFailedRun && unresolvedFailedRun.messageId === currentMessage.id) {
+    log.info("processChat paused on unresolved failed run", {
+      operation: "process_chat.blocked_failed_run",
+      chatJid,
+      cursor: prevCursor,
+      failedPrevTs: unresolvedFailedRun.prevTs,
+      failedTs: unresolvedFailedRun.failedTs,
+      failedMessageId: unresolvedFailedRun.messageId,
+    });
+    return;
+  }
 
   // Derive thread root from the actual message being processed, NOT from
   // the threadRootId parameter. The parameter comes from whichever
@@ -1375,9 +1396,7 @@ export async function processChat(
       return;
     }
 
-    // Single UPDATE: clears inflight AND writes failed_run atomically.
-    // No window exists where inflight is gone but failed_run is not yet set.
-    endChatRunWithError(chatJid, {
+    rollbackChatRunWithError(chatJid, {
       prevTs: prevCursor,
       failedTs: lastMessage.timestamp,
       messageId: lastMessage.id,
@@ -1436,10 +1455,10 @@ export async function processChat(
     : publishDraftFallback("empty-final");
 
   if (!finalized && hasOutput) {
-    // The agent produced output but persistence failed (DB write error).
-    // Record a failed run so the message is retried on model switch.
+    // The agent produced output but terminal persistence failed.
+    // Hold the user turn for an explicit retry/skip decision.
     const errorText = "Agent completed but terminal response could not be persisted.";
-    endChatRunWithError(chatJid, {
+    rollbackChatRunWithError(chatJid, {
       prevTs: prevCursor,
       failedTs: lastMessage.timestamp,
       messageId: lastMessage.id,
@@ -1467,7 +1486,7 @@ export async function processChat(
 
     if (hadIntermediateOutput && intermediatePersistFailed) {
       const errorText = "Agent produced intermediate output but it could not be persisted.";
-      endChatRunWithError(chatJid, {
+      rollbackChatRunWithError(chatJid, {
         prevTs: prevCursor,
         failedTs: lastMessage.timestamp,
         messageId: lastMessage.id,
@@ -1490,7 +1509,7 @@ export async function processChat(
     const hadDraft = !!(typeof draft?.text === "string" && draft.text.trim());
     if (hadDraft) {
       const errorText = "Agent completed but draft response could not be persisted.";
-      endChatRunWithError(chatJid, {
+      rollbackChatRunWithError(chatJid, {
         prevTs: prevCursor,
         failedTs: lastMessage.timestamp,
         messageId: lastMessage.id,
@@ -1546,7 +1565,7 @@ export async function processChat(
         recovery: lastRecoveryMeta,
       });
 
-      endChatRunWithError(chatJid, {
+      rollbackChatRunWithError(chatJid, {
         prevTs: prevCursor,
         failedTs: lastMessage.timestamp,
         messageId: lastMessage.id,
@@ -1597,7 +1616,7 @@ export async function processChat(
       recovery: lastRecoveryMeta,
     });
 
-    endChatRunWithError(chatJid, {
+    rollbackChatRunWithError(chatJid, {
       prevTs: prevCursor,
       failedTs: lastMessage.timestamp,
       messageId: lastMessage.id,

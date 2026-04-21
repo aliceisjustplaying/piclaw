@@ -2211,12 +2211,69 @@ test("processChat records a failed run when the agent returns empty successful o
 
   const failedRun = db.getFailedRun("web:default");
   expect(failedRun).toBeTruthy();
+  expect(db.getChatCursor("web:default")).toBe("");
 
   const timeline = db.getTimeline("web:default", 10);
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.some((item: any) => String(item.data.content || "").includes("⚠️ Agent produced no response."))).toBe(true);
   expect(botMessages.some((item: any) => String(item.data.content || "").includes("The turn was not committed as success."))).toBe(true);
   expect(botMessages.some((item: any) => String(item.data.content || "").includes("Choose how to continue."))).toBe(false);
+});
+
+test("processChat holds an unresolved failed run until it is explicitly retried or skipped", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  const userTs = new Date().toISOString();
+  db.storeMessage({
+    id: "msg-held-failure",
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: userTs,
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  let runCount = 0;
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async () => {
+        runCount += 1;
+        if (runCount === 1) return { status: "success", result: null, attachments: [] };
+        return { status: "success", result: "fixed", attachments: [] };
+      },
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+  expect(runCount).toBe(1);
+  expect(db.getFailedRun("web:default")?.messageId).toBe("msg-held-failure");
+  expect(db.getChatCursor("web:default")).toBe("");
+
+  await web.processChat("web:default", "default");
+  expect(runCount).toBe(1);
+  expect(db.getFailedRun("web:default")?.messageId).toBe("msg-held-failure");
+
+  expect(web.retryFailedOnModelSwitch("web:default")).toBe(true);
+  await web.processChat("web:default", "default");
+
+  expect(runCount).toBe(2);
+  expect(db.getFailedRun("web:default")).toBeUndefined();
+  expect(db.getChatCursor("web:default")).toBe(userTs);
+  const timeline = db.getTimeline("web:default", 20).map((item: any) => item.data.content);
+  expect(timeline).toContain("fixed");
 });
 
 test("processChat does not emit no-response notice when an earlier turn was already persisted", async () => {

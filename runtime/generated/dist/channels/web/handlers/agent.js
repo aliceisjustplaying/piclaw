@@ -12,7 +12,7 @@ import { parseControlCommand } from "../../../agent-control/index.js";
 import { normalizeAgentMessagePayload, parseAgentMessageRequest, storeAgentUserMessage, } from "../messaging/agent-message-service.js";
 import { handleUiThemeCommand } from "../theming/ui-theme-commands.js";
 import { handleUiMetersCommand } from "../ui-meters-commands.js";
-import { beginChatRun, endChatRun, endChatRunWithError, getChatCursor, getInflightMessageId, getMessageRowIdById, getMessagesSince, getDb, rollbackInflightRun, setChatCursor, } from "../../../db.js";
+import { beginChatRun, endChatRun, getChatCursor, getFailedRun, getInflightMessageId, getMessageRowIdById, getMessagesSince, getDb, rollbackChatRunWithError, rollbackInflightRun, setChatCursor, } from "../../../db.js";
 import { detectChannel, formatMessages, formatOutbound } from "../../../router.js";
 import { createAgentProfileBuilder } from "../agent/agent-utils.js";
 import { resolveAvatarUrl } from "../media/avatar-service.js";
@@ -497,7 +497,9 @@ export async function handleAgentMessage(channel, req, pathname, chatJid, defaul
                 supports_thinking: supportsThinking,
             });
             if (command.type === "model" || command.type === "cycle_model") {
-                channel.skipFailedOnModelSwitch(chatJid);
+                if (channel.retryFailedOnModelSwitch(chatJid)) {
+                    channel.resumeChat(chatJid);
+                }
             }
         }
         return channel.json({
@@ -706,7 +708,9 @@ export async function handleAgentMessage(channel, req, pathname, chatJid, defaul
             });
         }
         if (result.status === "success" && (command.type === "model" || command.type === "cycle_model")) {
-            channel.skipFailedOnModelSwitch(chatJid);
+            if (channel.retryFailedOnModelSwitch(chatJid)) {
+                channel.resumeChat(chatJid);
+            }
         }
         emitCommandStatus({
             thread_id: interaction.timestamp,
@@ -885,6 +889,18 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
     const currentMessage = messages[0];
     if (!currentMessage)
         return;
+    const unresolvedFailedRun = getFailedRun(chatJid);
+    if (unresolvedFailedRun && unresolvedFailedRun.messageId === currentMessage.id) {
+        log.info("processChat paused on unresolved failed run", {
+            operation: "process_chat.blocked_failed_run",
+            chatJid,
+            cursor: prevCursor,
+            failedPrevTs: unresolvedFailedRun.prevTs,
+            failedTs: unresolvedFailedRun.failedTs,
+            failedMessageId: unresolvedFailedRun.messageId,
+        });
+        return;
+    }
     // Derive thread root from the actual message being processed, NOT from
     // the threadRootId parameter. The parameter comes from whichever
     // handleAgentMessage enqueued this processChat, but cursor-ordered
@@ -1169,9 +1185,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
             }
             return;
         }
-        // Single UPDATE: clears inflight AND writes failed_run atomically.
-        // No window exists where inflight is gone but failed_run is not yet set.
-        endChatRunWithError(chatJid, {
+        rollbackChatRunWithError(chatJid, {
             prevTs: prevCursor,
             failedTs: lastMessage.timestamp,
             messageId: lastMessage.id,
@@ -1226,10 +1240,10 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
         })
         : publishDraftFallback("empty-final");
     if (!finalized && hasOutput) {
-        // The agent produced output but persistence failed (DB write error).
-        // Record a failed run so the message is retried on model switch.
+        // The agent produced output but terminal persistence failed.
+        // Hold the user turn for an explicit retry/skip decision.
         const errorText = "Agent completed but terminal response could not be persisted.";
-        endChatRunWithError(chatJid, {
+        rollbackChatRunWithError(chatJid, {
             prevTs: prevCursor,
             failedTs: lastMessage.timestamp,
             messageId: lastMessage.id,
@@ -1255,7 +1269,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
         }
         if (hadIntermediateOutput && intermediatePersistFailed) {
             const errorText = "Agent produced intermediate output but it could not be persisted.";
-            endChatRunWithError(chatJid, {
+            rollbackChatRunWithError(chatJid, {
                 prevTs: prevCursor,
                 failedTs: lastMessage.timestamp,
                 messageId: lastMessage.id,
@@ -1277,7 +1291,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
         const hadDraft = !!(typeof draft?.text === "string" && draft.text.trim());
         if (hadDraft) {
             const errorText = "Agent completed but draft response could not be persisted.";
-            endChatRunWithError(chatJid, {
+            rollbackChatRunWithError(chatJid, {
                 prevTs: prevCursor,
                 failedTs: lastMessage.timestamp,
                 messageId: lastMessage.id,
@@ -1329,7 +1343,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
                 lastCompactionErrorMessage,
                 recovery: lastRecoveryMeta,
             });
-            endChatRunWithError(chatJid, {
+            rollbackChatRunWithError(chatJid, {
                 prevTs: prevCursor,
                 failedTs: lastMessage.timestamp,
                 messageId: lastMessage.id,
@@ -1359,20 +1373,26 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
             });
             return;
         }
-        // A turn that finishes with no persisted output after automatic recovery
-        // has been attempted.  Show a concise notice and advance the cursor so the
-        // chat is not blocked.  Do NOT record a failed run — that would require a
-        // recovery card to unblock, which we no longer show for blank turns.
+        // Missing terminal output is a real failure. Never consume the user turn
+        // as a success when no persisted assistant reply exists.
         const title = "Agent produced no response";
-        const detail = "The model returned an empty reply. Try `/compact` to shrink the session, or switch to a model with a larger context window.";
+        const detail = "The model returned an empty reply before finalization. The turn was not committed as success.";
         const previewBlock = preview ? `\n\n> ${preview}` : "";
         const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
-        log.warn("Agent completed without output; advancing cursor past blank turn", {
-            operation: "process_chat.no_output_blank",
+        log.warn("Agent completed without output; marking run as failed", {
+            operation: "process_chat.no_output_blank_failed",
             chatJid,
             hadIntermediateOutput,
             persistedIntermediateOutput,
             hadDraft,
+            recovery: lastRecoveryMeta,
+        });
+        rollbackChatRunWithError(chatJid, {
+            prevTs: prevCursor,
+            failedTs: lastMessage.timestamp,
+            messageId: lastMessage.id,
+            threadRootId: resolvedThreadRootId ?? null,
+            createdAt: new Date().toISOString(),
         });
         const notice = channel.storeMessage(chatJid, noticeText, true, [], {
             threadId: resolvedThreadRootId ?? undefined,
@@ -1389,8 +1409,12 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
             detail,
             turn_id: turnId,
         });
-        // Advance cursor past the blank turn so the chat is not stuck.
-        await finalizeSuccessfulRun();
+        if (lastRecoveryMeta?.exhausted) {
+            await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
+                threadId: resolvedThreadRootId,
+                contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, lastRecoveryMeta.attemptsUsed || 0, lastRecoveryMeta.lastClassifier)],
+            });
+        }
         return;
     }
     await finalizeSuccessfulRun();

@@ -235,16 +235,30 @@ That means most users should prefer `/login` over setting raw provider env vars 
 | `PICLAW_SESSION_MAX_SIZE_MB` | `32` | Session file size threshold (MB) for auto-rotation warnings and pre-prompt rotation |
 | `PICLAW_SESSION_AUTO_ROTATE` | `1` | Automatically rotate oversized session files before the next prompt |
 | `PICLAW_WHATSAPP_PHONE` | _(empty)_ | Alias for `WHATSAPP_PHONE` |
-| `PICLAW_TOOL_OUTPUT_RETENTION_DAYS` | `30` | Days to retain stored tool outputs |
-| `PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS` | `43200000` | Cleanup interval (ms) |
+| `PICLAW_TOOL_OUTPUT_RETENTION_MS` | `14400000` (4 h) | Milliseconds to retain stored tool outputs (preferred; overrides `_DAYS`) |
+| `PICLAW_TOOL_OUTPUT_RETENTION_DAYS` | _(legacy)_ | Days to retain stored tool outputs (deprecated; use `_MS`) |
+| `PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS` | `900000` (15 min) | Cleanup interval (ms) |
+| `PICLAW_SESSION_IDLE_MAX_WAIT_MS` | `10000` | Max ms to wait for session idle before sending a turn response |
+| `PICLAW_SESSION_IDLE_COMPACTION_MAX_WAIT_MS` | `300000` | Max ms to wait for idle when a compaction is in progress |
+| `PICLAW_MAIN_SESSION_IDLE_TTL_MS` | _(empty)_ | Idle TTL for the main (interactive) session |
+| `PICLAW_SIDE_SESSION_IDLE_TTL_MS` | _(empty)_ | Idle TTL for side/background sessions (falls back to `PICLAW_SESSION_IDLE_TTL_MS`) |
+| `PICLAW_SESSION_IDLE_TTL_MS` | _(empty)_ | Shared idle TTL fallback for all sessions |
+| `PICLAW_MAIN_SESSION_POOL_MAX_SIZE` | `2` | Max number of warm main chat sessions kept cached under normal conditions |
+| `PICLAW_MAIN_SESSION_PRESSURE_RSS_BYTES` | `536870912` (512 MB) | RSS threshold that enables memory-pressure session eviction mode |
+| `PICLAW_MAIN_SESSION_PRESSURE_IDLE_TTL_MS` | `60000` | Main-session idle TTL while memory pressure mode is active |
+| `PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE` | `1` | Max cached main sessions while memory pressure mode is active |
 
 Notes:
 
-- Interactive web turns now use `PICLAW_AGENT_TIMEOUT` directly.
+- Tool output retention now defaults to **4 hours** (`PICLAW_TOOL_OUTPUT_RETENTION_MS`). The legacy `PICLAW_TOOL_OUTPUT_RETENTION_DAYS` is still accepted but superseded.
+- Session idle timeouts are now tunable: `PICLAW_SESSION_IDLE_MAX_WAIT_MS` controls interactive turn flushing; `PICLAW_SESSION_IDLE_COMPACTION_MAX_WAIT_MS` (default 5 min) allows extra wait time during compaction so the agent does not cut off mid-summarisation.
 - Background/scheduled turns use `PICLAW_BACKGROUND_AGENT_TIMEOUT` when set, otherwise they fall back to `PICLAW_AGENT_TIMEOUT`.
 - On `systemd --user` installs, keep `PICLAW_WORKSPACE`, `PICLAW_STORE`, and `PICLAW_DATA` stable across restarts. Startup recovery relies on the persisted SQLite state plus writable IPC files under `PICLAW_DATA/ipc/tasks`.
 - Session auto-rotation now defaults to a safer operational ceiling (`32 MB`). This is intentionally conservative because pathological persisted sessions can hydrate to much larger in-memory footprints than their on-disk JSONL size suggests.
+- Warm-session pressure mode now defaults to **512 MB RSS** before clamping the main-session cache. This is intentionally above ordinary multi-session web usage so normal chats are not thrashed into repeated cold starts.
+- In pressure mode, the main-session pool clamps to `PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE` (default `1`) and uses the shorter `PICLAW_MAIN_SESSION_PRESSURE_IDLE_TTL_MS` (default `60000`).
 - Oversized persisted `toolResult` payloads are sanitized before session resume and at append-time so inline image/blob payloads do not keep re-accumulating inside session files.
+- Blank/no-terminal-output turns are no longer considered successful consumption. Automatic recovery still runs first; if no terminal assistant reply is persisted, the cursor is rewound and the failed run is held for explicit retry/skip resolution.
 
 Deprecated env names (still supported): `ASSISTANT_NAME`, `ASSISTANT_AVATAR`, `AGENT_TIMEOUT`, `AGENT_TIMEOUT_BACKGROUND`.
 
@@ -487,6 +501,7 @@ It runs when there has been activity since the last consolidation.
 
 | Variable | Default | Purpose |
 |----------|---------|---------||
+| `PICLAW_DREAM_CRON` | `0 1 * * *` | Cron schedule for AutoDream. Evaluated in the runtime timezone (`TZ` / runtime timing config), so the default is 01:00 local runtime time. |
 | `PICLAW_DREAM_MODEL` | _(unset — inherits session model)_ | Pin Dream to a specific model label (e.g. `anthropic/claude-sonnet-4-20250514`). The scheduler switches before the Dream turn and restores the original model afterward. |
 | `PICLAW_DREAM_BACKUP_KEEP` | `10` | Number of pre-Dream note backups to retain |
 
@@ -654,6 +669,10 @@ WORKSPACE_PATH=/mnt/data/piclaw-workspace docker compose up -d
 The compose stack passes `PUID` and `PGID` into the container. On startup,
 `/entrypoint.sh` now remaps the runtime `agent` user/group to those ids before
 it initializes the home directory and piclaw-managed persistent state.
+
+The entrypoint validates the Supervisor configuration using a Python INI parser
+(not the `supervisord` binary itself) before launching the process manager.
+This catches malformed configs at startup instead of silently failing to start managed services.
 
 Typical usage:
 
