@@ -96,11 +96,22 @@ export function decideAutomaticRecovery(input) {
                 reason: "Failure looks context-related despite tool activity; compacting before retrying.",
             };
         }
+        // Tool calls executed but the model never produced a text reply.
+        // The tool results are already persisted in the session, so compacting
+        // and retrying is safe — we are not replaying side effects.
+        if (!input.snapshot.hadPartialOutput && !input.snapshot.hadCompletedTurnOutput) {
+            return {
+                recover: true,
+                classifier: "context_pressure",
+                strategy: "compact_then_retry",
+                reason: "Tool activity without any text output; compacting before retrying.",
+            };
+        }
         return {
             recover: false,
             classifier: "tool_activity",
             strategy: null,
-            reason: "Automatic recovery skipped because tool activity occurred during the failed run.",
+            reason: "Automatic recovery skipped because tool activity with partial output occurred during the failed run.",
         };
     }
     if (input.snapshot.hadCompletedTurnOutput) {
