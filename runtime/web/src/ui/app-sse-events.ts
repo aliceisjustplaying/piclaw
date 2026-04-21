@@ -316,6 +316,7 @@ export function handleAppSseEvent(
       setAgentDraft({ text: '', totalLines: 0 });
       setAgentPlan('');
       setAgentThought({ text: '', totalLines: 0 });
+      setExtensionWorkingState({ message: null, indicator: null });
       setPendingRequest(null);
       if (data.type === 'error') {
         setAgentStatus({ type: 'error', title: data.title || 'Agent error' });

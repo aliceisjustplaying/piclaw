@@ -120,3 +120,23 @@ test('applyExtensionUiWorkingState merges working messages and indicator updates
 
   expect(applyExtensionUiWorkingState(empty, 'extension_ui_notify', { message: 'ignore me' })).toBeUndefined();
 });
+
+test('resolveExtensionUiWorkingIndicator returns default for missing frames', () => {
+  // No payload at all → default
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_working_indicator', null)).toEqual({
+    mode: 'default',
+    frames: [],
+    intervalMs: null,
+  });
+  // Payload with no frames key → default
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_working_indicator', { interval_ms: 90 })).toEqual({
+    mode: 'default',
+    frames: [],
+    intervalMs: null,
+  });
+});
+
+test('resolveExtensionUiWorkingIndicator returns undefined for unrelated events', () => {
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_working', { message: 'hi' })).toBeUndefined();
+  expect(resolveExtensionUiWorkingIndicator('agent_response', {})).toBeUndefined();
+});
