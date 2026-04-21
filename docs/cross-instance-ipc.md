@@ -36,8 +36,9 @@ remote interop routes.
 Optional configuration:
 
 - `PICLAW_REMOTE_INTEROP_ALLOW_HTTP=1` – allow `http://` callback URLs (testing only).
-- `PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK=1` – skip private/loopback IP checks on callback
-  URLs (Docker/LAN development only).
+- `PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK=1` – skip all SSRF protections
+  on callback URLs (private IPs, blocked hostnames, DNS re-resolution).
+  Docker/LAN development only.
 - `PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED=1` – allow short-circuit execution if the peer
   is configured with `mode=short-circuit` and `profile=full`.
 - `PICLAW_REMOTE_INSTANCE_NAME` – display name in metadata.
@@ -172,6 +173,16 @@ Initiator verifies signature + challenge binding and marks peer as paired.
 - Never accept by display name alone.
 - Require explicit fingerprint/ID confirmation.
 - Optional short authentication string (SAS) strongly recommended.
+
+### Convenience routing vs identity-safe operations
+
+Commands like `/pair`, `/ask`, and the `remote-peer` skill accept
+display name, instance ID prefix, or fingerprint as shortcuts for peer
+lookup. This is a **convenience feature** — the underlying security
+model always resolves to the full `instance_id` and validates signatures
+against the stored `public_key`. Display-name lookups are
+non-authoritative; if multiple peers share a name, the command will
+report ambiguity rather than guessing.
 
 ---
 

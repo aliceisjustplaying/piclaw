@@ -76,7 +76,11 @@ export class RemoteInteropService {
   constructor(
     private readonly agentPool?: AgentPool,
     private readonly remoteConfig: Readonly<RemoteInteropConfig> = getRemoteInteropConfig(),
-  ) {}
+  ) {
+    if (isRemoteInteropEnabled(this.remoteConfig) && !process.env.PICLAW_WEB_EXTERNAL_URL) {
+      log.warn("PICLAW_WEB_EXTERNAL_URL is not set — pair callback URLs will use localhost, which is unlikely to work for real deployments.", { operation: "remote.service.init" });
+    }
+  }
 
   private pairingContext(): RemotePairingHandlersContext {
     return {
