@@ -1,11 +1,11 @@
 ---
 id: create-homebrew-linuxbrew-formula-for-piclaw
-title: Create a Homebrew/Linuxbrew formula for YOLO installation of Piclaw
+title: Create a Homebrew / Linuxbrew formula for one-line piclaw installation
 status: inbox
 priority: medium
 created: 2026-04-21
 updated: 2026-04-21
-target_release: later
+target_release: next
 estimate: M
 risk: medium
 tags:
@@ -15,178 +15,201 @@ tags:
   - homebrew
   - linuxbrew
   - install
+  - ux
   - distribution
 owner: pi
 blocked-by: []
 ---
 
-# Create a Homebrew/Linuxbrew formula for YOLO installation of Piclaw
+# Create a Homebrew / Linuxbrew formula for one-line piclaw installation
 
 ## Summary
 
-Add a Homebrew/Linuxbrew formula so users can install Piclaw with a single
-`brew install` command on macOS and Linux, without needing to know about Bun,
-Docker, or the GitHub package path.
-
-## Why
-
-The current install paths are:
-
-- Docker (recommended, most explicit)
-- `bun add -g github:rcarmo/piclaw` (experimental, requires Bun)
-- Build from source (developer path)
-
-None of these are "I saw a cool project, let me try it" one-liners. Homebrew
-is that entry point for macOS and Linux users.
-
-## Goal
+Provide a Homebrew (macOS) and Linuxbrew (Linux) formula so users can install
+piclaw with a single command:
 
 ```bash
-brew install rcarmo/tap/piclaw
+brew install rcarmo/piclaw/piclaw
 ```
 
-or, if merged into homebrew-core:
+The current install paths are Docker or `bun add -g github:rcarmo/piclaw`,
+both of which require prior Bun or Docker knowledge. A `brew install` path is
+the lowest-friction entry point for developers on macOS and Linux who already
+have Homebrew.
+
+## Problem Statement
+
+- Docker is the primary production install but requires Docker knowledge
+- `bun add -g github:rcarmo/piclaw` requires Bun already installed
+- Neither path is a single-command "YOLO install" for developers
+- Homebrew is the de-facto standard for this kind of CLI tool on macOS/Linux
+- No tap or formula exists today
+
+## Desired Behavior
 
 ```bash
-brew install piclaw
+brew tap rcarmo/piclaw          # add the tap once
+brew install piclaw              # install
+
+# or in one step with a custom tap:
+brew install rcarmo/piclaw/piclaw
 ```
 
-This should:
-1. Install Bun (if not present) or use it as a Homebrew dependency
-2. Install Piclaw globally via `bun add -g`
-3. Place the `piclaw` binary in PATH
-4. Provide a `brew services start piclaw` workflow (optional stretch goal)
+After install:
+- `piclaw` binary in PATH
+- `brew upgrade piclaw` updates to the latest release
+- Uninstall via `brew uninstall piclaw`
+- Works on macOS (Intel + Apple Silicon) and Linux (via Linuxbrew)
 
-## Design decisions to answer
+## Design decisions to make
 
-### 1. Tap or homebrew-core?
+### 1. Formula approach vs cask
 
-A personal tap (`rcarmo/homebrew-piclaw` or `rcarmo/tap`) is faster to ship
-and easier to maintain. Core requires the project to meet Homebrew's criteria
-(notable, stable, no language-ecosystem-native install).
+- **Formula** — preferred; compiles or installs from source/binary
+- **Cask** — for macOS app bundles; not appropriate here
 
-**Recommendation:** personal tap first, core later if demand warrants it.
+### 2. Dependency: Bun
 
-### 2. Bun as a dependency
+Piclaw requires Bun at runtime. Options:
 
-Homebrew has a `bun` formula. The Piclaw formula can declare:
+- **Option A** — declare `depends_on "oven-sh/bun/bun"` in the formula
+  - clean; `brew install piclaw` installs Bun automatically
+  - Bun has an official Homebrew formula: `brew install bun`
 
-```ruby
-depends_on "oven-sh/bun/bun"
-```
+- **Option B** — bundle a portable Bun binary inside the formula
+  - heavier; avoids the dependency declaration
+  - not recommended
 
-or check for Bun in PATH and fail with a clear error if missing.
+- **Option C** — shell wrapper that checks for Bun and errors helpfully
+  - lightweight stopgap; poor UX
 
-Alternatively, the formula can bundle a Bun binary for the target platform.
+**Recommended: Option A** — declare the Bun dependency.
 
-### 3. Build from source vs package install
+### 3. Tap vs core formula
 
-Two viable approaches:
+- **Tap (`rcarmo/homebrew-piclaw`)** — faster to ship; no Homebrew core review
+  - users add with `brew tap rcarmo/piclaw`
+  - or use inline `brew install rcarmo/piclaw/piclaw`
+- **Homebrew core** — high-traffic but requires maintenance contracts, license
+  review, and formula standards compliance
+  - consider after the tap is stable
 
-**A — bun global install (simpler)**
-The formula downloads the tagged `.tgz` or uses `bun add -g github:rcarmo/piclaw@<version>`.
-Fast but relies on Bun's package manager.
+**Recommended: start with a tap**, promote to core later if warranted.
 
-**B — build from source (more Homebrew-idiomatic)**
-Formula downloads the source tarball, runs `bun install && make build-piclaw`,
-and installs the resulting binary. Longer but avoids runtime Bun dependency for
-install itself.
+### 4. Source formula vs binary bottle
 
-**Recommendation:** Path A first. The runtime already requires Bun anyway.
+- **Source formula** — runs `bun install` / `bun build` from the repo
+  - portable; no pre-built binaries to manage
+  - slow on first install (Bun compilation is fast but still takes time)
+- **Binary bottle** — pre-built artifacts uploaded to GitHub releases or a CDN
+  - fast install; requires CI to build per-platform bottles
+  - more maintenance
 
-### 4. Versioning
-
-Formula should pin to tagged releases (e.g. `v1.8.3`), not `main`.
-The `VERSION` file at repo root is authoritative.
-
-### 5. `brew services` support
-
-Piclaw needs persistent storage (`/workspace`) and is typically user-scoped.
-A `brew services` plist would be a stretch goal — the user experience for
-first-time setup (workspace location, TOTP secret, etc.) needs resolution
-before making it a system service.
+**Recommended: source formula first**, add bottles later once the tap is stable.
 
 ## Acceptance Criteria
 
-- [ ] A Homebrew formula exists and installs Piclaw on macOS (Intel + Apple Silicon).
-- [ ] The same formula works on Linux via Linuxbrew.
-- [ ] `brew audit --strict rcarmo/tap/piclaw` passes or known exceptions are documented.
-- [ ] Installation places `piclaw` in PATH and `piclaw --version` works.
-- [ ] A basic smoke test (`piclaw --help` or equivalent) is documented.
-- [ ] The tap/formula repository is published.
-- [ ] `docs/install-from-repo.md` or a new `docs/homebrew.md` documents the brew install path.
-- [ ] README.md "Other install methods" section includes the brew command.
+- [ ] A new GitHub repo `rcarmo/homebrew-piclaw` exists with the tap and formula.
+- [ ] `brew tap rcarmo/piclaw && brew install piclaw` installs piclaw on macOS
+  (Intel and Apple Silicon) and Linux (via Linuxbrew).
+- [ ] The formula declares the Bun dependency correctly.
+- [ ] `piclaw --version` works after install.
+- [ ] `brew upgrade piclaw` fetches the latest tag.
+- [ ] `brew uninstall piclaw` removes cleanly.
+- [ ] The formula is tested with `brew audit --new-formula piclaw`.
+- [ ] Install instructions are added to `docs/install-from-repo.md` and `README.md`.
 
 ## Implementation Paths
 
-### Path A — personal tap + bun global install (recommended first)
+### Path A — minimal tap + source formula (recommended)
 
-1. Create `rcarmo/homebrew-piclaw` (or `rcarmo/homebrew-tap`) on GitHub.
-2. Write a Ruby formula that:
-   - declares `depends_on "oven-sh/bun/bun"` (or checks for Bun)
-   - runs `bun add -g github:rcarmo/piclaw@<version>` in `install`
-   - links the `piclaw` binary into Homebrew's prefix
-3. Publish the tap.
-4. Test on macOS arm64 + x86_64 and Linux x86_64.
+1. Create `rcarmo/homebrew-piclaw` repo.
+2. Write `Formula/piclaw.rb`:
+   - `url` pointing to the latest release tarball or the repo
+   - `depends_on "bun"`
+   - `install` block that runs `bun install && bun build` or uses the packed tarball
+3. Test locally with `brew install --build-from-source ./Formula/piclaw.rb`
+4. Publish and update README/docs.
 
-**Formula skeleton:**
+### Path B — tap + binary bottles via CI
+
+Same as Path A, plus:
+
+5. Add GitHub Actions workflow to build bottles for each platform on release.
+6. Upload bottles as GitHub release assets or to a CDN.
+7. Attach bottle block to the formula.
+
+## Formula sketch
 
 ```ruby
 class Piclaw < Formula
-  desc "Personal pi coding agent assistant — self-hosted AI workspace"
+  desc "Self-hosted AI workspace with streaming web UI and multi-provider LLM support"
   homepage "https://github.com/rcarmo/piclaw"
-  url "https://github.com/rcarmo/piclaw/archive/refs/tags/v1.8.3.tar.gz"
-  sha256 "..."
+  url "https://github.com/rcarmo/piclaw/archive/refs/tags/v#{version}.tar.gz"
+  sha256 "..." # updated per release
+
   license "MIT"
 
-  depends_on "oven-sh/bun/bun"
+  depends_on "bun"
 
   def install
     system "bun", "install", "--frozen-lockfile"
-    system "bun", "run", "build-piclaw"
-    bin.install "piclaw" => "piclaw"
+    system "bun", "run", "build:web"
+    # Install the piclaw binary
+    bin.install "path/to/piclaw" => "piclaw"
   end
 
   test do
-    assert_match "piclaw", shell_output("#{bin}/piclaw --version")
+    system "#{bin}/piclaw", "--version"
   end
 end
 ```
 
-### Path B — Homebrew core (later, if popularity warrants)
+> Note: the exact install block depends on how piclaw's build/entry point works
+> with Homebrew's sandbox. The `pack` / `local-install` Makefile targets and
+> `bun add -g` path need to be adapted for Homebrew's expected `bin.install`
+> pattern.
 
-Submit to `homebrew/homebrew-core` once the project meets notability criteria.
+## Additional considerations
+
+- **Version pinning**: the formula should track tagged releases, not `main`
+- **Workspace defaults**: piclaw expects `/workspace` to exist; document that
+  users should configure `PICLAW_WORKSPACE` via a launchd plist or `.env`
+- **Service management**: macOS users may want `brew services start piclaw`
+  — a `.plist` service definition could be added to the formula
 
 ## Test Plan
 
-- [ ] `brew install rcarmo/tap/piclaw` completes on macOS arm64
-- [ ] `brew install rcarmo/tap/piclaw` completes on macOS x86_64
-- [ ] `brew install rcarmo/tap/piclaw` completes on Linux x86_64
-- [ ] `piclaw --version` returns the expected version string
-- [ ] `brew audit --strict rcarmo/tap/piclaw` output documented
+- [ ] `brew install --build-from-source` passes on macOS (Intel + ARM).
+- [ ] `brew install --build-from-source` passes on Linux with Linuxbrew.
+- [ ] `brew audit --new-formula piclaw` is clean.
+- [ ] `piclaw --version` returns the expected version string after install.
+- [ ] `brew upgrade piclaw` succeeds after a version bump.
 
 ## Definition of Done
 
 - [ ] All acceptance criteria satisfied and verified
-- [ ] Formula published in tap
-- [ ] Docs updated
-- [ ] README updated
+- [ ] Formula repo is public and documented
+- [ ] Install instructions updated in README.md and docs/install-from-repo.md
+- [ ] `brew audit` passes
+- [ ] Update history complete with evidence
 - [ ] Ticket front matter updated
 
 ## Updates
 
 ### 2026-04-21
-- Created from user request for a YOLO one-liner install path.
-- Recommended path: personal tap + `bun add -g` install first; homebrew-core later.
-- Key open decision: whether to build from source or use `bun add -g` in the formula.
-- Quality: ★★★☆☆ 6/10 (problem: 2, scope: 1, test: 1, deps: 1, risk: 1)
+- Created from user request for a one-line YOLO install via Homebrew/Linuxbrew.
+- Key decision locked: start with a tap (`rcarmo/homebrew-piclaw`) rather than
+  Homebrew core; add Bun as a declared dependency rather than bundling.
+- Main open question: how the piclaw `pack` / `bun add -g` flow maps to
+  Homebrew's expected `bin.install` sandbox model — needs a test installation.
+- Quality: ★★★☆☆ 7/10 (problem: 2, scope: 2, test: 1, deps: 1, risk: 1)
 
 ## Links
 
-- https://brew.sh
 - https://docs.brew.sh/Formula-Cookbook
-- https://docs.brew.sh/Acceptable-Formulae
+- https://docs.brew.sh/Taps
 - `docs/install-from-repo.md`
-- `README.md` — Other install methods
-- `VERSION`
-- `BUN_VERSION`
+- `Makefile` (`pack`, `local-install` targets)
+- `package.json` (version, bin entry)
+- `BUN_VERSION` (currently `1.3.11`)
