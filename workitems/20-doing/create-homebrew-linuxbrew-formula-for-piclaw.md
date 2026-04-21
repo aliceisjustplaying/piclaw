@@ -4,7 +4,7 @@ title: Create a Homebrew / Linuxbrew formula for one-line piclaw installation
 status: doing
 priority: medium
 created: 2026-04-21
-updated: 2026-04-21
+updated: 2026-04-22
 target_release: next
 estimate: M
 risk: medium
@@ -98,14 +98,34 @@ Piclaw requires Bun at runtime. Options:
 
 ### 4. Source formula vs binary bottle
 
-- **Source formula** — runs `bun install` / `bun build` from the repo
-  - portable; no pre-built binaries to manage
-  - slow on first install (Bun compilation is fast but still takes time)
-- **Binary bottle** — pre-built artifacts uploaded to GitHub releases or a CDN
-  - fast install; requires CI to build per-platform bottles
-  - more maintenance
+- **Source formula** — installs from a release tarball with vendored `node_modules`
+  - portable; no per-platform binaries to manage or sign
+  - Homebrew sandbox has no network: tarball must include `node_modules` (vendored)
+  - `bun install --frozen-lockfile` must succeed offline from the tarball
+  - the release workflow must produce a vendored tarball (extend `make pack` or a new `make dist` target)
+- **Binary bottle** — pre-built artifacts per platform uploaded to GitHub releases
+  - fast install; requires CI to build and sign per-platform
+  - more maintenance; defer until source formula is stable
 
-**Recommended: source formula first**, add bottles later once the tap is stable.
+**Decided: source formula with vendored tarball.** Bun dependency declared via
+`depends_on`; no bundled Bun binary. Binary bottles are explicitly deferred.
+
+#### Vendored tarball approach
+
+The release workflow must produce a tarball that includes `node_modules` so
+Homebrew's sandboxed install can run without network access:
+
+1. Extend `make pack` (or add `make dist`) to run `bun install` then archive
+   `package.json`, `bun.lock`, `node_modules/`, `runtime/`, and the web build
+   output into a single `.tar.gz`.
+2. Upload that tarball as a GitHub release asset alongside the source zip.
+3. The formula `url` points to this vendored tarball, not the raw source zip.
+4. The `install` block skips `bun install` (already vendored) and runs only
+   `bun run build:web` if the web assets are not pre-built, then `bin.install`.
+
+Alternatively, if `bun install --offline` works from a `bun.lock` + bundled
+cache, the raw source tarball could be used with an offline install flag — but
+this is less reliable and should be tested before committing.
 
 ## Acceptance Criteria
 
@@ -121,54 +141,64 @@ Piclaw requires Bun at runtime. Options:
 
 ## Implementation Paths
 
-### Path A — minimal tap + source formula (recommended)
+### Path A — tap + source formula with vendored tarball ✅ preferred
 
-1. Create `rcarmo/homebrew-piclaw` repo.
-2. Write `Formula/piclaw.rb`:
-   - `url` pointing to the latest release tarball or the repo
-   - `depends_on "bun"`
-   - `install` block that runs `bun install && bun build` or uses the packed tarball
-3. Test locally with `brew install --build-from-source ./Formula/piclaw.rb`
-4. Publish and update README/docs.
+1. Extend `make pack` / add `make dist` to produce a vendored tarball:
+   - `bun install --frozen-lockfile` inside the pack step
+   - archive `package.json`, `bun.lock`, `node_modules/`, `runtime/`, pre-built web assets
+   - upload as `piclaw-v{VERSION}-vendored.tar.gz` to the GitHub release
+2. Create `rcarmo/homebrew-piclaw` tap repo.
+3. Write `Formula/piclaw.rb`:
+   - `url` pointing to the vendored tarball release asset
+   - `depends_on "oven-sh/bun/bun"`
+   - `install` block: skip `bun install` (vendored), run `bun run build:web` if
+     web assets are not pre-built, then `bin.install`
+4. Test locally: `brew install --build-from-source ./Formula/piclaw.rb`
+5. Publish tap, update README/docs.
 
-### Path B — tap + binary bottles via CI
+### Path B — tap + binary bottles via CI (deferred)
 
-Same as Path A, plus:
+Defer until Path A is proven stable:
+- Add GitHub Actions to build and bottle per platform on release.
+- Attach bottle block to the formula.
+- Upload bottles as GitHub release assets.
 
-5. Add GitHub Actions workflow to build bottles for each platform on release.
-6. Upload bottles as GitHub release assets or to a CDN.
-7. Attach bottle block to the formula.
-
-## Formula sketch
+## Formula sketch (vendored tarball)
 
 ```ruby
 class Piclaw < Formula
   desc "Self-hosted AI workspace with streaming web UI and multi-provider LLM support"
   homepage "https://github.com/rcarmo/piclaw"
-  url "https://github.com/rcarmo/piclaw/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "..." # updated per release
+  # Points to the vendored tarball asset, not the raw source archive
+  url "https://github.com/rcarmo/piclaw/releases/download/v#{version}/piclaw-v#{version}-vendored.tar.gz"
+  sha256 "..." # updated per release via `brew bump-formula-pr`
 
   license "MIT"
 
-  depends_on "bun"
+  # Bun is required at runtime (script interpreter)
+  depends_on "oven-sh/bun/bun"
 
   def install
-    system "bun", "install", "--frozen-lockfile"
-    system "bun", "run", "build:web"
-    # Install the piclaw binary
-    bin.install "path/to/piclaw" => "piclaw"
+    # node_modules already vendored in the tarball — no network needed
+    # Web assets pre-built in the tarball — skip build:web
+    # Entry point: runtime/src/index.ts executed by bun
+    (bin/"piclaw").write <<~SH
+      #!/bin/bash
+      exec "#{Formula["oven-sh/bun/bun"].opt_bin}/bun" "#{libexec}/runtime/src/index.ts" "$@"
+    SH
+    libexec.install Dir["*"]
   end
 
   test do
-    system "#{bin}/piclaw", "--version"
+    assert_match version.to_s, shell_output("#{bin}/piclaw --version")
   end
 end
 ```
 
-> Note: the exact install block depends on how piclaw's build/entry point works
-> with Homebrew's sandbox. The `pack` / `local-install` Makefile targets and
-> `bun add -g` path need to be adapted for Homebrew's expected `bin.install`
-> pattern.
+> The `bun` shim wrapper approach avoids a native compile step entirely.
+> `libexec` holds the full source tree; the `bin/piclaw` shim delegates to
+> the installed Bun. This is the pattern used by other TypeScript CLI tools in
+> Homebrew (e.g. `vite`, `typescript`).
 
 ## Additional considerations
 
@@ -197,13 +227,20 @@ end
 
 ## Updates
 
+### 2026-04-22
+- Locked install approach: **source formula with vendored tarball**; binary
+  bottles explicitly deferred.
+- Resolved sandbox problem: use `bun` shim wrapper (`bin/piclaw` → `bun
+  libexec/runtime/src/index.ts`); node_modules vendored in release tarball;
+  no network access needed during Homebrew install.
+- Release workflow change required: `make dist` (or extend `make pack`) to
+  produce `piclaw-vVERSION-vendored.tar.gz` including `node_modules/` and
+  pre-built web assets.
+- Formula sketch updated to reflect shim pattern.
+
 ### 2026-04-21
 - Created from user request for a one-line YOLO install via Homebrew/Linuxbrew.
-- Key decision locked: start with a tap (`rcarmo/homebrew-piclaw`) rather than
-  Homebrew core; add Bun as a declared dependency rather than bundling.
-- Main open question: how the piclaw `pack` / `bun add -g` flow maps to
-  Homebrew's expected `bin.install` sandbox model — needs a test installation.
-- Quality: ★★★☆☆ 7/10 (problem: 2, scope: 2, test: 1, deps: 1, risk: 1)
+- Quality: ★★★☆☆ 7/10
 
 ## Links
 
