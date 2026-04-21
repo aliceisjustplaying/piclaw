@@ -219,6 +219,7 @@ export class UiBridge {
       setWorkingMessage: (message) => {
         this.channel.broadcastEvent("extension_ui_working", { chat_jid: chatJid, message });
       },
+      setWorkingIndicator: () => {},
       setWidget: (key, content, options) => {
         if (Array.isArray(content)) {
           this.channel.broadcastEvent("extension_ui_widget", { chat_jid: chatJid, key, content, options });

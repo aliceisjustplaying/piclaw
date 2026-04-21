@@ -210,6 +210,9 @@ test("agent control session and tree commands", async () => {
   const fork = await applyControlCommand(runtime as any, registry, { type: "fork", entryId: "entry-1", raw: "/fork entry-1" });
   expect(fork.message).toContain("Selected");
 
+  const clone = await applyControlCommand(runtime as any, registry, { type: "clone", raw: "/clone" });
+  expect(clone.message).toContain("Selected");
+
   const forks = await applyControlCommand(runtime as any, registry, { type: "forks", raw: "/forks" });
   expect(forks.message).toContain("Forkable messages:");
 
