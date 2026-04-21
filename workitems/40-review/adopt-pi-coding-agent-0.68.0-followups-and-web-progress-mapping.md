@@ -1,7 +1,7 @@
 ---
 id: adopt-pi-coding-agent-0.68.0-followups-and-web-progress-mapping
 title: Adopt pi-coding-agent 0.68.0 follow-ups and web progress mapping
-status: done
+status: review
 priority: high
 created: 2026-04-21
 updated: 2026-04-21

@@ -1,7 +1,7 @@
 ---
 id: plan-and-sequence-pi-0.68.0-follow-up-rollout
 title: Plan and sequence the Pi 0.68.0 follow-up rollout
-status: done
+status: review
 priority: medium
 created: 2026-04-21
 updated: 2026-04-21
