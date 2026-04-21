@@ -193,6 +193,7 @@ interface ComposeViewRefreshLifecycleOptionsInput {
   scrollToBottom: () => void;
   setExtensionStatusPanels: StateSetter<Map<string, unknown>>;
   setPendingExtensionPanelActions: StateSetter<Set<string>>;
+  setExtensionWorkingState: StateSetter<{ message: string | null; indicator: unknown | null }>;
   paneStateOwnerChatJidRef: RefBox<string | null>;
   chatPaneStateByChatRef: RefBox<Map<string, unknown>>;
   snapshotCurrentChatPaneState: () => unknown;
@@ -223,6 +224,7 @@ export function composeViewRefreshLifecycleOptions(input: ComposeViewRefreshLife
     scrollToBottom: input.scrollToBottom,
     setExtensionStatusPanels: input.setExtensionStatusPanels,
     setPendingExtensionPanelActions: input.setPendingExtensionPanelActions,
+    setExtensionWorkingState: input.setExtensionWorkingState,
     paneStateOwnerChatJidRef: input.paneStateOwnerChatJidRef,
     chatPaneStateByChatRef: input.chatPaneStateByChatRef,
     snapshotCurrentChatPaneState: input.snapshotCurrentChatPaneState,
@@ -298,6 +300,7 @@ interface ComposeRealtimeLifecycleOptionsInput {
   getAgentContext: ((chatJid: string) => Promise<any>) | null;
   setExtensionStatusPanels: StateSetter<Map<string, unknown>>;
   setPendingExtensionPanelActions: StateSetter<Set<string>>;
+  setExtensionWorkingState: StateSetter<{ message: string | null; indicator: unknown | null }>;
   refreshActiveEditorFromWorkspace: (updates: any) => Promise<void>;
   showIntentToast: ToastFn;
   removeStalledPost: () => void;
@@ -369,6 +372,7 @@ export function composeRealtimeLifecycleOptions(input: ComposeRealtimeLifecycleO
     getAgentContext: input.getAgentContext,
     setExtensionStatusPanels: input.setExtensionStatusPanels,
     setPendingExtensionPanelActions: input.setPendingExtensionPanelActions,
+    setExtensionWorkingState: input.setExtensionWorkingState,
     refreshActiveEditorFromWorkspace: input.refreshActiveEditorFromWorkspace,
     showIntentToast: input.showIntentToast,
     removeStalledPost: input.removeStalledPost,

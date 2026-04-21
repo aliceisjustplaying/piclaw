@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import {
+  applyExtensionUiWorkingState,
   resolveExtensionUiToast,
+  resolveExtensionUiWorkingIndicator,
   resolveStatusPanelEventChatJid,
   resolveStatusPanelWidgetEventContext,
 } from '../../web/src/ui/app-extension-ui-sse.js';
@@ -56,4 +58,65 @@ test('resolveExtensionUiToast returns null for unrelated or malformed payloads',
   expect(resolveExtensionUiToast('extension_ui_status', { message: 'ignored' })).toBeNull();
   expect(resolveExtensionUiToast('extension_ui_notify', { message: 123 })).toBeNull();
   expect(resolveExtensionUiToast(null, null)).toBeNull();
+});
+
+test('resolveExtensionUiWorkingIndicator maps default, hidden, and custom indicators', () => {
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_working_indicator', {})).toEqual({
+    mode: 'default',
+    frames: [],
+    intervalMs: null,
+  });
+
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_working_indicator', { frames: [], interval_ms: 80 })).toEqual({
+    mode: 'hidden',
+    frames: [],
+    intervalMs: 80,
+  });
+
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_working_indicator', { frames: ['⠋', '⠙'], intervalMs: 120 })).toEqual({
+    mode: 'custom',
+    frames: ['⠋', '⠙'],
+    intervalMs: 120,
+  });
+
+  expect(resolveExtensionUiWorkingIndicator('extension_ui_status', { frames: ['x'] })).toBeUndefined();
+});
+
+test('applyExtensionUiWorkingState merges working messages and indicator updates', () => {
+  const empty = { message: null, indicator: null };
+
+  expect(applyExtensionUiWorkingState(empty, 'extension_ui_working', { message: 'Compacting context…' })).toEqual({
+    message: 'Compacting context…',
+    indicator: null,
+  });
+
+  expect(applyExtensionUiWorkingState({
+    message: 'Compacting context…',
+    indicator: null,
+  }, 'extension_ui_working_indicator', { frames: ['⠋', '⠙'], interval_ms: 90 })).toEqual({
+    message: 'Compacting context…',
+    indicator: {
+      mode: 'custom',
+      frames: ['⠋', '⠙'],
+      intervalMs: 90,
+    },
+  });
+
+  expect(applyExtensionUiWorkingState({
+    message: 'Compacting context…',
+    indicator: {
+      mode: 'custom',
+      frames: ['⠋'],
+      intervalMs: 100,
+    },
+  }, 'extension_ui_working', {})).toEqual({
+    message: null,
+    indicator: {
+      mode: 'custom',
+      frames: ['⠋'],
+      intervalMs: 100,
+    },
+  });
+
+  expect(applyExtensionUiWorkingState(empty, 'extension_ui_notify', { message: 'ignore me' })).toBeUndefined();
 });

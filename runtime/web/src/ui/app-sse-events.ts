@@ -30,6 +30,7 @@ import {
   shouldClearPendingPanelActions,
 } from './app-extension-status.js';
 import {
+  applyExtensionUiWorkingState,
   resolveExtensionUiToast,
   resolveStatusPanelWidgetEventContext,
 } from './app-extension-ui-sse.js';
@@ -103,6 +104,7 @@ export interface HandleAppSseEventDependencies {
   getAgentContext: (chatJid: string) => Promise<any>;
   setExtensionStatusPanels: StateSetter<Map<string, any>>;
   setPendingExtensionPanelActions: StateSetter<Set<string>>;
+  setExtensionWorkingState: StateSetter<{ message: string | null; indicator: unknown | null }>;
   refreshActiveEditorFromWorkspace: (updates: any) => Promise<void> | void;
   showIntentToast: (title: string, detail?: string | null, kind?: string, durationMs?: number) => void;
   removeStalledPost: () => void;
@@ -173,6 +175,7 @@ export function handleAppSseEvent(
     getAgentContext,
     setExtensionStatusPanels,
     setPendingExtensionPanelActions,
+    setExtensionWorkingState,
     refreshActiveEditorFromWorkspace,
     showIntentToast,
     removeStalledPost,
@@ -230,6 +233,7 @@ export function handleAppSseEvent(
     setAgentDraft({ text: '', totalLines: 0 });
     setAgentPlan('');
     setAgentThought({ text: '', totalLines: 0 });
+    setExtensionWorkingState({ message: null, indicator: null });
     setPendingRequest(null);
     pendingRequestRef.current = null;
     clearAgentRunState();
@@ -501,6 +505,12 @@ export function handleAppSseEvent(
 
   if (isExtensionUiEventType(eventType)) {
     if (!isCurrentChatEvent) return;
+
+    setExtensionWorkingState((previous) => {
+      const next = applyExtensionUiWorkingState(previous, eventType, data);
+      return next ?? previous;
+    });
+
     dispatchExtensionUiBrowserEvent(eventType, data);
     const toast = resolveExtensionUiToast(eventType, data);
     if (toast) {
@@ -512,6 +522,7 @@ export function handleAppSseEvent(
   const onMainTimeline = isMainTimelineView(viewStateRef.current);
   if (eventType === 'agent_response') {
     if (!isCurrentChatEvent) return;
+    setExtensionWorkingState({ message: null, indicator: null });
     removeStalledPost();
     lastAgentResponseRef.current = {
       post: data,
