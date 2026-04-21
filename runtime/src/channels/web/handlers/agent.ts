@@ -1515,28 +1515,21 @@ export async function processChat(
     }
 
     // A turn that finishes with no persisted output after automatic recovery
-    // has been attempted.  Show a concise notice; the user can /compact or
-    // switch models without a separate recovery card.
+    // has been attempted.  Show a concise notice and advance the cursor so the
+    // chat is not blocked.  Do NOT record a failed run — that would require a
+    // recovery card to unblock, which we no longer show for blank turns.
     const title = "Agent produced no response";
     const detail =
       "The model returned an empty reply. Try `/compact` to shrink the session, or switch to a model with a larger context window.";
     const previewBlock = preview ? `\n\n> ${preview}` : "";
     const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
 
-    log.warn("Agent completed without output; recording failed run", {
-      operation: "process_chat.no_output_failed",
+    log.warn("Agent completed without output; advancing cursor past blank turn", {
+      operation: "process_chat.no_output_blank",
       chatJid,
       hadIntermediateOutput,
       persistedIntermediateOutput,
       hadDraft,
-    });
-
-    endChatRunWithError(chatJid, {
-      prevTs: prevCursor,
-      failedTs: lastMessage.timestamp,
-      messageId: lastMessage.id,
-      threadRootId: resolvedThreadRootId ?? null,
-      createdAt: new Date().toISOString(),
     });
 
     const notice = channel.storeMessage(chatJid, noticeText, true, [], {
@@ -1556,6 +1549,8 @@ export async function processChat(
       turn_id: turnId,
     });
 
+    // Advance cursor past the blank turn so the chat is not stuck.
+    await finalizeSuccessfulRun();
     return;
   }
 

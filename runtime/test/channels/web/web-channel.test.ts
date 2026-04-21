@@ -2209,14 +2209,15 @@ test("processChat records a failed run when the agent returns empty successful o
 
   await web.processChat("web:default", "default");
 
+  // Blank turns no longer record a failed run — the cursor advances so the
+  // chat is not blocked.
   const failedRun = db.getFailedRun("web:default");
-  expect(failedRun).toBeDefined();
+  expect(failedRun).toBeUndefined();
 
   const timeline = db.getTimeline("web:default", 10);
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.some((item: any) => String(item.data.content || "").includes("⚠️ Agent produced no response."))).toBe(true);
-  // No recovery card — blank turns are handled by automatic recovery
-  // (compact_then_retry). Only a concise notice is shown.
+  // No recovery card and no "Choose how to continue" message.
   expect(botMessages.some((item: any) => String(item.data.content || "").includes("Choose how to continue."))).toBe(false);
 });
 
