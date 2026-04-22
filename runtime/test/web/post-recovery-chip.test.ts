@@ -241,3 +241,19 @@ test('Post renders a visible timeout chip with the last tool action tooltip', as
   expect(flattenText(chip)).toContain('timeout');
   expect(chip?.getAttribute('title')).toBe('Turn timed out — Timed out while running bash');
 });
+
+test('Post renders an outcome chip between author and timestamp for turn failures', async () => {
+  const host = await renderPostWithBlocks([{
+    type: 'turn_outcome_marker',
+    kind: 'provider',
+    label: 'provider',
+    title: 'Provider retry budget exhausted',
+    detail: '429 Too Many Requests',
+    severity: 'warning',
+  }]);
+
+  const chip = findByClass(host, 'post-outcome-chip');
+  expect(chip).toBeTruthy();
+  expect(flattenText(chip)).toContain('provider');
+  expect(chip?.getAttribute('title')).toBe('Provider retry budget exhausted — 429 Too Many Requests');
+});

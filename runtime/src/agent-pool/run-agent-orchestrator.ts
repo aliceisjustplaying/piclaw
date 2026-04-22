@@ -468,7 +468,13 @@ async function runPromptAttempt(
   let sawCompactionIntent = false;
   let sawAssistantToolCallMessage = false;
   let onlyReadOnlyToolActivity = true;
+  let assistantToolUseMessageCount = 0;
+  let toolUseBudgetExceeded = false;
   const sessionEntryBaseline = snapshotSessionEntryCount(session);
+  const configuredToolUseBudget = Number.parseInt(process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES || "", 10);
+  const toolUseMessageBudget = Number.isFinite(configuredToolUseBudget) && configuredToolUseBudget > 0
+    ? configuredToolUseBudget
+    : 24;
 
   const originalOnTurnComplete = runOptions.onTurnComplete;
   const onTurnComplete = originalOnTurnComplete
@@ -506,10 +512,25 @@ async function runPromptAttempt(
       }
     }
     if (event.type === "message_end") {
-      const message = (event as { message?: { role?: unknown; content?: unknown } }).message;
+      const message = (event as { message?: { role?: unknown; content?: unknown; stopReason?: unknown } }).message;
       if (message?.role === "assistant" && Array.isArray(message.content)) {
-        sawAssistantToolCallMessage = sawAssistantToolCallMessage
-          || message.content.some((block) => block && typeof block === "object" && (block as { type?: unknown }).type === "toolCall");
+        const hasToolCall = message.content.some((block) => block && typeof block === "object" && (block as { type?: unknown }).type === "toolCall");
+        sawAssistantToolCallMessage = sawAssistantToolCallMessage || hasToolCall;
+        if (hasToolCall && message.stopReason === "toolUse") {
+          assistantToolUseMessageCount += 1;
+          if (!toolUseBudgetExceeded && assistantToolUseMessageCount > toolUseMessageBudget) {
+            toolUseBudgetExceeded = true;
+            void session.abort().catch((err) => {
+              options.onWarn?.("Failed to abort tool-loop budget overflow", {
+                operation: "run_agent.tool_use_budget_abort",
+                chatJid,
+                assistantToolUseMessageCount,
+                toolUseMessageBudget,
+                err,
+              });
+            });
+          }
+        }
       }
     }
     if (event.type === "compaction_start") {
@@ -569,6 +590,12 @@ async function runPromptAttempt(
   let output: AgentOutput;
   if (timedOut) {
     output = { status: "error", result: null, error: `Timed out after ${formatTimeoutDuration(timeoutMs)}` };
+  } else if (toolUseBudgetExceeded && !finalText && finalAttachments.length === 0) {
+    output = {
+      status: "error",
+      result: null,
+      error: `Tool-use budget exceeded before finalization (${assistantToolUseMessageCount}/${toolUseMessageBudget} tool steps).`,
+    };
   } else if (promptThrownError) {
     output = { status: "error", result: null, error: promptThrownError };
   } else {
