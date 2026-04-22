@@ -2264,7 +2264,7 @@ ${G.join(`
                         ${P0.map(({id:c,mimeType:Y0})=>{let z0=typeof Y0==="string"&&Y0.toLowerCase().startsWith("image/svg")?E1(c):P3(c);return z`
                                 <img 
                                     key=${c} 
-                                    src=${z0}
+                                    src=${z0} 
                                     alt="Media" 
                                     loading="lazy"
                                     decoding="async"
