@@ -2246,42 +2246,6 @@ export function ComposeBox({
                     </div>
                     `}
                     <div class="compose-actions ${searchMode ? 'search-mode' : ''}">
-                    ${showSessionSwitcherButton && html`
-                        <div
-                            ref=${sessionTriggerRef}
-                            class="compose-session-trigger-group"
-                        >
-                            ${currentSessionAgent?.agent_name && html`
-                                <button
-                                    type="button"
-                                    class=${`compose-session-trigger compose-session-trigger-pill${showSessionPopup ? ' active' : ''}`}
-                                    onClick=${toggleSessionPopup}
-                                    title=${currentSessionAgent?.chat_jid || currentChatJid}
-                                    aria-label=${`Manage sessions for @${currentSessionAgent.agent_name}`}
-                                    aria-expanded=${showSessionPopup ? 'true' : 'false'}
-                                >
-                                    <span class="compose-current-agent-label active">@${currentSessionAgent.agent_name}</span>
-                                </button>
-                            `}
-                            <button
-                                type="button"
-                                class=${`compose-session-trigger compose-session-trigger-icon-btn${showSessionPopup ? ' active' : ''}`}
-                                onClick=${toggleSessionPopup}
-                                title=${currentSessionAgent?.chat_jid || currentChatJid}
-                                aria-label=${currentSessionAgent?.agent_name
-                                    ? `Manage sessions for @${currentSessionAgent.agent_name}`
-                                    : 'Manage Sessions/Agents'}
-                                aria-expanded=${showSessionPopup ? 'true' : 'false'}
-                            >
-                                <span class="compose-session-trigger-icon" aria-hidden="true">
-                                    <svg class="compose-mention-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                                        <circle cx="12" cy="12" r="4.25" />
-                                        <path d="M16.25 7.75v5.4a2.1 2.1 0 0 0 4.2 0V12a8.45 8.45 0 1 0-4.2 7.33" />
-                                    </svg>
-                                </span>
-                            </button>
-                        </div>
-                    `}
                     ${searchMode && html`
                         <label class="compose-search-scope-wrap" title="Search scope">
                             <span class="compose-search-scope-label">Scope</span>
