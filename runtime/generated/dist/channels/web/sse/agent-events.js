@@ -470,5 +470,45 @@ export function createStreamingEventHandler(options) {
                 });
             }
         }
+        const customEventType = event.type;
+        if (customEventType === "recovery_start") {
+            const e = event;
+            const strategy = e.strategy === "compact_then_retry"
+                ? "Compacting context and continuing"
+                : "Recovering interrupted response";
+            const delaySuffix = e.strategy === "retry" && typeof e.delayMs === "number"
+                ? ` · ${Math.max(0, Math.round(e.delayMs / 1000))}s delay`
+                : "";
+            const detail = `Attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}${delaySuffix}${e.reason ? ` — ${e.reason}` : ""}`;
+            options.emitter.status({
+                ...base,
+                type: "intent",
+                title: strategy,
+                detail,
+                intent_key: "recovery",
+                started_at: new Date().toISOString(),
+            });
+        }
+        if (customEventType === "recovery_end") {
+            const e = event;
+            if (e.outcome === "recovered") {
+                options.emitter.status({
+                    ...base,
+                    type: "intent",
+                    title: "Recovered after automatic continuation",
+                    detail: `Attempts: ${e.attemptsUsed ?? 0}${e.classifier ? ` · ${e.classifier}` : ""}`,
+                    intent_key: "recovery",
+                });
+            }
+            else if (e.outcome === "exhausted") {
+                options.emitter.status({
+                    ...base,
+                    type: "error",
+                    title: "Automatic recovery exhausted",
+                    detail: e.errorMessage || undefined,
+                    intent_key: "recovery",
+                });
+            }
+        }
     };
 }

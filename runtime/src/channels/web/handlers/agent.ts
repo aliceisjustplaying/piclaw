@@ -24,13 +24,15 @@ import { handleUiThemeCommand } from "../theming/ui-theme-commands.js";
 import { handleUiMetersCommand } from "../ui-meters-commands.js";
 import {
   beginChatRun,
+  clearFailedRun,
   endChatRun,
-  endChatRunWithError,
   getChatCursor,
+  getFailedRun,
   getInflightMessageId,
   getMessageRowIdById,
   getMessagesSince,
   getDb,
+  rollbackChatRunWithError,
   rollbackInflightRun,
   setChatCursor,
 } from "../../../db.js";
@@ -69,7 +71,7 @@ function isModelConfigError(errorText: string | null | undefined): boolean {
 
 function isSessionCorruptionError(errorText: string | null | undefined): boolean {
   if (!errorText) return false;
-  return /invalid_request_error|\b400\b.*(?:image|media_type|content|base64)|media_type|image.*source/i.test(errorText);
+  return /invalid_request_error|\b400\b.*(?:image|media_type|content|base64|tool_use_id|tool_result|tool_use)|media_type|image.*source|unexpected [`'\"]?tool_use_id[`'\"]?|tool_result.*corresponding.*tool_use/i.test(errorText);
 }
 
 function isQuotaError(errorText: string | null | undefined): boolean {
@@ -97,7 +99,7 @@ function formatUserVisibleError(errorText: string, rateLimited: boolean): string
   }
 
   if (isSessionCorruptionError(errorText)) {
-    return `\u26a0\ufe0f API error \u2014 the session may be corrupted:\n\n\`${errorText.slice(0, 500)}\`\n\nThis error may repeat on every message. Try \`/compact\` to rewrite the session (this strips corrupt image blocks automatically), or \`/new-session\` to start fresh.`;
+    return `\u26a0\ufe0f API error \u2014 the session may be corrupted:\n\n\`${errorText.slice(0, 500)}\`\n\nThis error may repeat on every message. Try \`/compact\` to rewrite the session (PiClaw now strips corrupt image blocks and orphaned tool-result blocks automatically), or \`/new-session\` to start fresh.`;
   }
 
   return `\u26a0\ufe0f Agent error: ${errorText.slice(0, 300)}`;
@@ -121,6 +123,70 @@ function buildRetryStatusPayload(base: {
     started_at: startedAt,
     retry_at: getRetryAtIso(1, DEFAULT_BASE_RETRY_MS, Date.parse(startedAt)),
     retry_delay_ms: DEFAULT_BASE_RETRY_MS,
+  };
+}
+
+function buildAgentStatusPhaseKey(payload: Record<string, unknown>): string {
+  const type = typeof payload.type === "string" ? payload.type : "unknown";
+  const title = typeof payload.title === "string" ? payload.title.trim() : "";
+  const intentKey = typeof payload.intent_key === "string"
+    ? payload.intent_key.trim()
+    : (typeof payload.intentKey === "string" ? payload.intentKey.trim() : "");
+  const toolName = typeof payload.tool_name === "string"
+    ? payload.tool_name.trim()
+    : (typeof payload.toolName === "string" ? payload.toolName.trim() : "");
+
+  if ((type === "tool_call" || type === "tool_status") && toolName) {
+    return `tool:${toolName}:${title}`;
+  }
+  if (type === "intent" && intentKey) {
+    return `intent:${intentKey}:${title}`;
+  }
+  return `${type}:${title}`;
+}
+
+function withAgentStatusProgressMetadata(
+  payload: Record<string, unknown>,
+  previousStatus: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const next = { ...payload };
+  const type = typeof next.type === "string" ? next.type : "";
+
+  if (type === "done" || type === "error") {
+    return {
+      ...next,
+      last_event_at: now,
+      phase_key: buildAgentStatusPhaseKey(next),
+    };
+  }
+
+  const previous = previousStatus && typeof previousStatus === "object" ? previousStatus : null;
+  const previousPhaseKey = previous && typeof previous.phase_key === "string"
+    ? previous.phase_key
+    : previous
+      ? buildAgentStatusPhaseKey(previous)
+      : null;
+  const nextPhaseKey = buildAgentStatusPhaseKey(next);
+  const previousStartedAt = previous && typeof previous.started_at === "string"
+    ? previous.started_at
+    : (previous && typeof previous.startedAt === "string" ? previous.startedAt : null);
+  const previousRunStartedAt = previous && typeof previous.run_started_at === "string"
+    ? previous.run_started_at
+    : (previous && typeof previous.runStartedAt === "string" ? previous.runStartedAt : null);
+
+  return {
+    ...next,
+    started_at: typeof next.started_at === "string"
+      ? next.started_at
+      : previousPhaseKey === nextPhaseKey && previousStartedAt
+        ? previousStartedAt
+        : now,
+    run_started_at: typeof next.run_started_at === "string"
+      ? next.run_started_at
+      : previousRunStartedAt || now,
+    last_event_at: now,
+    phase_key: nextPhaseKey,
   };
 }
 
@@ -149,6 +215,84 @@ export function stripMarkdownCodeFenceMarkers(value: string): string {
     .replace(/^```[a-zA-Z0-9_-]*\s*\n?/, "")
     .replace(/\n?```\s*$/, "")
     .trim();
+}
+
+export function buildRecoveryMarkerBlocks(recovery: { attemptsUsed?: number; lastClassifier?: string | null } | null | undefined): Array<Record<string, unknown>> | undefined {
+  if (!recovery?.attemptsUsed) return undefined;
+  return [{
+    type: "recovery_marker",
+    recovered: true,
+    attempts_used: recovery.attemptsUsed,
+    classifier: recovery.lastClassifier ?? null,
+    label: recovery.attemptsUsed === 1
+      ? "Recovered automatically"
+      : `Recovered after ${recovery.attemptsUsed} attempts`,
+  }];
+}
+
+function buildRecoveryActionCard(
+  turnId: string,
+  threadId: number | null | undefined,
+  options: {
+    cardIdPrefix: string;
+    title: string;
+    detail: string;
+    fallbackText: string;
+  },
+): Record<string, unknown> {
+  return {
+    type: "adaptive_card",
+    card_id: `${options.cardIdPrefix}-${turnId}`,
+    schema_version: "1.5",
+    state: "active",
+    fallback_text: options.fallbackText,
+    payload: {
+      type: "AdaptiveCard",
+      version: "1.5",
+      body: [
+        { type: "TextBlock", text: options.title, weight: "Bolder", size: "Medium" },
+        { type: "TextBlock", text: options.detail, wrap: true, spacing: "Small" },
+        { type: "TextBlock", text: "Choose how to proceed.", wrap: true, spacing: "Small" },
+      ],
+      actions: [
+        {
+          type: "Action.Submit",
+          title: "Continue",
+          data: {
+            intent: "recovery-continue",
+            thread_id: threadId ?? null,
+          },
+        },
+        {
+          type: "Action.Submit",
+          title: "Retry cleanly",
+          data: {
+            intent: "recovery-retry-clean",
+            __card_state: "completed",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function buildRecoveryExhaustedCard(turnId: string, threadId: number | null | undefined, attemptsUsed: number, classifier?: string | null): Record<string, unknown> {
+  const detail = classifier ? `Automatic recovery stopped after ${attemptsUsed} attempt(s) (${classifier}).` : `Automatic recovery stopped after ${attemptsUsed} attempt(s).`;
+  return buildRecoveryActionCard(turnId, threadId, {
+    cardIdPrefix: "recovery-exhausted",
+    title: "Automatic recovery exhausted",
+    detail,
+    fallbackText: "Automatic recovery exhausted. Choose Continue or Retry cleanly.",
+  });
+}
+
+function buildRecoveryStalledCard(turnId: string, threadId: number | null | undefined, detail: string): Record<string, unknown> {
+  return buildRecoveryActionCard(turnId, threadId, {
+    cardIdPrefix: "recovery-stalled",
+    title: "Context recovery needed",
+    detail,
+    fallbackText: "Context recovery needed. Choose Continue or Retry cleanly.",
+  });
 }
 
 export function summarizeCommandStatusTitle(message: unknown, fallback = "Command failed"): string {
@@ -441,7 +585,9 @@ export async function handleAgentMessage(
         supports_thinking: supportsThinking,
       });
       if (command.type === "model" || command.type === "cycle_model") {
-        channel.skipFailedOnModelSwitch(chatJid);
+        if (channel.retryFailedOnModelSwitch(chatJid)) {
+          channel.resumeChat(chatJid);
+        }
       }
     }
 
@@ -501,6 +647,7 @@ export async function handleAgentMessage(
     mediaIds: normalized.mediaIds,
     contentBlocks: normalized.contentBlocks,
     linkPreviews: normalized.linkPreviews,
+    threadId: normalized.threadId,
   });
 
   if (!interaction) return channel.json({ error: "Failed to store message" }, 500);
@@ -528,8 +675,12 @@ export async function handleAgentMessage(
   );
 
   const emitCommandStatus = (payload: Record<string, unknown>) => {
-    channel.updateAgentStatus(chatJid, payload);
-    channel.broadcastEvent("agent_status", withAgentProfile(payload));
+    const activeStatus = typeof channel.getAgentStatus === "function"
+      ? channel.getAgentStatus(chatJid)
+      : null;
+    const nextPayload = withAgentStatusProgressMetadata(payload, activeStatus);
+    channel.updateAgentStatus(chatJid, nextPayload);
+    channel.broadcastEvent("agent_status", withAgentProfile(nextPayload));
   };
 
   const queueFollowupMessage = async (): Promise<Response | null> => {
@@ -696,7 +847,9 @@ export async function handleAgentMessage(
     }
 
     if (result.status === "success" && (command.type === "model" || command.type === "cycle_model")) {
-      channel.skipFailedOnModelSwitch(chatJid);
+      if (channel.retryFailedOnModelSwitch(chatJid)) {
+        channel.resumeChat(chatJid);
+      }
     }
 
     emitCommandStatus({
@@ -910,6 +1063,35 @@ export async function processChat(
   const currentMessage = messages[0];
   if (!currentMessage) return;
 
+  const unresolvedFailedRun = getFailedRun(chatJid);
+  if (unresolvedFailedRun && unresolvedFailedRun.messageId === currentMessage.id) {
+    // If newer user messages arrived after the failed one, auto-recover:
+    // advance the cursor past the failure and process the next message.
+    if (messages.length > 1) {
+      log.info("processChat auto-recovering failed run — newer messages arrived", {
+        operation: "process_chat.auto_recover_failed_run",
+        chatJid,
+        failedMessageId: unresolvedFailedRun.messageId,
+        failedTs: unresolvedFailedRun.failedTs,
+        pendingMessageCount: messages.length,
+      });
+      clearFailedRun(chatJid);
+      setChatCursor(chatJid, currentMessage.timestamp);
+      // Re-enter with the cursor advanced past the failed message.
+      channel.resumeChat(chatJid);
+      return;
+    }
+    log.info("processChat paused on unresolved failed run", {
+      operation: "process_chat.blocked_failed_run",
+      chatJid,
+      cursor: prevCursor,
+      failedPrevTs: unresolvedFailedRun.prevTs,
+      failedTs: unresolvedFailedRun.failedTs,
+      failedMessageId: unresolvedFailedRun.messageId,
+    });
+    return;
+  }
+
   // Derive thread root from the actual message being processed, NOT from
   // the threadRootId parameter. The parameter comes from whichever
   // handleAgentMessage enqueued this processChat, but cursor-ordered
@@ -970,6 +1152,7 @@ export async function processChat(
       if (isToolStatus && toolName) {
         nextPayload = withResolvedToolStatusHints(chatJid, payload);
       }
+      nextPayload = withAgentStatusProgressMetadata(nextPayload, channel.getAgentStatus(chatJid));
       channel.updateAgentStatus(chatJid, nextPayload);
       emitter.status(nextPayload);
     },
@@ -1004,6 +1187,23 @@ export async function processChat(
     onThoughtBuffer: (text, totalLines) => channel.updateThoughtBuffer(turnId, text, totalLines),
     onDraftBuffer: (text, totalLines) => channel.updateDraftBuffer(turnId, text, totalLines),
   });
+  const trackedStreamingHandler = (event: Record<string, unknown>) => {
+    const type = typeof event?.type === "string" ? event.type : "";
+    if (type === "compaction_start" || type === "compaction_end") {
+      sawCompactionEvent = true;
+    }
+    if (type === "compaction_end") {
+      const errorMessage = typeof event.errorMessage === "string" ? event.errorMessage.trim() : "";
+      if (errorMessage) lastCompactionErrorMessage = errorMessage;
+    }
+    if (type === "recovery_start" || type === "recovery_end") {
+      sawRecoveryEvent = true;
+    }
+    if (type === "recovery_end") {
+      lastRecoveryOutcome = typeof event.outcome === "string" ? event.outcome : null;
+    }
+    streamingHandler(event as any);
+  };
 
   const hasActiveClients = channel.sse.clients.size > 0;
   const agentRuntimeConfig = getAgentRuntimeConfig();
@@ -1015,12 +1215,20 @@ export async function processChat(
   let hadIntermediateOutput = false;
   let persistedIntermediateOutput = false;
   let intermediatePersistFailed = false;
-  const isCompactionIntentActive = (): boolean => {
+  let lastRecoveryMeta: { attemptsUsed?: number; recovered?: boolean; exhausted?: boolean; lastClassifier?: string | null } | null = null;
+  let sawCompactionEvent = false;
+  let sawRecoveryEvent = false;
+  let lastCompactionErrorMessage: string | null = null;
+  let lastRecoveryOutcome: string | null = null;
+  const getActiveRecoveryIntent = (): "compaction" | "recovery" | null => {
     const status = channel.getAgentStatus(chatJid);
-    if (!status || typeof status !== "object") return false;
+    if (!status || typeof status !== "object") return null;
     const intentKey = status.intent_key ?? status.intentKey;
-    return status.type === "intent" && intentKey === "compaction";
+    if (status.type !== "intent") return null;
+    if (intentKey === "compaction" || intentKey === "recovery") return intentKey;
+    return null;
   };
+  const isCompactionIntentActive = (): boolean => getActiveRecoveryIntent() === "compaction";
   const publishDraftFallback = (reason?: "timeout" | "error" | "empty-final" | "rate-limit", detail?: string) => {
     // Draft fallback should publish the currently visible draft for whichever
     // turn failed to finalize, even if earlier turns in the same session were
@@ -1034,13 +1242,16 @@ export async function processChat(
     const compactionNote = isCompactionIntentActive()
       ? "\n\nℹ️ Context compaction was in progress."
       : "";
+    const recoveryNote = lastRecoveryMeta?.exhausted
+      ? `\n\nℹ️ Piclaw attempted automatic recovery ${Math.max(0, lastRecoveryMeta.attemptsUsed || 0)} time(s) before giving up${lastRecoveryMeta.lastClassifier ? ` (${lastRecoveryMeta.lastClassifier})` : ""}.`
+      : "";
     const suffix =
       reason === "timeout"
-        ? `\n\n⚠️ Response timed out before finalization.${compactionNote}`
+        ? `\n\n⚠️ Response timed out before finalization.${compactionNote}${recoveryNote}`
         : reason === "rate-limit"
-          ? `\n\n⚠️ AI provider rate limit after automatic retries.\n\n\`${String(detail || "rate limit").slice(0, 500)}\`\n\nPiclaw retried the request, but the provider still exhausted its rate-limit budget before finalization.${compactionNote}`
+          ? `\n\n⚠️ AI provider rate limit after automatic retries.\n\n\`${String(detail || "rate limit").slice(0, 500)}\`\n\nPiclaw retried the request, but the provider still exhausted its rate-limit budget before finalization.${compactionNote}${recoveryNote}`
           : reason === "error"
-            ? `\n\n⚠️ Response ended with an error before finalization.${compactionNote}`
+            ? `\n\n⚠️ Response ended with an error before finalization.${compactionNote}${recoveryNote}`
             : compactionNote;
 
     return storeAgentTurn(channel, emitter, {
@@ -1055,7 +1266,6 @@ export async function processChat(
   };
 
   const finalizeSuccessfulRun = async () => {
-    // Single UPDATE: clears inflight AND clears any stale failed_run atomically.
     endChatRun(chatJid);
 
     const cursorAfterEnd = getChatCursor(chatJid);
@@ -1077,6 +1287,7 @@ export async function processChat(
       context_usage: contextUsage
         ? { tokens: contextUsage.tokens, contextWindow: contextUsage.contextWindow, percent: contextUsage.percent }
         : null,
+      recovery: lastRecoveryMeta,
     });
 
     // If more persisted user messages already exist after the cursor, process
@@ -1113,7 +1324,7 @@ export async function processChat(
 
   const output = await channel.agentPool.runAgent(prompt, chatJid, {
     timeoutMs,
-    onEvent: streamingHandler,
+    onEvent: trackedStreamingHandler,
     onTurnComplete: (turn: { text: string; attachments: unknown[] }) => {
       // Turn boundary: the first turn (index 0) is the original prompt's
       // response — skip placeholder consumption so it doesn't steal a
@@ -1147,6 +1358,8 @@ export async function processChat(
       }
     },
   });
+
+  lastRecoveryMeta = output.recovery || null;
 
   if (output.status === "error") {
     if (output.error && output.error.includes("already processing")) {
@@ -1191,12 +1404,16 @@ export async function processChat(
       // turn can drain pending work and the client receives a normal done
       // transition plus the already-persisted fallback post.
       await finalizeSuccessfulRun();
+      if (output.recovery?.exhausted) {
+        await channel.sendMessage(chatJid, "Automatic recovery exhausted. Choose how to continue.", {
+          threadId: resolvedThreadRootId,
+          contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, output.recovery.attemptsUsed, output.recovery.lastClassifier)],
+        });
+      }
       return;
     }
 
-    // Single UPDATE: clears inflight AND writes failed_run atomically.
-    // No window exists where inflight is gone but failed_run is not yet set.
-    endChatRunWithError(chatJid, {
+    rollbackChatRunWithError(chatJid, {
       prevTs: prevCursor,
       failedTs: lastMessage.timestamp,
       messageId: lastMessage.id,
@@ -1224,6 +1441,12 @@ export async function processChat(
       detail: rateLimited ? errorText : undefined,
       turn_id: turnId,
     });
+    if (output.recovery?.exhausted) {
+      await channel.sendMessage(chatJid, "Automatic recovery exhausted. Choose how to continue.", {
+        threadId: resolvedThreadRootId,
+        contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, output.recovery.attemptsUsed, output.recovery.lastClassifier)],
+      });
+    }
     return;
   }
 
@@ -1244,14 +1467,15 @@ export async function processChat(
         threadId: resolvedThreadRootId,
         skipPlaceholder: turnCount === 0,
         isTerminalAgentReply: true,
+        extraContentBlocks: buildRecoveryMarkerBlocks(output.recovery),
       })
     : publishDraftFallback("empty-final");
 
   if (!finalized && hasOutput) {
-    // The agent produced output but persistence failed (DB write error).
-    // Record a failed run so the message is retried on model switch.
+    // The agent produced output but terminal persistence failed.
+    // Hold the user turn for an explicit retry/skip decision.
     const errorText = "Agent completed but terminal response could not be persisted.";
-    endChatRunWithError(chatJid, {
+    rollbackChatRunWithError(chatJid, {
       prevTs: prevCursor,
       failedTs: lastMessage.timestamp,
       messageId: lastMessage.id,
@@ -1279,7 +1503,7 @@ export async function processChat(
 
     if (hadIntermediateOutput && intermediatePersistFailed) {
       const errorText = "Agent produced intermediate output but it could not be persisted.";
-      endChatRunWithError(chatJid, {
+      rollbackChatRunWithError(chatJid, {
         prevTs: prevCursor,
         failedTs: lastMessage.timestamp,
         messageId: lastMessage.id,
@@ -1302,7 +1526,7 @@ export async function processChat(
     const hadDraft = !!(typeof draft?.text === "string" && draft.text.trim());
     if (hadDraft) {
       const errorText = "Agent completed but draft response could not be persisted.";
-      endChatRunWithError(chatJid, {
+      rollbackChatRunWithError(chatJid, {
         prevTs: prevCursor,
         failedTs: lastMessage.timestamp,
         messageId: lastMessage.id,
@@ -1319,25 +1543,103 @@ export async function processChat(
       return;
     }
 
-    // The agent completed normally but produced no output and there was no
-    // draft buffer.  This typically happens when restart recovery replays a
-    // contextless message.  Treat as a successful no-op so the cursor
-    // advances and the same message is not retried endlessly.
-    //
-    // Post a system notice so the user can see their message was consumed
-    // without a response and re-send if needed.
-    log.warn("Agent completed without output; finalizing as no-op", {
-      operation: "process_chat.no_output_noop",
-      chatJid,
-    });
-
     const originalContent = currentMessage.content || "";
     const preview = originalContent.length > 120
       ? originalContent.slice(0, 120) + "…"
       : originalContent;
-    const noticeText = preview
-      ? `⚠️ Your message was received but the agent produced no response. You may need to re-send it.\n\n> ${preview}`
-      : "⚠️ Your message was received but the agent produced no response. You may need to re-send it.";
+    const recoveryIntent = getActiveRecoveryIntent();
+    const recoveryLooksStalled = Boolean(lastRecoveryMeta?.exhausted)
+      || lastRecoveryOutcome === "exhausted"
+      || sawCompactionEvent
+      || sawRecoveryEvent
+      || recoveryIntent !== null
+      || !!lastCompactionErrorMessage;
+
+    if (recoveryLooksStalled) {
+      const title = lastRecoveryMeta?.exhausted || lastRecoveryOutcome === "exhausted"
+        ? "Automatic recovery exhausted"
+        : lastCompactionErrorMessage
+          ? "Context compaction failed"
+          : recoveryIntent === "compaction"
+            ? "Context compaction did not complete"
+            : "Context recovery did not complete";
+      const detail = lastCompactionErrorMessage
+        ? lastCompactionErrorMessage
+        : lastRecoveryMeta?.lastClassifier
+          ? `Last recovery classifier: ${lastRecoveryMeta.lastClassifier}.`
+          : "The turn ended without a persisted reply while compaction or automatic recovery was in flight.";
+      const previewBlock = preview ? `\n\n> ${preview}` : "";
+      const noticeText = `⚠️ ${title} — this turn ended without a persisted reply.\n\n${detail}\n\nUse \`/compact\` to repair and rewrite the session, or \`/new-session\` if the session keeps failing.${previewBlock}`;
+
+      log.warn("Agent completed without output after compaction/recovery activity", {
+        operation: "process_chat.no_output_recovery_stalled",
+        chatJid,
+        title,
+        sawCompactionEvent,
+        sawRecoveryEvent,
+        recoveryIntent,
+        lastCompactionErrorMessage,
+        recovery: lastRecoveryMeta,
+      });
+
+      rollbackChatRunWithError(chatJid, {
+        prevTs: prevCursor,
+        failedTs: lastMessage.timestamp,
+        messageId: lastMessage.id,
+        threadRootId: resolvedThreadRootId ?? null,
+        createdAt: new Date().toISOString(),
+      });
+
+      const notice = channel.storeMessage(chatJid, noticeText, true, [], {
+        threadId: resolvedThreadRootId ?? undefined,
+        isTerminalAgentReply: true,
+      });
+      if (notice) {
+        channel.broadcastEvent("agent_response", notice);
+      }
+
+      trackedEmitter.status({
+        thread_id: threadId,
+        agent_id: agentId,
+        type: "error",
+        title,
+        detail,
+        turn_id: turnId,
+      });
+
+      await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
+        threadId: resolvedThreadRootId,
+        contentBlocks: [lastRecoveryMeta?.exhausted
+          ? buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, lastRecoveryMeta.attemptsUsed || 0, lastRecoveryMeta.lastClassifier)
+          : buildRecoveryStalledCard(turnId, resolvedThreadRootId, detail)],
+      });
+      return;
+    }
+
+    // Missing terminal output is a real failure. Never consume the user turn
+    // as a success when no persisted assistant reply exists.
+    const title = "Agent produced no response";
+    const detail =
+      "The model returned an empty reply before finalization. The turn was not committed as success.";
+    const previewBlock = preview ? `\n\n> ${preview}` : "";
+    const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
+
+    log.warn("Agent completed without output; marking run as failed", {
+      operation: "process_chat.no_output_blank_failed",
+      chatJid,
+      hadIntermediateOutput,
+      persistedIntermediateOutput,
+      hadDraft,
+      recovery: lastRecoveryMeta,
+    });
+
+    rollbackChatRunWithError(chatJid, {
+      prevTs: prevCursor,
+      failedTs: lastMessage.timestamp,
+      messageId: lastMessage.id,
+      threadRootId: resolvedThreadRootId ?? null,
+      createdAt: new Date().toISOString(),
+    });
 
     const notice = channel.storeMessage(chatJid, noticeText, true, [], {
       threadId: resolvedThreadRootId ?? undefined,
@@ -1347,7 +1649,21 @@ export async function processChat(
       channel.broadcastEvent("agent_response", notice);
     }
 
-    await finalizeSuccessfulRun();
+    trackedEmitter.status({
+      thread_id: threadId,
+      agent_id: agentId,
+      type: "error",
+      title,
+      detail,
+      turn_id: turnId,
+    });
+
+    if (lastRecoveryMeta?.exhausted) {
+      await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
+        threadId: resolvedThreadRootId,
+        contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, lastRecoveryMeta.attemptsUsed || 0, lastRecoveryMeta.lastClassifier)],
+      });
+    }
     return;
   }
 

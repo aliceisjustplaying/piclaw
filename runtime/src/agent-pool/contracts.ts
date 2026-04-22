@@ -2,7 +2,7 @@
  * agent-pool/contracts.ts – Shared public contracts for AgentPool and its helpers.
  */
 
-import type { AgentSessionEvent, AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
+import type { AgentSessionEvent, AgentSessionRuntime, SettingsManager } from "@mariozechner/pi-coding-agent";
 import type {
   Api,
   AssistantMessageEvent,
@@ -14,12 +14,38 @@ import type {
 
 import type { AttachmentInfo } from "./attachments.js";
 
+export interface AgentRecoveryDiagnosticEntry {
+  phase: "attempt_failure" | "compaction_failure";
+  attempt: number;
+  classifier: string;
+  strategy: string | null;
+  reason: string;
+  error: string;
+  elapsedMs: number;
+  hadToolActivity: boolean;
+  hadPartialOutput: boolean;
+  hadCompletedTurnOutput: boolean;
+  sawCompactionIntent: boolean;
+  compactionErrorMessage: string | null;
+}
+
+export interface AgentRecoveryMetadata {
+  attemptsUsed: number;
+  totalElapsedMs: number;
+  recovered: boolean;
+  exhausted: boolean;
+  lastClassifier: string | null;
+  strategyHistory: string[];
+  diagnostics: AgentRecoveryDiagnosticEntry[];
+}
+
 /** Output from an agent run: response text, status, and token usage. */
 export interface AgentOutput {
   status: "success" | "error";
   result: string | null;
   error?: string;
   attachments?: AttachmentInfo[];
+  recovery?: AgentRecoveryMetadata;
 }
 
 /** A single turn's output within a multi-turn agent run. */
@@ -55,6 +81,10 @@ export interface RunAgentOptions {
   onTurnComplete?: (turn: TurnOutput) => void;
   /** Override the default timeout (ms). Use 0 or a negative value to disable. */
   timeoutMs?: number;
+}
+
+export interface RetrySettingsProvider {
+  getRetrySettings?: SettingsManager["getRetrySettings"];
 }
 
 /** Construction options for creating an AgentPool. */

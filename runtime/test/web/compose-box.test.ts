@@ -7,9 +7,12 @@ import {
   getComposeHistoryStorageKey,
   getModelPickerOptionSearchLabel,
   normalizeModelPickerOptions,
+  resolveComposeExtensionWorkingDisplay,
   resolveComposeModelPickerState,
   parseQueuedContent,
   resolveComposePrefillRequest,
+  resolveComposeSubmitButtonState,
+  isComposeSubmitAbortMode,
   resolveUiOnlyCommandNotice,
 } from '../../web/src/components/compose-box.ts';
 import { CONTROL_COMMAND_DEFINITIONS } from '../../src/agent-control/command-registry.ts';
@@ -175,6 +178,86 @@ test('resolveComposeModelPickerState keeps the model picker visible for cold cha
     label: '',
     hasAvailableModels: false,
   });
+});
+
+test('resolveComposeExtensionWorkingDisplay renders default, custom, and hidden indicator states', () => {
+  expect(resolveComposeExtensionWorkingDisplay(null)).toEqual({
+    visible: false,
+    title: '',
+    indicatorText: null,
+    animateDot: false,
+  });
+
+  expect(resolveComposeExtensionWorkingDisplay({
+    message: 'Compacting context…',
+    indicator: { mode: 'default', frames: [], intervalMs: null },
+  })).toEqual({
+    visible: true,
+    title: 'Compacting context…',
+    indicatorText: null,
+    animateDot: true,
+  });
+
+  expect(resolveComposeExtensionWorkingDisplay({
+    message: null,
+    indicator: { mode: 'custom', frames: ['⠋', '⠙'], intervalMs: 90 },
+  }, 1)).toEqual({
+    visible: true,
+    title: 'Working…',
+    indicatorText: '⠙',
+    animateDot: false,
+  });
+
+  expect(resolveComposeExtensionWorkingDisplay({
+    message: 'Background sync',
+    indicator: { mode: 'hidden', frames: [], intervalMs: null },
+  })).toEqual({
+    visible: true,
+    title: 'Background sync',
+    indicatorText: null,
+    animateDot: false,
+  });
+});
+
+test('resolveComposeSubmitButtonState stays coherent across send, stop, and compacting states', () => {
+  expect(resolveComposeSubmitButtonState(true, false, true)).toEqual({
+    mode: 'compacting',
+    className: 'icon-btn send-btn abort-mode compacting-mode',
+    title: 'Compacting context — Stop response',
+    ariaLabel: 'Compacting context — Stop response',
+    disabled: false,
+  });
+
+  expect(resolveComposeSubmitButtonState(true, false, false)).toEqual({
+    mode: 'abort',
+    className: 'icon-btn send-btn abort-mode',
+    title: 'Stop response',
+    ariaLabel: 'Stop response',
+    disabled: false,
+  });
+
+  expect(resolveComposeSubmitButtonState(false, true, true)).toEqual({
+    mode: 'send',
+    className: 'icon-btn send-btn',
+    title: 'Send (Enter)',
+    ariaLabel: 'Send message',
+    disabled: false,
+  });
+
+  expect(resolveComposeSubmitButtonState(false, false, false)).toEqual({
+    mode: 'send',
+    className: 'icon-btn send-btn',
+    title: 'Send (Enter)',
+    ariaLabel: 'Send message',
+    disabled: true,
+  });
+});
+
+test('isComposeSubmitAbortMode keeps compacting on the abort path', () => {
+  expect(isComposeSubmitAbortMode('abort')).toBe(true);
+  expect(isComposeSubmitAbortMode('compacting')).toBe(true);
+  expect(isComposeSubmitAbortMode('send')).toBe(false);
+  expect(isComposeSubmitAbortMode(null)).toBe(false);
 });
 
 test('resolveUiOnlyCommandNotice only surfaces read-only model and thinking queries', () => {

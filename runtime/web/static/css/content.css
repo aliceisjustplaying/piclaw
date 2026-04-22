@@ -11,12 +11,64 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
     display: flex;
     flex-direction: column;
 }
 
 .timeline.reverse {
     flex-direction: column-reverse;
+}
+
+/* Swipe navigation indicator — centered pill, themed */
+.chat-swipe-indicator {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    pointer-events: none;
+    min-width: 160px;
+    max-width: 260px;
+    padding: 12px 22px;
+    border-radius: var(--radius-full, 9999px);
+    /* Neutral until triggered */
+    background: var(--bg-secondary, #f7f9fa);
+    color: var(--text-secondary, #536471);
+    border: 1.5px solid var(--border-color, #eff3f4);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    transition: background 0.15s ease-out, color 0.15s ease-out,
+                border-color 0.15s ease-out, opacity 0.1s ease-out;
+}
+
+/* Accent state once the swipe will definitely trigger */
+.chat-swipe-indicator--ready {
+    background: var(--accent-color, #1d9bf0);
+    color: var(--bg-primary, #fff);
+    border-color: color-mix(in srgb, var(--accent-color, #1d9bf0) 70%, var(--bg-primary, #fff) 30%);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+.chat-swipe-chevron {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+    opacity: 0.9;
+}
+
+.chat-swipe-name {
+    font-size: var(--font-size-lg, 20px);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.01em;
+    order: 1;
 }
 
 .timeline.normal {
@@ -180,6 +232,10 @@
     background-color: var(--accent-color);
 }
 
+.post-avatar.agent-avatar.has-image {
+    background-color: transparent;
+}
+
 .post-body {
     flex: 1;
     min-width: 0;
@@ -278,6 +334,21 @@
     color: var(--accent-color);
     background: var(--accent-soft);
     border: 1px solid color-mix(in srgb, var(--accent-color) 32%, transparent);
+}
+
+.post-recovery-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0px 5px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border-color, color-mix(in srgb, var(--text-secondary) 24%, transparent));
+    opacity: 0.6;
 }
 
 .post-time {

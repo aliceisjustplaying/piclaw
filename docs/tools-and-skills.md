@@ -2,6 +2,13 @@
 
 This document lists the tools and skills exposed to the agent, plus common slash commands.
 
+**Jump to:**
+[Agent tools](#agent-tools) ·
+[Skills](#skills) ·
+[Slash commands](#slash-commands) ·
+[Skill pipeline](#skill-pipeline) ·
+[Dream / AutoDream](#dream-and-autodream)
+
 ## Agent tools
 
 Core tools (from `pi`):
@@ -203,6 +210,7 @@ You can extend that baseline with `.piclaw/config.json`:
 - `switch_model` — switch to a different model
 - `switch_thinking` — change thinking level (off → xhigh)
 - `keychain` — list, get, set, and delete encrypted keychain entries
+- `env` — get, set, or clear persistent workspace-scoped environment variables (managed block in `/workspace/.env.sh`, with immediate `process.env` updates for later tool calls; `set` also accepts `$NAME`/`${NAME}` copies)
 - `schedule_task` — schedule agent prompts or shell commands (cron, interval, or one-shot)
 - `scheduled_tasks` — inspect scheduled-task records via a shared query surface (`list` / `get`, optional latest-run summaries)
 - `introspect_sql` — run read-only SQL queries against the messages database
@@ -482,6 +490,7 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `send-message` | Send chat messages immediately via IPC (supports optional `media` attachments via `media` array) |
 | `token-chart` | Generate token usage charts (from `token_usage`); supports `--mode provider-model` for per-provider/model breakdowns |
 | `graphite-power-chart` | Generate Zigbee/Graphite charts for the web timeline |
+| `graph-design` | Design, audit, and redraw inline SVG architecture/flow diagrams with source verification and orthogonal rounded-arrow conventions |
 | `web-search` | Search the web via SearXNG and convert pages to Markdown |
 | `web-search-summary` | Search via SearXNG with auto-summarised results |
 | `twitter-summary` | Fetch a user's recent tweets via Playwright + Nitter |
@@ -495,6 +504,8 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `close-of-day` | End-of-day sweep: situate, backup, timeline cleanup, daily-notes summarisation |
 | `export-timeline-pdf` | Export a chat timeline to PDF via Playwright |
 | `feature-refinement-flow` | Structured 20-question refinement flow before implementation |
+| `visual-design` | Apply the saved visual-design profile (charts, diagrams, Mermaid, layouts, styling defaults) consistently across generated outputs |
+| `visual-artifact-generator` | Generate polished self-contained HTML pages, diagrams, data tables, diff reviews, slide decks, and draw.io files using Piclaw vendored libraries. See [visual-artifact-generator.md](visual-artifact-generator.md). |
 | `situate-daily-notes` | Situation report and Obsidian-style daily summary notes |
 | `timeline-cleanup` | Delete low-value timeline messages by keyword patterns |
 | `proxmox-management` | Manage Proxmox VM lifecycle, USB mapping passthrough, and backup-restore moves |

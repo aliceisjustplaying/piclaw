@@ -20,6 +20,10 @@ import {
     mapClientToFramebufferPoint,
     normalizeVncPassword,
     resolveVncKeysymFromKeyboardEvent,
+    resolveVncPointerPressMask,
+    shouldArmVncImplicitReleaseTimer,
+    shouldReleaseVncPointerContact,
+    shouldReleaseVncTouchContact,
     vncButtonMaskForPointerButton,
 } from './vnc-input.js';
 import { VncRemoteDisplayProtocol } from './remote-display-vnc.js';
@@ -304,6 +308,7 @@ class VncPaneInstance implements PaneInstance {
     private displayScale = null;
     private readOnly = false;
     private pointerButtonMask = 0;
+    private pointerInputAbortController = null;
     private pressedKeysyms = new Map();
     private passwordInputEl = null;
     private authPassword = null;
@@ -439,6 +444,8 @@ class VncPaneInstance implements PaneInstance {
         this.socketBoundary = null;
         try { this.resizeObserver?.disconnect?.(); } catch { /* expected: resize observer may already be disconnected during session resets. */ }
         this.resizeObserver = null;
+        try { this.pointerInputAbortController?.abort?.(); } catch { /* expected: pointer listener teardown may already be complete during session resets. */ }
+        this.pointerInputAbortController = null;
         this.canvas = null;
         this.canvasCtx = null;
         this.displayPlaceholderEl = null;
@@ -729,37 +736,223 @@ class VncPaneInstance implements PaneInstance {
         this.canvas.style.cursor = 'crosshair';
         this.canvas.style.touchAction = 'none';
 
+        try { this.pointerInputAbortController?.abort?.(); } catch { /* expected: replacing pointer listeners during canvas swaps can race. */ }
+        const abortController = new AbortController();
+        this.pointerInputAbortController = abortController;
+        const signal = abortController.signal;
+        const ownerDocument = this.canvas.ownerDocument || document;
+        const ownerWindow = ownerDocument.defaultView || window;
+
+        // Track pressed mask and last-known framebuffer point per pointer so touch/pen
+        // releases still work even when Safari reports button=-1 or delivers pointerup
+        // to the window instead of the canvas.
+        const pressedMaskByPointer = new Map<number, number>();
+        const lastPointByPointer = new Map<number, { x: number; y: number }>();
+        const idleReleaseTimerByPointer = new Map<number, ReturnType<typeof setTimeout>>();
+
+        const resolvePoint = (event) => this.getFramebufferPointFromEvent(event)
+            || lastPointByPointer.get(event?.pointerId)
+            || { x: 0, y: 0 };
+
+        const resolveTouchPoint = (touch) => {
+            if (!touch || !this.canvas || !this.protocol?.framebufferWidth || !this.protocol?.framebufferHeight) return null;
+            const rect = this.canvas.getBoundingClientRect?.();
+            if (!rect || !rect.width || !rect.height) return null;
+            return mapClientToFramebufferPoint(touch.clientX, touch.clientY, rect, this.protocol.framebufferWidth, this.protocol.framebufferHeight);
+        };
+
+        const clearIdleReleaseTimer = (pointerId) => {
+            const handle = idleReleaseTimerByPointer.get(pointerId);
+            if (handle) {
+                ownerWindow.clearTimeout(handle);
+                idleReleaseTimerByPointer.delete(pointerId);
+            }
+        };
+
+        const armIdleReleaseTimer = (event, delayMs = 80) => {
+            const pointerType = String(event?.pointerType || '').toLowerCase();
+            if (!shouldArmVncImplicitReleaseTimer(pointerType)) return;
+            const pointerId = Number(event?.pointerId);
+            if (!Number.isFinite(pointerId)) return;
+            clearIdleReleaseTimer(pointerId);
+            const handle = ownerWindow.setTimeout(() => {
+                idleReleaseTimerByPointer.delete(pointerId);
+                if (!pressedMaskByPointer.has(pointerId) && !this.pointerButtonMask) return;
+                // Safari on iPad can terminate the contact stream without any final
+                // pointerup/touchend. Release the pressed button after a short idle
+                // period so taps do not remain stuck forever.
+                releasePointer({
+                    pointerId,
+                    pointerType,
+                    type: 'pointercancel',
+                    clientX: event?.clientX,
+                    clientY: event?.clientY,
+                }, { resetAll: true });
+            }, delayMs);
+            idleReleaseTimerByPointer.set(pointerId, handle);
+        };
+
+        const releaseAllPointers = (point = null) => {
+            if (!pressedMaskByPointer.size && !this.pointerButtonMask) return;
+            for (const pointerId of idleReleaseTimerByPointer.keys()) {
+                clearIdleReleaseTimer(pointerId);
+            }
+            const fallbackPoint = point
+                || lastPointByPointer.values().next().value
+                || { x: 0, y: 0 };
+            pressedMaskByPointer.clear();
+            lastPointByPointer.clear();
+            this.pointerButtonMask = 0;
+            this.sendPointerEvent(0, fallbackPoint.x, fallbackPoint.y);
+        };
+
+        const releasePointer = (event, options = {}) => {
+            if (options.resetAll) {
+                const pointerId = Number(event?.pointerId);
+                clearIdleReleaseTimer(pointerId);
+                releaseAllPointers(resolvePoint(event));
+                try { this.canvas?.releasePointerCapture?.(pointerId); } catch { /* expected: capture may already be gone on release/cancel. */ }
+                return;
+            }
+            const point = resolvePoint(event);
+            const pointerId = Number(event?.pointerId);
+            clearIdleReleaseTimer(pointerId);
+            const hadPressedMask = pressedMaskByPointer.has(pointerId);
+            const pressedBit = pressedMaskByPointer.get(pointerId) ?? resolveVncPointerPressMask(event);
+            if (!hadPressedMask && !pressedBit && !this.pointerButtonMask) return;
+            pressedMaskByPointer.delete(pointerId);
+            lastPointByPointer.delete(pointerId);
+            if (pressedBit) {
+                this.pointerButtonMask &= ~pressedBit;
+            } else if (!pressedMaskByPointer.size) {
+                this.pointerButtonMask = 0;
+            }
+            this.sendPointerEvent(this.pointerButtonMask, point.x, point.y);
+            try { this.canvas?.releasePointerCapture?.(pointerId); } catch { /* expected: capture may already be gone on release/cancel. */ }
+        };
+
         this.canvas.addEventListener('contextmenu', (event) => {
             event.preventDefault();
-        });
+        }, { signal });
         this.canvas.addEventListener('pointermove', (event) => {
             const point = this.getFramebufferPointFromEvent(event);
             if (!point) return;
+            lastPointByPointer.set(event.pointerId, point);
+            if (pressedMaskByPointer.has(event.pointerId) && shouldReleaseVncPointerContact(event)) {
+                // Safari on iPad can drop pointerup for touch/pen. Treat zero-buttons,
+                // zero-pressure, and similar terminal pointer states as an implicit release.
+                releasePointer(event, { resetAll: true });
+                return;
+            }
+            // Cross-pointer release: after Apple Pencil lifts, hover events may
+            // arrive with a different pointerId (contact vs hover streams).  If
+            // those events show buttons=0 while we still have a pressed VNC mask,
+            // release everything so the server does not see a stuck button.
+            if (this.pointerButtonMask && !pressedMaskByPointer.has(event.pointerId) && shouldReleaseVncPointerContact(event)) {
+                releaseAllPointers(point);
+                return;
+            }
+            if (pressedMaskByPointer.has(event.pointerId)) {
+                armIdleReleaseTimer(event);
+            }
             this.sendPointerEvent(this.pointerButtonMask, point.x, point.y);
-        });
+        }, { signal });
         this.canvas.addEventListener('pointerdown', (event) => {
             const point = this.getFramebufferPointFromEvent(event);
             if (!point) return;
             event.preventDefault();
             this.canvas?.focus?.();
-            try { this.canvas?.setPointerCapture?.(event.pointerId); } catch { /* expected: pointer capture can fail when the canvas loses the pointer stream mid-gesture. */ }
-            this.pointerButtonMask |= vncButtonMaskForPointerButton(event.button);
+            lastPointByPointer.set(event.pointerId, point);
+            // Only capture for mouse; touch/pen capture on iPad Safari can
+            // suppress pointerup entirely (WebKit bug), leaving clicks stuck.
+            if (String(event?.pointerType || '').toLowerCase() === 'mouse') {
+                try { this.canvas?.setPointerCapture?.(event.pointerId); } catch { /* expected: pointer capture can fail when Safari drops the stream mid-gesture. */ }
+            }
+            const bit = resolveVncPointerPressMask(event);
+            if (!bit) return;
+            pressedMaskByPointer.set(event.pointerId, (pressedMaskByPointer.get(event.pointerId) ?? 0) | bit);
+            this.pointerButtonMask |= bit;
+            armIdleReleaseTimer(event);
             this.sendPointerEvent(this.pointerButtonMask, point.x, point.y);
-        });
+        }, { signal, passive: false });
         this.canvas.addEventListener('pointerup', (event) => {
-            const point = this.getFramebufferPointFromEvent(event);
-            if (!point) return;
             event.preventDefault();
-            this.pointerButtonMask &= ~vncButtonMaskForPointerButton(event.button);
-            this.sendPointerEvent(this.pointerButtonMask, point.x, point.y);
-            try { this.canvas?.releasePointerCapture?.(event.pointerId); } catch { /* expected: pointer capture may already be gone when the gesture ends. */ }
-        });
+            releasePointer(event);
+        }, { signal, passive: false });
         this.canvas.addEventListener('pointercancel', (event) => {
-            const point = this.getFramebufferPointFromEvent(event) || { x: 0, y: 0 };
-            this.pointerButtonMask = 0;
-            this.sendPointerEvent(0, point.x, point.y);
-            try { this.canvas?.releasePointerCapture?.(event.pointerId); } catch { /* expected: pointer capture may already be gone on cancellation. */ }
-        });
+            event.preventDefault();
+            releasePointer(event, { resetAll: true });
+        }, { signal, passive: false });
+        this.canvas.addEventListener('pointerleave', (event) => {
+            if (!pressedMaskByPointer.has(event.pointerId)) return;
+            if (!shouldReleaseVncPointerContact(event)) return;
+            releasePointer(event, { resetAll: true });
+        }, { signal });
+        this.canvas.addEventListener('pointerout', (event) => {
+            if (!pressedMaskByPointer.has(event.pointerId)) return;
+            if (!shouldReleaseVncPointerContact(event)) return;
+            releasePointer(event, { resetAll: true });
+        }, { signal });
+        this.canvas.addEventListener('lostpointercapture', (event) => {
+            releasePointer(event, { resetAll: true });
+        }, { signal });
+        ownerWindow.addEventListener('pointermove', (event) => {
+            if ((!pressedMaskByPointer.size && !this.pointerButtonMask) || !shouldReleaseVncPointerContact(event)) return;
+            if (!pressedMaskByPointer.has(event.pointerId) && !this.pointerButtonMask) return;
+            releasePointer(event, { resetAll: true });
+        }, { signal });
+        ownerWindow.addEventListener('pointerup', (event) => {
+            if (!pressedMaskByPointer.has(event.pointerId) && !this.pointerButtonMask) return;
+            event.preventDefault?.();
+            releasePointer(event, { resetAll: !pressedMaskByPointer.has(event.pointerId) });
+        }, { signal, passive: false });
+        ownerWindow.addEventListener('pointercancel', (event) => {
+            if (!pressedMaskByPointer.has(event.pointerId) && !this.pointerButtonMask) return;
+            event.preventDefault?.();
+            releasePointer(event, { resetAll: true });
+        }, { signal, passive: false });
+        const releaseFromTouchEvent = (event) => {
+            if (!pressedMaskByPointer.size && !this.pointerButtonMask) return;
+            if (!shouldReleaseVncTouchContact(event)) return;
+            const changedTouch = event?.changedTouches?.[0] || event?.touches?.[0] || null;
+            const point = resolveTouchPoint(changedTouch)
+                || lastPointByPointer.values().next().value
+                || { x: 0, y: 0 };
+            releaseAllPointers(point);
+        };
+        const releaseFromWindowPointerEvent = (event, options = {}) => {
+            if (!pressedMaskByPointer.size && !this.pointerButtonMask) return;
+            if (!shouldReleaseVncPointerContact(event)) return;
+            event?.preventDefault?.();
+            releasePointer(event, {
+                resetAll: options.resetAll === true || !pressedMaskByPointer.has(event?.pointerId),
+            });
+        };
+        this.canvas.addEventListener('touchend', releaseFromTouchEvent, { signal, passive: true, capture: true });
+        this.canvas.addEventListener('touchcancel', releaseFromTouchEvent, { signal, passive: true, capture: true });
+        ownerDocument.addEventListener('touchend', releaseFromTouchEvent, { signal, passive: true, capture: true });
+        ownerDocument.addEventListener('touchcancel', releaseFromTouchEvent, { signal, passive: true, capture: true });
+        ownerWindow.addEventListener('touchend', releaseFromTouchEvent, { signal, passive: true, capture: true });
+        ownerWindow.addEventListener('touchcancel', releaseFromTouchEvent, { signal, passive: true, capture: true });
+        ownerDocument.addEventListener('pointerup', (event) => {
+            releaseFromWindowPointerEvent(event);
+        }, { signal, passive: false, capture: true });
+        ownerDocument.addEventListener('pointercancel', (event) => {
+            releaseFromWindowPointerEvent(event, { resetAll: true });
+        }, { signal, passive: false, capture: true });
+        ownerWindow.addEventListener('mouseup', () => {
+            if (!pressedMaskByPointer.size && !this.pointerButtonMask) return;
+            releaseAllPointers();
+        }, { signal });
+        ownerWindow.addEventListener('blur', () => {
+            if (!pressedMaskByPointer.size && !this.pointerButtonMask) return;
+            releaseAllPointers();
+        }, { signal });
+        ownerDocument.addEventListener('visibilitychange', () => {
+            if (ownerDocument.visibilityState === 'hidden') {
+                releaseAllPointers();
+            }
+        }, { signal });
         this.canvas.addEventListener('wheel', (event) => {
             const point = this.getFramebufferPointFromEvent(event);
             if (!point) return;
@@ -767,7 +960,7 @@ class VncPaneInstance implements PaneInstance {
             for (const payload of buildVncWheelPointerEvents(event.deltaY, point.x, point.y, this.pointerButtonMask)) {
                 this.socketBoundary?.send?.(payload);
             }
-        }, { passive: false });
+        }, { signal, passive: false });
     }
 
     private sendKeyEvent(down, keysym) {

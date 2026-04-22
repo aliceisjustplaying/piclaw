@@ -13,6 +13,7 @@ import {
   shouldIgnoreMismatchedTurn,
 } from './app-agent-turn-events.js';
 import { readAgentTurnId, resolveAgentPreviewRestoreState } from './app-agent-status-refresh.js';
+import { parseStatusLastEventAt } from './status-duration.js';
 import { resolveLiveGeneratedWidgetEvent } from './app-generated-widget-events.js';
 import {
   appendUniqueTimelinePost,
@@ -30,6 +31,7 @@ import {
   shouldClearPendingPanelActions,
 } from './app-extension-status.js';
 import {
+  applyExtensionUiWorkingState,
   resolveExtensionUiToast,
   resolveStatusPanelWidgetEventContext,
 } from './app-extension-ui-sse.js';
@@ -40,6 +42,7 @@ import {
   resolveSseEventRoutingContext,
 } from './app-sse-event-routing.js';
 import { isAppChatActivationRecent } from './app-refresh-coordination.js';
+import { persistContextUsage } from './app-status-refresh-orchestration.js';
 
 type StateSetter<T> = (next: T | ((prev: T) => T)) => void;
 
@@ -102,6 +105,7 @@ export interface HandleAppSseEventDependencies {
   getAgentContext: (chatJid: string) => Promise<any>;
   setExtensionStatusPanels: StateSetter<Map<string, any>>;
   setPendingExtensionPanelActions: StateSetter<Set<string>>;
+  setExtensionWorkingState: StateSetter<{ message: string | null; indicator: unknown | null }>;
   refreshActiveEditorFromWorkspace: (updates: any) => Promise<void> | void;
   showIntentToast: (title: string, detail?: string | null, kind?: string, durationMs?: number) => void;
   removeStalledPost: () => void;
@@ -172,6 +176,7 @@ export function handleAppSseEvent(
     getAgentContext,
     setExtensionStatusPanels,
     setPendingExtensionPanelActions,
+    setExtensionWorkingState,
     refreshActiveEditorFromWorkspace,
     showIntentToast,
     removeStalledPost,
@@ -229,6 +234,7 @@ export function handleAppSseEvent(
     setAgentDraft({ text: '', totalLines: 0 });
     setAgentPlan('');
     setAgentThought({ text: '', totalLines: 0 });
+    setExtensionWorkingState({ message: null, indicator: null });
     setPendingRequest(null);
     pendingRequestRef.current = null;
     clearAgentRunState();
@@ -249,7 +255,10 @@ export function handleAppSseEvent(
         const activeTurn = readAgentTurnId(payload);
         if (activeTurn) setActiveTurn(activeTurn);
         setAgentStatus(payload);
-        noteAgentActivity({ clearSilence: true });
+        noteAgentActivity({
+          clearSilence: true,
+          atMs: parseStatusLastEventAt(payload) ?? Date.now(),
+        });
         showLastActivity(payload);
 
         const thoughtRestore = resolveAgentPreviewRestoreState(response.thought);
@@ -297,7 +306,10 @@ export function handleAppSseEvent(
         if (isMainTimelineView(viewStateRef.current)) {
           void refreshTimeline();
         }
-        if (data.context_usage) setContextUsage(data.context_usage);
+        if (data.context_usage) {
+          setContextUsage(data.context_usage);
+          persistContextUsage(currentChatJid, data.context_usage);
+        }
       }
       void refreshContextUsage();
       wasAgentActiveRef.current = false;
@@ -308,6 +320,7 @@ export function handleAppSseEvent(
       setAgentDraft({ text: '', totalLines: 0 });
       setAgentPlan('');
       setAgentThought({ text: '', totalLines: 0 });
+      setExtensionWorkingState({ message: null, indicator: null });
       setPendingRequest(null);
       if (data.type === 'error') {
         setAgentStatus({ type: 'error', title: data.title || 'Agent error' });
@@ -317,7 +330,11 @@ export function handleAppSseEvent(
       }
     } else {
       if (turnId) setActiveTurn(turnId);
-      noteAgentActivity({ running: true, clearSilence: true });
+      noteAgentActivity({
+        running: true,
+        clearSilence: true,
+        atMs: parseStatusLastEventAt(data) ?? Date.now(),
+      });
       if (data.type === 'thinking') {
         draftBufferRef.current = '';
         thoughtBufferRef.current = '';
@@ -497,6 +514,12 @@ export function handleAppSseEvent(
 
   if (isExtensionUiEventType(eventType)) {
     if (!isCurrentChatEvent) return;
+
+    setExtensionWorkingState((previous) => {
+      const next = applyExtensionUiWorkingState(previous, eventType, data);
+      return next ?? previous;
+    });
+
     dispatchExtensionUiBrowserEvent(eventType, data);
     const toast = resolveExtensionUiToast(eventType, data);
     if (toast) {
@@ -508,6 +531,7 @@ export function handleAppSseEvent(
   const onMainTimeline = isMainTimelineView(viewStateRef.current);
   if (eventType === 'agent_response') {
     if (!isCurrentChatEvent) return;
+    setExtensionWorkingState({ message: null, indicator: null });
     removeStalledPost();
     lastAgentResponseRef.current = {
       post: data,

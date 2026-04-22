@@ -276,6 +276,18 @@
     }
 }
 
+.compose-inline-status-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 12px;
+    font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
+    font-size: 13px;
+    line-height: 1;
+    color: var(--accent-color);
+    flex: 0 0 auto;
+}
+
 .compose-inline-status-title {
     min-width: 0;
     font-size: 12px;
@@ -1341,11 +1353,63 @@
 
 .send-btn {
     color: var(--accent-color);
-    transition: color var(--ui-transition-fast);
+    transition: color var(--ui-transition-fast), background-color var(--ui-transition-fast);
 }
 
 .send-btn:disabled {
     color: var(--text-secondary);
+}
+
+.send-btn.abort-mode {
+    color: var(--danger-color);
+}
+
+.send-btn.abort-mode:hover,
+.send-btn.abort-mode:focus-visible {
+    color: var(--danger-color);
+    background-color: color-mix(in srgb, var(--danger-color) 12%, transparent);
+}
+
+.send-btn.compacting-mode {
+    color: var(--danger-color);
+}
+
+.send-btn.compacting-mode:hover,
+.send-btn.compacting-mode:focus-visible {
+    color: var(--danger-color);
+    background-color: color-mix(in srgb, var(--danger-color) 12%, transparent);
+}
+
+.compose-submit-spinner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+
+.compose-submit-spinner svg {
+    display: block;
+}
+
+.compose-submit-spinner-ring {
+    stroke: currentColor;
+    stroke-dasharray: 13.5 19.4867;
+    stroke-dashoffset: 6.75;
+    transform-origin: 12px 12px;
+    animation: composeSubmitSpinnerRotate 0.9s linear infinite;
+}
+
+.compose-submit-spinner-stop {
+    transform-origin: 12px 12px;
+}
+
+@keyframes composeSubmitSpinnerRotate {
+    from {
+        transform: rotate(-90deg);
+    }
+    to {
+        transform: rotate(270deg);
+    }
 }
 
 .media-files-preview {

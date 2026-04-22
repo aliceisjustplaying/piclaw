@@ -16,6 +16,7 @@ import { WebChannelState } from "./channel-state.js";
 import {
   getThreadRootId as getThreadRootIdForChat,
   resumeChat as resumeWebChat,
+  retryFailedOnModelSwitch as retryFailedOnModelSwitchForChat,
   skipFailedOnModelSwitch as skipFailedOnModelSwitchForChat,
   type ChatRunControlStore,
   type ResumeChatContext,
@@ -23,7 +24,9 @@ import {
 import { PendingSteeringStore } from "./pending-steering.js";
 import {
   recoverInflightRuns as recoverWebInflightRuns,
+  recoverStaleInflightRun as recoverWebStaleInflightRun,
   resumePendingChats as resumeWebPendingChats,
+  type RecoverStaleInflightRunOptions,
   type WebRecoveryContext,
   type WebRecoveryStore,
 } from "./recovery.js";
@@ -125,12 +128,20 @@ export class WebChannelRuntimeStateService {
     resumeWebChat(chatJid, threadRootId, this.getResumeChatContext());
   }
 
-  skipFailedOnModelSwitch(chatJid: string, store?: ChatRunControlStore): void {
-    skipFailedOnModelSwitchForChat(chatJid, store);
+  skipFailedOnModelSwitch(chatJid: string, store?: ChatRunControlStore): boolean {
+    return skipFailedOnModelSwitchForChat(chatJid, store);
+  }
+
+  retryFailedOnModelSwitch(chatJid: string, store?: ChatRunControlStore): boolean {
+    return retryFailedOnModelSwitchForChat(chatJid, store);
   }
 
   recoverInflightRuns(store?: WebRecoveryStore): void {
     recoverWebInflightRuns(this.getRecoveryContext(), store);
+  }
+
+  recoverStaleInflightRun(chatJid: string, options?: RecoverStaleInflightRunOptions, store?: WebRecoveryStore): boolean {
+    return recoverWebStaleInflightRun(this.getRecoveryContext(), chatJid, options, store);
   }
 
   resumePendingChats(chatJid?: string, store?: WebRecoveryStore): void {

@@ -43,8 +43,13 @@ const DEFAULT_MAIN_IDLE_TTL = 3 * 60 * 1000; // 3 minutes
 const DEFAULT_SIDE_IDLE_TTL = 60 * 1000; // 1 minute
 const DEFAULT_CLEANUP_INTERVAL = 30 * 1000; // check every 30 seconds
 const DEFAULT_MAIN_SESSION_POOL_MAX_SIZE = 2;
-const DEFAULT_MEMORY_PRESSURE_RSS_BYTES = 384 * 1024 * 1024;
-const DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL = 30 * 1000;
+// 512 MB: observed normal multi-session RSS peaks at 388–428 MB so 384 MB
+// triggered pressure during ordinary work. 512 MB gives headroom above those
+// peaks while still protecting against genuine memory stress.
+const DEFAULT_MEMORY_PRESSURE_RSS_BYTES = 512 * 1024 * 1024;
+// 60 s under genuine pressure: 30 s was too short — sessions were killed and
+// immediately recreated, causing high churn with no net memory benefit.
+const DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL = 60 * 1000;
 const DEFAULT_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE = 1;
 function parsePositiveMs(value, fallback) {
     const parsed = Number.parseInt(String(value || "").trim(), 10);
@@ -77,6 +82,11 @@ export class AgentPool {
     cleanupTimer = null;
     shuttingDown = false;
     memoryPressureActive = false;
+    recoveryStats = {
+        attemptsTotal: 0,
+        recoveredRuns: 0,
+        exhaustedRuns: 0,
+    };
     // Shared across all sessions (expensive to create, safe to reuse)
     authStorage;
     modelRegistry;
@@ -166,7 +176,7 @@ export class AgentPool {
     }
     /** Run a prompt against the persistent session for `chatJid`. */
     async runAgent(prompt, chatJid, options = {}) {
-        return runAgentPrompt(prompt, chatJid, options, {
+        const output = await runAgentPrompt(prompt, chatJid, options, {
             getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
             turnCoordinator: this.turnCoordinator,
             clearAttachments: (nextChatJid) => this.attachments.clear(nextChatJid),
@@ -180,6 +190,15 @@ export class AgentPool {
             onWarn: (message, details) => log.warn(message, details),
             onError: (message, details) => log.error(message, details),
         });
+        const recovery = output.recovery;
+        if (recovery) {
+            this.recoveryStats.attemptsTotal += Math.max(0, recovery.attemptsUsed || 0);
+            if (recovery.recovered)
+                this.recoveryStats.recoveredRuns += 1;
+            if (recovery.exhausted)
+                this.recoveryStats.exhaustedRuns += 1;
+        }
+        return output;
     }
     async applyControlCommand(chatJid, command) {
         return this.runtimeFacade.applyControlCommand(chatJid, command);
@@ -309,6 +328,9 @@ export class AgentPool {
     async pruneChatBranch(chatJid) {
         return this.branchManager.pruneChatBranch(chatJid);
     }
+    async renameChatJid(oldJid, newJid) {
+        return this.branchManager.renameChatJid(oldJid, newJid);
+    }
     async restoreChatBranch(chatJid, options = {}) {
         return this.branchManager.restoreChatBranch(chatJid, options);
     }
@@ -328,6 +350,7 @@ export class AgentPool {
             activeForkBaseLeaves: this.activeForkBaseLeafByChat.size,
             activeChats: this.branchManager.listActiveChats().length,
             sessionManager: this.sessionManager.getInstrumentationSnapshot(),
+            recovery: { ...this.recoveryStats },
         };
     }
     findActiveChatByAgentName(agentName) {

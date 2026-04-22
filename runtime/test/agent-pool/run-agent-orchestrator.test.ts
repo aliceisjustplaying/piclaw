@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, truncateSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,12 +13,21 @@ import { AgentTurnCoordinator } from "../../src/agent-pool/turn-coordinator.js";
 import { runAgentPrompt } from "../../src/agent-pool/run-agent-orchestrator.js";
 import { setEnv } from "../helpers.js";
 
-function createRuntime(session: any): AgentSessionRuntime {
+function createRuntime(session: any, retrySettings?: { enabled?: boolean; maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number }): AgentSessionRuntime {
   return {
     session,
     cwd: "/workspace",
     diagnostics: [],
-    services: {} as any,
+    services: {
+      settingsManager: {
+        getRetrySettings: () => ({
+          enabled: retrySettings?.enabled ?? true,
+          maxRetries: retrySettings?.maxRetries ?? 3,
+          baseDelayMs: retrySettings?.baseDelayMs ?? 2000,
+          maxDelayMs: retrySettings?.maxDelayMs ?? 60000,
+        }),
+      },
+    } as any,
     modelFallbackMessage: undefined,
     newSession: async () => ({ cancelled: false }),
     switchSession: async () => ({ cancelled: false }),
@@ -187,7 +196,7 @@ test("runAgentPrompt auto-compacts before prompting when estimated context excee
   expect(calls).toEqual(["compact", "prompt"]);
 });
 
-test("runAgentPrompt skips pre-prompt auto-compaction when it is disabled", async () => {
+test("runAgentPrompt still pre-prompt compacts even when upstream auto-compaction is disabled", async () => {
   const calls: string[] = [];
 
   class StubSession {
@@ -247,7 +256,197 @@ test("runAgentPrompt skips pre-prompt auto-compaction when it is disabled", asyn
   });
 
   expect(result.status).toBe("success");
-  expect(calls).toEqual(["prompt"]);
+  // Piclaw manages compaction at safe pre-prompt boundaries regardless of
+  // upstream auto-compaction setting — compact fires before prompt.
+  expect(calls).toEqual(["compact", "prompt"]);
+});
+
+test("runAgentPrompt aborts a stuck pre-prompt compaction and continues", async () => {
+  const restoreEnv = setEnv({ PICLAW_COMPACTION_TIMEOUT_MS: "20" });
+  const calls: string[] = [];
+  const compactionEvents: Array<{ type: string; errorMessage?: string }> = [];
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = {
+      getLeafId: () => "leaf-1",
+      buildSessionContext: () => ({
+        messages: [
+          { role: "user", content: "x".repeat(200) },
+        ],
+      }),
+    };
+    settingsManager = {
+      getCompactionSettings: () => ({
+        ...DEFAULT_COMPACTION_SETTINGS,
+        enabled: true,
+        reserveTokens: 10,
+      }),
+    };
+    model = { contextWindow: 20, provider: "test", id: "model" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async compact() {
+      calls.push("compact");
+      this.isCompacting = true;
+      await new Promise(() => {});
+    }
+    abortCompaction() {
+      calls.push("abortCompaction");
+      this.isCompacting = false;
+    }
+    async prompt() {
+      calls.push("prompt");
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } });
+      }
+    }
+    async abort() {
+      calls.push("abort");
+      this.isCompacting = false;
+    }
+  }
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("test", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "compaction_start" || event.type === "compaction_end") {
+          compactionEvents.push({
+            type: event.type,
+            errorMessage: (event as { errorMessage?: string }).errorMessage,
+          });
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("done");
+    expect(calls).toEqual(["compact", "abortCompaction", "prompt"]);
+    expect(compactionEvents).toEqual([
+      { type: "compaction_start", errorMessage: undefined },
+      { type: "compaction_end", errorMessage: "Pre-prompt compaction failed: Compaction timed out after 0.0s" },
+    ]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt does not auto-recover generic failures after tool activity", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+  const events: string[] = [];
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    compactCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async compact() {
+      this.compactCalls += 1;
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      for (const listener of this.listeners) {
+        listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "write_file", args: { path: "x" } });
+        listener({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_start",
+            contentIndex: 0,
+            partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
+          },
+        });
+        listener({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            delta: "draft",
+            contentIndex: 0,
+            partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
+          },
+        });
+        listener({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            stopReason: "error",
+            errorMessage: "Timed out after 30s",
+            content: [],
+          },
+        });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("test", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "recovery_start" || event.type === "recovery_end" || event.type === "compaction_start" || event.type === "compaction_end") {
+          events.push(event.type);
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("Timed out after 30s");
+    expect(session.promptCalls).toBe(1);
+    expect(session.compactCalls).toBe(0);
+    expect(events).toEqual([]);
+  } finally {
+    restoreEnv();
+  }
 });
 
 test("runAgentPrompt prompts the rotated runtime session after auto-rotation swaps objects", async () => {
@@ -392,6 +591,437 @@ test("runAgentPrompt prompts the rotated runtime session after auto-rotation swa
   }
 });
 
+test("runAgentPrompt retries a recoverable interrupted turn and returns one final success", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "partial draft" } });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "error",
+              errorMessage: "Response ended with an error before finalization",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "recovered answer" } });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const recoveryEvents: string[] = [];
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("hello", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "recovery_start" || event.type === "recovery_end") {
+          recoveryEvents.push(String(event.type));
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("recovered answer");
+    expect(result.recovery?.recovered).toBe(true);
+    expect(result.recovery?.attemptsUsed).toBe(1);
+    expect(result.recovery?.diagnostics).toEqual([
+      expect.objectContaining({
+        phase: "attempt_failure",
+        attempt: 1,
+        classifier: "transient",
+        strategy: "retry",
+        error: "Response ended with an error before finalization",
+        hadPartialOutput: true,
+      }),
+    ]);
+    expect(session.promptCalls).toBe(2);
+    expect(recoveryEvents).toEqual(["recovery_start", "recovery_end"]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt recovers a timeout-before-finalization when compaction was in progress", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    compactCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async compact() {
+      this.compactCalls += 1;
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "compaction_start", reason: "overflow" });
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "draft during compaction" } });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "error",
+              errorMessage: "Response timed out before finalization",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "recovered after compaction" } });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const recoveryStarts: Array<{ classifier?: string; strategy?: string }> = [];
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("hello", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "recovery_start") {
+          recoveryStarts.push({
+            classifier: (event as any).classifier,
+            strategy: (event as any).strategy,
+          });
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("recovered after compaction");
+    expect(result.recovery).toEqual(expect.objectContaining({
+      attemptsUsed: 1,
+      recovered: true,
+      exhausted: false,
+      lastClassifier: "context_pressure",
+      strategyHistory: ["compact_then_retry"],
+    }));
+    expect(result.recovery?.diagnostics).toEqual([
+      expect.objectContaining({
+        phase: "attempt_failure",
+        attempt: 1,
+        classifier: "context_pressure",
+        strategy: "compact_then_retry",
+        error: "Response timed out before finalization",
+        sawCompactionIntent: true,
+      }),
+    ]);
+    expect(session.promptCalls).toBe(2);
+    expect(session.compactCalls).toBe(1);
+    expect(recoveryStarts).toEqual([{ classifier: "context_pressure", strategy: "compact_then_retry" }]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt starts the recovery budget after the first failed attempt", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+  const originalDateNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    compactCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async compact() {
+      this.compactCalls += 1;
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        now += 120_000;
+        for (const listener of this.listeners) {
+          listener({ type: "compaction_start", reason: "overflow" });
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "draft during slow compaction" } });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "error",
+              errorMessage: "Response timed out before finalization",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      now += 1_000;
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "recovered after delayed first attempt" } });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("hello", "web:default", {
+      timeoutMs: 0,
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("recovered after delayed first attempt");
+    expect(result.recovery).toEqual(expect.objectContaining({
+      attemptsUsed: 1,
+      recovered: true,
+      exhausted: false,
+      lastClassifier: "context_pressure",
+      strategyHistory: ["compact_then_retry"],
+    }));
+    expect(session.promptCalls).toBe(2);
+    expect(session.compactCalls).toBe(1);
+  } finally {
+    Date.now = originalDateNow;
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt writes recovery diagnostics into the agent log", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "partial draft" } });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "error",
+              errorMessage: "Response ended with an error before finalization",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "recovered answer" } });
+      }
+    }
+    async abort() {}
+  }
+
+  const logsDir = createTestLogsDir();
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("hello", "web:default", { timeoutMs: 0 }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir,
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    const logFile = tempLogsDirs.find((entry) => entry === logsDir);
+    expect(logFile).toBe(logsDir);
+    const logName = readdirSync(logsDir).find((entry: string) => entry.startsWith("agent-") && entry.endsWith(".log"));
+    expect(logName).toBeTruthy();
+    const content = readFileSync(join(logsDir, logName!), "utf8");
+    expect(content).toContain("RecoveryAttemptsUsed: 1");
+    expect(content).toContain("RecoveryRecovered: true");
+    expect(content).toContain("RecoveryDiagnostics:");
+    expect(content).toContain("Response ended with an error before finalization");
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt auto-compacts and retries when tool activity produced no text output", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    compactCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      for (const listener of this.listeners) {
+        listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "write_file", args: { path: "x" } });
+        listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "maximum context length exceeded", content: [] } });
+      }
+    }
+    async compact() {
+      this.compactCalls += 1;
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("hello", "web:default", { timeoutMs: 0 }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("maximum context length exceeded");
+    expect(session.promptCalls).toBe(3);
+    expect(session.compactCalls).toBe(2);
+    expect(result.recovery).toMatchObject({
+      exhausted: true,
+      attemptsUsed: 2,
+    });
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("runAgentPrompt surfaces provider error instead of returning null result", async () => {
   class StubSession {
     private listeners: Array<(event: any) => void> = [];
@@ -481,7 +1111,7 @@ test("runAgentPrompt surfaces latent session state errors when no final text is 
   });
 
   const result = await runAgentPrompt("hello", "web:default", { timeoutMs: 0 }, {
-    getOrCreateRuntime: async () => createRuntime(session) as any,
+    getOrCreateRuntime: async () => createRuntime(session, { enabled: false }) as any,
     turnCoordinator,
     clearAttachments: () => {},
     takeAttachments: () => [],
@@ -548,7 +1178,7 @@ test("runAgentPrompt ignores commentary-only aborted output", async () => {
   });
 
   const result = await runAgentPrompt("test", "web:default", { timeoutMs: 0 }, {
-    getOrCreateRuntime: async () => createRuntime(session) as any,
+    getOrCreateRuntime: async () => createRuntime(session, { enabled: false }) as any,
     turnCoordinator,
     clearAttachments: () => {},
     takeAttachments: () => [],
@@ -557,9 +1187,204 @@ test("runAgentPrompt ignores commentary-only aborted output", async () => {
     clearActiveForkBaseLeaf: () => {},
   });
 
-  expect(result.status).toBe("success");
-  expect(result.result).toBeNull();
+  expect(result.status).toBe("error");
+  expect(result.error).toContain("Prompt completed without emitting an assistant reply before finalization");
   expect(result.attachments).toBeUndefined();
+});
+
+test("runAgentPrompt retries when provider stops after a read-only tool call without a final reply", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "toolUse",
+              content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "/tmp/x" } }],
+            },
+          });
+          listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "read", args: { path: "/tmp/x" } });
+          listener({ type: "tool_execution_end", toolCallId: "tool-1", toolName: "read", isError: false });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "stop",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "draft restored" } });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const recoveryEvents: Array<{ type: string; delayMs?: number }> = [];
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("show me the draft", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "recovery_start" || event.type === "recovery_end") {
+          recoveryEvents.push({ type: String(event.type), delayMs: typeof (event as any).delayMs === "number" ? (event as any).delayMs : undefined });
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session, { maxRetries: 5, baseDelayMs: 1, maxDelayMs: 60000 }) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("draft restored");
+    expect(result.recovery).toEqual(expect.objectContaining({
+      attemptsUsed: 1,
+      recovered: true,
+      lastClassifier: "transient",
+      strategyHistory: ["retry"],
+    }));
+    expect(session.promptCalls).toBe(2);
+    expect(recoveryEvents).toEqual([
+      { type: "recovery_start", delayMs: 1 },
+      { type: "recovery_end", delayMs: undefined },
+    ]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt uses existing retry settings for automatic recovery attempts", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls < 3) {
+        for (const listener of this.listeners) {
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "toolUse",
+              content: [{ type: "toolCall", id: `tool-${this.promptCalls}`, name: "read", arguments: { path: "/tmp/x" } }],
+            },
+          });
+          listener({ type: "tool_execution_start", toolCallId: `tool-${this.promptCalls}`, toolName: "read", args: { path: "/tmp/x" } });
+          listener({ type: "tool_execution_end", toolCallId: `tool-${this.promptCalls}`, toolName: "read", isError: false });
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              stopReason: "stop",
+              content: [],
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "eventually recovered" } });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const recoveryEvents: Array<{ type: string; attempt?: number; maxAttempts?: number; delayMs?: number }> = [];
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("show me the draft", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "recovery_start" || event.type === "recovery_end") {
+          recoveryEvents.push({
+            type: String(event.type),
+            attempt: typeof (event as any).attempt === "number" ? (event as any).attempt : undefined,
+            maxAttempts: typeof (event as any).maxAttempts === "number" ? (event as any).maxAttempts : undefined,
+            delayMs: typeof (event as any).delayMs === "number" ? (event as any).delayMs : undefined,
+          });
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session, { maxRetries: 5, baseDelayMs: 1, maxDelayMs: 60000 }) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("eventually recovered");
+    expect(result.recovery).toEqual(expect.objectContaining({
+      attemptsUsed: 2,
+      recovered: true,
+      strategyHistory: ["retry", "retry"],
+    }));
+    expect(recoveryEvents).toEqual([
+      { type: "recovery_start", attempt: 1, maxAttempts: 5, delayMs: 1 },
+      { type: "recovery_start", attempt: 2, maxAttempts: 5, delayMs: 2 },
+      { type: "recovery_end", attempt: undefined, maxAttempts: undefined, delayMs: undefined },
+    ]);
+  } finally {
+    restoreEnv();
+  }
 });
 
 test("runAgentPrompt disarms the prompt timeout as soon as prompt() resolves", async () => {

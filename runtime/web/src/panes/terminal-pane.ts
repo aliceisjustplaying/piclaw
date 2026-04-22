@@ -245,6 +245,56 @@ function getHighestContrastTextColor(background) {
     return contrastRatio(bg, white) >= contrastRatio(bg, black) ? '#ffffff' : '#000000';
 }
 
+function toHexColor(color) {
+    const clamp = (value) => Math.max(0, Math.min(255, Math.round(value || 0)));
+    return `#${[color.r, color.g, color.b].map((value) => clamp(value).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function mixThemeColors(base, target, amount) {
+    const ratio = Math.max(0, Math.min(1, Number.isFinite(amount) ? amount : 0));
+    return {
+        r: base.r + ((target.r - base.r) * ratio),
+        g: base.g + ((target.g - base.g) * ratio),
+        b: base.b + ((target.b - base.b) * ratio),
+    };
+}
+
+function ensureTerminalColorContrast(background, color, minimumRatio = 4.5) {
+    const bg = parseThemeColor(background);
+    const fg = parseThemeColor(color);
+    if (!bg || !fg) return color;
+
+    if (contrastRatio(bg, fg) >= minimumRatio) return toHexColor(fg);
+
+    const targetColor = parseThemeColor(getHighestContrastTextColor(background));
+    if (!targetColor) return toHexColor(fg);
+
+    let best = targetColor;
+    let bestAmount = 1;
+    let low = 0;
+    let high = 1;
+    for (let index = 0; index < 14; index += 1) {
+        const mid = (low + high) / 2;
+        const mixed = mixThemeColors(fg, targetColor, mid);
+        if (contrastRatio(bg, mixed) >= minimumRatio) {
+            best = mixed;
+            bestAmount = mid;
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+
+    let resolved = toHexColor(best);
+    let resolvedColor = parseThemeColor(resolved);
+    while (resolvedColor && contrastRatio(bg, resolvedColor) < minimumRatio && bestAmount < 1) {
+        bestAmount = Math.min(1, bestAmount + 0.01);
+        resolved = toHexColor(mixThemeColors(fg, targetColor, bestAmount));
+        resolvedColor = parseThemeColor(resolved);
+    }
+    return resolved;
+}
+
 function withAlpha(hexColor, alphaHex) {
     if (!hexColor || !hexColor.startsWith('#')) return hexColor;
     const value = hexColor.slice(1);
@@ -261,37 +311,35 @@ export function buildTerminalTheme(runtimeWindow = typeof window !== 'undefined'
     const isDark = detectDarkTheme(runtimeWindow, runtimeDocument);
     const palette = isDark ? DARK_TERMINAL_PALETTE : LIGHT_TERMINAL_PALETTE;
     const background = readThemeVar('--bg-primary', isDark ? '#000000' : '#ffffff', runtimeDocument);
-    const foreground = getHighestContrastTextColor(background);
-    const secondary = readThemeVar('--text-secondary', isDark ? '#71767b' : '#536471', runtimeDocument);
+    const foreground = ensureTerminalColorContrast(background, getHighestContrastTextColor(background), 7);
     const accent = readThemeVar('--accent-color', '#1d9bf0', runtimeDocument);
     const danger = readThemeVar('--danger-color', isDark ? '#ff7b72' : '#cf222e', runtimeDocument);
     const success = readThemeVar('--success-color', isDark ? '#7ee787' : '#1a7f37', runtimeDocument);
     const hover = readThemeVar('--bg-hover', isDark ? '#1d1f23' : '#e8ebed', runtimeDocument);
-    const border = readThemeVar('--border-color', isDark ? '#2f3336' : '#eff3f4', runtimeDocument);
     const selectionBackground = readThemeVar('--accent-soft-strong', withAlpha(accent, isDark ? '47' : '33'), runtimeDocument);
 
     return {
         background,
         foreground,
-        cursor: accent,
+        cursor: ensureTerminalColorContrast(background, accent, 3),
         cursorAccent: background,
         selectionBackground,
         selectionForeground: foreground,
-        black: hover,
-        red: danger,
-        green: success,
-        yellow: palette.yellow,
-        blue: accent,
-        magenta: palette.magenta,
-        cyan: palette.cyan,
+        black: ensureTerminalColorContrast(background, hover, 3),
+        red: ensureTerminalColorContrast(background, danger, 4.5),
+        green: ensureTerminalColorContrast(background, success, 4.5),
+        yellow: ensureTerminalColorContrast(background, palette.yellow, 4.5),
+        blue: ensureTerminalColorContrast(background, accent, 4.5),
+        magenta: ensureTerminalColorContrast(background, palette.magenta, 4.5),
+        cyan: ensureTerminalColorContrast(background, palette.cyan, 4.5),
         white: foreground,
-        brightBlack: palette.brightBlack,
-        brightRed: palette.brightRed,
-        brightGreen: palette.brightGreen,
-        brightYellow: palette.brightYellow,
-        brightBlue: palette.brightBlue,
-        brightMagenta: palette.brightMagenta,
-        brightCyan: palette.brightCyan,
+        brightBlack: ensureTerminalColorContrast(background, palette.brightBlack, 3),
+        brightRed: ensureTerminalColorContrast(background, palette.brightRed, 4.5),
+        brightGreen: ensureTerminalColorContrast(background, palette.brightGreen, 4.5),
+        brightYellow: ensureTerminalColorContrast(background, palette.brightYellow, 4.5),
+        brightBlue: ensureTerminalColorContrast(background, palette.brightBlue, 4.5),
+        brightMagenta: ensureTerminalColorContrast(background, palette.brightMagenta, 4.5),
+        brightCyan: ensureTerminalColorContrast(background, palette.brightCyan, 4.5),
         brightWhite: foreground,
     };
 }

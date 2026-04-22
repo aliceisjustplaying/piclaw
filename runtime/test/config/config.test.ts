@@ -255,6 +255,7 @@ test("config and env fallback chains handle booleans and session settings", () =
     expect(snapshot.SESSION_STORAGE_CONFIG).toEqual({
       maxSizeMb: 8,
       maxSizeBytes: 8 * 1024 * 1024,
+      maxLines: 8000,
       autoRotate: false,
     });
   } finally {
@@ -285,7 +286,7 @@ test("tool output config getter groups retention env settings", async () => {
   await withTempWorkspaceEnv(
     "piclaw-config-",
     {
-      PICLAW_TOOL_OUTPUT_RETENTION_DAYS: "14",
+      PICLAW_TOOL_OUTPUT_RETENTION_MS: "14400000",
       PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS: "60000",
     },
     async () => {
@@ -294,7 +295,7 @@ test("tool output config getter groups retention env settings", async () => {
       expect(cfg.getToolOutputConfig()).toBe(cfg.TOOL_OUTPUT_CONFIG);
       expect(Object.isFrozen(cfg.TOOL_OUTPUT_CONFIG)).toBe(true);
       expect(cfg.TOOL_OUTPUT_CONFIG).toEqual({
-        retentionDays: 14,
+        retentionMs: 14400000,
         cleanupIntervalMs: 60000,
       });
     },
@@ -421,6 +422,7 @@ test("session storage config getter groups size and auto-rotate settings", async
       expect(cfg.SESSION_STORAGE_CONFIG).toEqual({
         maxSizeMb: 64,
         maxSizeBytes: 64 * 1024 * 1024,
+        maxLines: 8000,
         autoRotate: true,
       });
     },
@@ -457,6 +459,7 @@ test("session storage config defaults to 32 MB with auto-rotate enabled", async 
       expect(cfg.SESSION_STORAGE_CONFIG).toEqual({
         maxSizeMb: 32,
         maxSizeBytes: 32 * 1024 * 1024,
+        maxLines: 8000,
         autoRotate: true,
       });
       expect(cfg.getSessionStorageConfig()).toBe(cfg.SESSION_STORAGE_CONFIG);
@@ -765,6 +768,7 @@ test("in-process module init handles deprecated env warnings, argv parsing, and 
         expect(cfg.SESSION_STORAGE_CONFIG).toEqual({
           maxSizeMb: 64,
           maxSizeBytes: 64 * 1024 * 1024,
+          maxLines: 8000,
           autoRotate: true,
         });
         expect(cfg.getSessionStorageConfig()).toBe(cfg.SESSION_STORAGE_CONFIG);

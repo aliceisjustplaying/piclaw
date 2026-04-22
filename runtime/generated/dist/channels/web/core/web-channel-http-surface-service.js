@@ -75,6 +75,9 @@ export class WebChannelHttpSurfaceService {
     async handleAgentDebug(req) {
         return await this.channel.endpointFacade.handleAgentDebug(req);
     }
+    async handleAgentCommands(req) {
+        return await this.channel.endpointFacade.handleAgentCommands(req);
+    }
     async handleAutoresearchStatus(req) {
         return await this.channel.controlPlaneService.handleAutoresearchStatus(req);
     }
@@ -119,6 +122,9 @@ export class WebChannelHttpSurfaceService {
     }
     async handleAgentBranchRename(req) {
         return await this.channel.controlPlaneService.handleAgentBranchRename(req);
+    }
+    async handleAgentRenameJid(req) {
+        return await this.channel.controlPlaneService.handleAgentRenameJid(req);
     }
     async handleAgentBranchPrune(req) {
         return await this.channel.controlPlaneService.handleAgentBranchPrune(req);

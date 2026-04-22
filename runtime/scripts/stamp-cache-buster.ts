@@ -1,23 +1,78 @@
 /**
  * scripts/stamp-cache-buster.ts
  *
- * Replaces all `?v=<digits>` cache-buster query strings in index.html
- * with a fresh unix-epoch-seconds timestamp.  Run automatically at the
- * end of `build:web`.
+ * Replaces all `?v=<digits|hex>` cache-buster query strings in index.html
+ * with a content-derived hash of the app bundle files.  This guarantees
+ * the buster changes if and only if the bundle content changes, regardless
+ * of build timestamps or git operations on index.html.
+ *
+ * Also stamps the vendor importmap URL with a content-hash so browser
+ * caches bust when the vendor bundle changes.
+ *
+ * Run automatically at the end of `build:web`.
  */
 
-import { readFileSync, writeFileSync } from "fs";
+import { createHash } from "crypto";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const INDEX = resolve(import.meta.dir, "../web/static/index.html");
-const stamp = Math.floor(Date.now() / 1000).toString();
+const DIST = resolve(import.meta.dir, "../web/static/dist");
 
-let html = readFileSync(INDEX, "utf-8");
-const replaced = html.replace(/\?v=\d+/g, `?v=${stamp}`);
+// Build a content hash from the main bundle files so the stamp is
+// deterministic and tied to actual content, not wall-clock time.
+function computeBundleContentHash(): string {
+  const bundleFiles = [
+    resolve(DIST, "app.bundle.js"),
+    resolve(DIST, "app.bundle.css"),
+    resolve(DIST, "login.bundle.js"),
+    resolve(DIST, "login.bundle.css"),
+    resolve(DIST, "editor.bundle.js"),
+  ];
+  const hash = createHash("sha256");
+  for (const file of bundleFiles) {
+    try {
+      hash.update(readFileSync(file));
+    } catch (e) {
+      // File may not exist in minimal builds; skip but log if unexpected.
+      if (existsSync(file)) {
+        console.warn(`[cache-buster] failed to read ${file}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+  }
+  return hash.digest("hex").slice(0, 12);
+}
 
-if (replaced !== html) {
-  writeFileSync(INDEX, replaced, "utf-8");
-  console.log(`[cache-buster] stamped index.html → v=${stamp}`);
+const stamp = computeBundleContentHash();
+
+const original = readFileSync(INDEX, "utf-8");
+let html = original;
+
+// 1. Stamp ?v= tokens on static bundle references.
+//    Match both numeric stamps (?v=1234567890) and the build-time placeholder.
+html = html.replace(/\?v=(?:[\da-f]+|__APP_ASSET_VERSION__)/g, `?v=${stamp}`);
+
+// 2. Stamp the vendor importmap URL so browser caches bust on content changes.
+//    Use the vendor bundle's sha256 prefix from the metadata file when available,
+//    fall back to the build timestamp.
+const VENDOR_META = resolve(import.meta.dir, "../extensions/viewers/editor/vendor/codemirror.meta.json");
+let vendorStamp = stamp;
+try {
+  if (existsSync(VENDOR_META)) {
+    const meta = JSON.parse(readFileSync(VENDOR_META, "utf-8"));
+    if (meta.sha256) vendorStamp = meta.sha256.slice(0, 12);
+  }
+} catch (e) {
+  console.warn(`[cache-buster] failed to read vendor metadata: ${e instanceof Error ? e.message : e}`);
+}
+html = html.replace(
+  /(\/editor-vendor\/codemirror\.js)(\?v=[^"]*)?/g,
+  `$1?v=${vendorStamp}`,
+);
+
+if (html !== original) {
+  writeFileSync(INDEX, html, "utf-8");
+  console.log(`[cache-buster] stamped index.html → v=${stamp}, vendor=${vendorStamp}`);
 } else {
-  console.log(`[cache-buster] no ?v= tokens found in index.html`);
+  console.log(`[cache-buster] no tokens changed in index.html`);
 }

@@ -4,6 +4,9 @@
 import { clearInflightMarker, getAgentReplyStateAfter, getAllChatCursors, getDb, getDeferredQueuedFollowups, getInflightRuns, getMessagesSince, rollbackInflightRun, } from "../../../db.js";
 import { createLogger } from "../../../utils/logger.js";
 const log = createLogger("web.recovery");
+function isBranchChat(chatJid) {
+    return chatJid.includes(":branch:");
+}
 function recoveryLaneKey(chatJid) {
     return `chat:${chatJid}`;
 }
@@ -40,6 +43,78 @@ const defaultStore = {
  * pathological restart loops.
  */
 const MAX_INFLIGHT_AGE_MS = 30 * 60 * 1000;
+const RUNTIME_STALE_INFLIGHT_GRACE_MS = 15_000;
+/** Recover one stale inflight run during normal runtime, not only on startup. */
+export function recoverStaleInflightRun(ctx, chatJid, options = {}, store = defaultStore) {
+    if (!chatJid || options.hasActiveStatus)
+        return false;
+    const inflight = store.getInflightRuns().find((entry) => entry.chatJid === chatJid);
+    if (!inflight)
+        return false;
+    const replyState = store.getAgentReplyStateAfter(inflight.chatJid, inflight.startedAt);
+    const now = typeof ctx.now === "function" ? ctx.now() : Date.now();
+    const inflightAge = now - new Date(inflight.startedAt).getTime();
+    const minAgeMs = Number.isFinite(options.minAgeMs) ? Number(options.minAgeMs) : RUNTIME_STALE_INFLIGHT_GRACE_MS;
+    try {
+        store.transaction(() => {
+            if (replyState === "terminal") {
+                log.info("Runtime stale-inflight recovery cleared terminal marker", {
+                    operation: "recover_stale_inflight_run.clear_terminal",
+                    chatJid: inflight.chatJid,
+                    startedAt: inflight.startedAt,
+                });
+                store.clearInflightMarker(inflight.chatJid);
+                return;
+            }
+            if (replyState === "partial") {
+                log.info("Runtime stale-inflight recovery cleared partial marker", {
+                    operation: "recover_stale_inflight_run.clear_partial",
+                    chatJid: inflight.chatJid,
+                    startedAt: inflight.startedAt,
+                });
+                store.clearInflightMarker(inflight.chatJid);
+                return;
+            }
+            if (inflightAge < minAgeMs) {
+                return;
+            }
+            log.warn("Runtime stale-inflight recovery rolled back chat", {
+                operation: "recover_stale_inflight_run.rollback",
+                chatJid: inflight.chatJid,
+                startedAt: inflight.startedAt,
+                inflightAgeSeconds: Math.round(inflightAge / 1000),
+            });
+            store.rollbackInflightRun(inflight.chatJid, inflight.prevTs);
+        });
+    }
+    catch (error) {
+        log.error("Runtime stale-inflight recovery failed", {
+            operation: "recover_stale_inflight_run",
+            chatJid,
+            err: error,
+        });
+        return false;
+    }
+    if (replyState === "none" && inflightAge >= minAgeMs) {
+        // Branch chats lose session context on restart; replaying into a blank
+        // session just produces zero output. Skip the replay for branches.
+        if (isBranchChat(chatJid)) {
+            log.info("Runtime stale-inflight recovery skipped replay for branch chat", {
+                operation: "recover_stale_inflight_run.branch_skip_replay",
+                chatJid,
+            });
+            return true;
+        }
+        ctx.enqueue(async () => {
+            if ((ctx.recoveryDelayMs ?? 0) > 0) {
+                await (ctx.sleep ? ctx.sleep(ctx.recoveryDelayMs) : Bun.sleep(ctx.recoveryDelayMs));
+            }
+            await ctx.processChat(inflight.chatJid, ctx.defaultAgentId);
+        }, `resume:${inflight.chatJid}`, recoveryLaneKey(inflight.chatJid));
+        return true;
+    }
+    return replyState === "partial" || replyState === "terminal";
+}
 /** Recover interrupted runs left inflight after a restart. */
 export function recoverInflightRuns(ctx, store = defaultStore) {
     const inflights = store.getInflightRuns();
@@ -94,6 +169,16 @@ export function recoverInflightRuns(ctx, store = defaultStore) {
                     inflightAgeSeconds: Math.round(inflightAge / 1000),
                 });
                 store.rollbackInflightRun(inflight.chatJid, inflight.prevTs);
+                // Branch chats lose their in-memory session on restart. Replaying
+                // into a fresh contextless session produces zero output reliably,
+                // so skip the replay and just clear the marker for branches.
+                if (isBranchChat(inflight.chatJid)) {
+                    log.info("Branch inflight run cleared without replay (session context lost on restart)", {
+                        operation: "recover_inflight_runs.branch_skip_replay",
+                        chatJid: inflight.chatJid,
+                    });
+                    store.clearInflightMarker(inflight.chatJid);
+                }
             }
         });
     }
@@ -114,6 +199,10 @@ export function recoverInflightRuns(ctx, store = defaultStore) {
     }
     for (const { inflight, replyState } of decisions) {
         if (replyState === "none" && rolledBack.has(inflight.chatJid)) {
+            // Branch chats were already cleared without rollback above;
+            // skip the replay enqueue for them.
+            if (isBranchChat(inflight.chatJid))
+                continue;
             log.info("Recovering interrupted run", {
                 operation: "recover_inflight_runs.enqueue_recovery",
                 chatJid: inflight.chatJid,

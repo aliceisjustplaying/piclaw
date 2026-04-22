@@ -15,6 +15,7 @@
  *   - runtime.ts passes processMessages() to the polling timer.
  *   - channels/web.ts calls processChat() when a web-channel message arrives.
  */
+import { formatRecoverySummary } from "../agent-pool/automatic-recovery.js";
 import { parseControlCommand } from "../agent-control/index.js";
 import { getMessagesSince, getNewMessages } from "../db.js";
 import { detectChannel, formatMessages, formatOutbound } from "../router.js";
@@ -106,12 +107,23 @@ export async function processMessages(chatJid, deps) {
             }
         },
     });
+    const recoverySummary = formatRecoverySummary(output.recovery);
+    if (output.recovery?.recovered) {
+        log.info("Agent run recovered before outbound delivery", {
+            operation: "process_messages.prompt.recovered",
+            chatJid,
+            recovery: output.recovery,
+            recoverySummary,
+        });
+    }
     await deps.whatsapp.setTyping(chatJid, false);
     if (output.status === "error") {
         log.error("Agent run failed", {
             operation: "process_messages.prompt",
             chatJid,
             errorMessage: output.error,
+            recovery: output.recovery || null,
+            recoverySummary,
         });
         return true;
     }

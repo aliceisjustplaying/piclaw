@@ -499,6 +499,8 @@ export class AgentSessionManager {
   }
 
   private async applyDefaultModel(session: AgentSession): Promise<void> {
+    if (session.model) return;
+
     const provider = this.options.settingsManager.getDefaultProvider();
     const modelId = this.options.settingsManager.getDefaultModel();
     if (!provider || !modelId) return;

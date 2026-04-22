@@ -155,9 +155,12 @@ export function installWebChannelPrototype(target, defaults) {
         skipFailedOnModelSwitch: {
             configurable: true,
             writable: true,
-            value: withRuntimePublicSurface((service, chatJid) => {
-                service.skipFailedOnModelSwitch(chatJid);
-            }),
+            value: withRuntimePublicSurface((service, chatJid) => (service.skipFailedOnModelSwitch(chatJid))),
+        },
+        retryFailedOnModelSwitch: {
+            configurable: true,
+            writable: true,
+            value: withRuntimePublicSurface((service, chatJid) => (service.retryFailedOnModelSwitch(chatJid))),
         },
         recoverInflightRuns: {
             configurable: true,
@@ -165,6 +168,11 @@ export function installWebChannelPrototype(target, defaults) {
             value: withRuntimePublicSurface((service) => {
                 service.recoverInflightRuns();
             }),
+        },
+        recoverStaleInflightRun: {
+            configurable: true,
+            writable: true,
+            value: withRuntimePublicSurface((service, chatJid, options) => (service.recoverStaleInflightRun(chatJid, options))),
         },
         resumePendingChats: {
             configurable: true,
@@ -345,6 +353,11 @@ export function installWebChannelPrototype(target, defaults) {
             writable: true,
             value: withHttpSurface(async (service, req) => await service.handleAgentDebug(req)),
         },
+        handleAgentCommands: {
+            configurable: true,
+            writable: true,
+            value: withHttpSurface(async (service, req) => await service.handleAgentCommands(req)),
+        },
         handleAutoresearchStatus: {
             configurable: true,
             writable: true,
@@ -419,6 +432,11 @@ export function installWebChannelPrototype(target, defaults) {
             configurable: true,
             writable: true,
             value: withHttpSurface(async (service, req) => await service.handleAgentBranchRename(req)),
+        },
+        handleAgentRenameJid: {
+            configurable: true,
+            writable: true,
+            value: withHttpSurface(async (service, req) => await service.handleAgentRenameJid(req)),
         },
         handleAgentBranchPrune: {
             configurable: true,

@@ -16,6 +16,7 @@ export {
   getChatBranchByAgentName,
   listChatBranches,
   renameChatBranchIdentity,
+  renameChatJid,
   archiveChatBranch,
   restoreChatBranchIdentity,
 } from "./db/chat-branches.js";
@@ -98,6 +99,7 @@ export {
   beginChatRun,
   endChatRun,
   endChatRunWithError,
+  rollbackChatRunWithError,
   getFailedRun,
   clearFailedRun,
   getInflightRuns,

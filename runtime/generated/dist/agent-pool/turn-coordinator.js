@@ -20,6 +20,7 @@ export class AgentTurnCoordinator {
         let messageHasDelta = false;
         let messageComplete = false;
         let lastError = null;
+        let lastAssistantState = null;
         const parseTextPhase = (signature) => {
             if (typeof signature !== "string" || !signature.trim())
                 return null;
@@ -145,12 +146,28 @@ export class AgentTurnCoordinator {
                     if (message.stopReason === "error" && message.errorMessage) {
                         lastError = { stopReason: "error", errorMessage: message.errorMessage };
                     }
+                    const contentBlocks = Array.isArray(message.content) ? message.content : [];
                     const extracted = extractAssistantTextFromContent(message.content);
+                    const hadTextContent = contentBlocks.some((block) => block?.type === "text" && typeof block.text === "string" && block.text.trim().length > 0);
+                    const hadToolCallContent = contentBlocks.some((block) => block?.type === "toolCall");
+                    lastAssistantState = {
+                        stopReason: typeof message.stopReason === "string" && message.stopReason.trim() ? message.stopReason : null,
+                        errorMessage: typeof message.errorMessage === "string" && message.errorMessage.trim() ? message.errorMessage.trim() : null,
+                        hadTextContent,
+                        hadToolCallContent,
+                    };
                     if (!messageHasDelta) {
                         currentTurnText = extracted.text;
                     }
                     currentTurnPhase = extracted.phase;
-                    if (currentTurnPhase === "commentary") {
+                    if (hadToolCallContent) {
+                        // Assistant text that ships in the same message as a tool call is
+                        // scratchpad/planning text for the tool-use step, not a user-visible
+                        // completed reply. Never surface or persist it as a chat turn.
+                        currentTurnPhase = "commentary";
+                        currentTurnText = "";
+                    }
+                    else if (currentTurnPhase === "commentary") {
                         currentTurnText = "";
                     }
                     this.options.onInfo?.("Assistant message completed", {
@@ -161,6 +178,8 @@ export class AgentTurnCoordinator {
                         phase: extracted.phase,
                         messageHasDelta,
                         currentTurnTextLength: currentTurnText.length,
+                        hadTextContent,
+                        hadToolCallContent,
                     });
                 }
                 messageHasDelta = false;
@@ -172,6 +191,7 @@ export class AgentTurnCoordinator {
             getFinalText: () => currentTurnPhase === "commentary" ? "" : currentTurnText.trim(),
             getTurnCount: () => turnCount,
             getError: () => lastError,
+            getLastAssistantState: () => lastAssistantState,
         };
     }
     subscribe(session, chatJid, tracker, onEvent) {

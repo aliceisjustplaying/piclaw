@@ -407,6 +407,8 @@ export class AgentSessionManager {
         }
     }
     async applyDefaultModel(session) {
+        if (session.model)
+            return;
         const provider = this.options.settingsManager.getDefaultProvider();
         const modelId = this.options.settingsManager.getDefaultModel();
         if (!provider || !modelId)

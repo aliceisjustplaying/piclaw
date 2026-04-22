@@ -9,7 +9,7 @@
  */
 export { initDatabase, getDb, closeDatabase } from "./db/connection.js";
 export { clampWebContent } from "./db/web-content.js";
-export { ensureChatBranch, getChatBranchByChatJid, getChatBranchByAgentName, listChatBranches, renameChatBranchIdentity, archiveChatBranch, restoreChatBranchIdentity, } from "./db/chat-branches.js";
+export { ensureChatBranch, getChatBranchByChatJid, getChatBranchByAgentName, listChatBranches, renameChatBranchIdentity, renameChatJid, archiveChatBranch, restoreChatBranchIdentity, } from "./db/chat-branches.js";
 export { storeChatMetadata, listRecentChatJids, storeMessage, getMessageByRowId, getMessageByAnyRowId, getMessageRowIdById, getMessageThreadRootIdById, deleteMessageByRowId, deleteThreadByRowId, getTimeline, hasOlderMessages, getMessagesByHashtag, searchMessages, searchMessagesAcrossChats, getNewMessages, getMessagesSince, updateMessageLinkPreviews, replaceMessageContent, } from "./db/messages.js";
 export { attachMediaToMessage, getMediaIdsForMessage, createMedia, getMediaById, getMediaInfoById, deleteUnreferencedMedia, } from "./db/media.js";
 export { getLinkPreviewImageCache, upsertLinkPreviewImageCache, touchLinkPreviewImageCache, purgeExpiredLinkPreviewImageCache, } from "./db/link-preview-image-cache.js";
@@ -19,7 +19,7 @@ export { getProxmoxConfig, upsertProxmoxConfig, deleteProxmoxConfig, listProxmox
 export { getPortainerConfig, upsertPortainerConfig, deletePortainerConfig, listPortainerConfigs, } from "./db/portainer-configs.js";
 export { storeToolOutput, insertToolOutputChunk, getToolOutputById, deleteToolOutputsBefore, searchToolOutputSnippets, } from "./db/tool-outputs.js";
 export { getRouterState, setRouterState } from "./db/router-state.js";
-export { getChatCursor, getAllChatCursors, getInflightMessageId, setChatCursor, beginChatRun, endChatRun, endChatRunWithError, getFailedRun, clearFailedRun, getInflightRuns, rollbackInflightRun, clearInflightMarker, getAgentReplyStateAfter, hasAgentRepliesAfter, getDeferredQueuedFollowups, setDeferredQueuedFollowups, } from "./db/chat-cursors.js";
+export { getChatCursor, getAllChatCursors, getInflightMessageId, setChatCursor, beginChatRun, endChatRun, endChatRunWithError, rollbackChatRunWithError, getFailedRun, clearFailedRun, getInflightRuns, rollbackInflightRun, clearInflightMarker, getAgentReplyStateAfter, hasAgentRepliesAfter, getDeferredQueuedFollowups, setDeferredQueuedFollowups, } from "./db/chat-cursors.js";
 export { storeTokenUsage, getTokenUsageTotals, getTokenUsageByProvider, getTokenUsageByModel, } from "./db/token-usage.js";
 export { createWebauthnEnrollment, getWebauthnEnrollment, consumeWebauthnEnrollment, listWebauthnCredentials, getWebauthnCredentialsForRpId, getWebauthnCredentialById, findWebauthnCredentialsByPrefix, storeWebauthnCredential, updateWebauthnCredentialCounter, deleteWebauthnCredential, } from "./db/webauthn.js";
 export { DEFAULT_WEB_USER_ID, createWebSession, getWebSession, deleteExpiredWebSessions, deleteAllWebSessions, } from "./db/web-sessions.js";

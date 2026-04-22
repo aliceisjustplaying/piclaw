@@ -218,18 +218,17 @@ export function useAppShellEnvironmentEffects(options: UseAppShellEnvironmentEff
       brandingRef.current.title = title;
     }
 
-    const favicon = document.getElementById('dynamic-favicon');
+    const favicon = document.getElementById('dynamic-favicon') as HTMLLinkElement | null;
     if (!favicon) return;
 
-    const defaultHref = favicon.getAttribute('data-default') || favicon.getAttribute('href') || '/favicon.ico';
-    const baseHref = avatarUrl || defaultHref;
-    const avatarKey = avatarUrl ? `${baseHref}|${avatarVersion || ''}` : baseHref;
+    // The server already serves /favicon.ico as the agent avatar PNG (with
+    // WebP→PNG conversion).  We only need to cache-bust the URL so the
+    // browser refetches when the avatar changes.
+    const avatarKey = avatarUrl ? `${avatarUrl}|${avatarVersion || ''}` : '';
     if (brandingRef.current.avatarBase !== avatarKey) {
-      const cacheBust = avatarUrl
-        ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}v=${avatarVersion || Date.now()}`
-        : baseHref;
-      favicon.setAttribute('href', cacheBust);
       brandingRef.current.avatarBase = avatarKey;
+      const buster = avatarVersion || Date.now();
+      favicon.href = `/favicon.ico?v=${buster}`;
     }
   }, [brandingRef]);
 

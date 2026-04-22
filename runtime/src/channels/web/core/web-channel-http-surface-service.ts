@@ -26,6 +26,7 @@ type WebChannelHttpSurfaceEndpointFacade = Pick<
   | "handleAgentStatus"
   | "handleAgentContext"
   | "handleAgentDebug"
+  | "handleAgentCommands"
   | "handleAgentModels"
   | "handleSessionTree"
   | "handleSystemMetrics"
@@ -46,6 +47,7 @@ type WebChannelHttpSurfaceControlPlane = Pick<
   | "handleAgentQueueReorder"
   | "handleAgentBranchFork"
   | "handleAgentBranchRename"
+  | "handleAgentRenameJid"
   | "handleAgentBranchPrune"
   | "handleAgentBranchRestore"
 >;
@@ -183,6 +185,10 @@ export class WebChannelHttpSurfaceService {
     return await this.channel.endpointFacade.handleAgentDebug(req);
   }
 
+  async handleAgentCommands(req: Request): Promise<Response> {
+    return await this.channel.endpointFacade.handleAgentCommands(req);
+  }
+
   async handleAutoresearchStatus(req: Request): Promise<Response> {
     return await this.channel.controlPlaneService.handleAutoresearchStatus(req);
   }
@@ -241,6 +247,10 @@ export class WebChannelHttpSurfaceService {
 
   async handleAgentBranchRename(req: Request): Promise<Response> {
     return await this.channel.controlPlaneService.handleAgentBranchRename(req);
+  }
+
+  async handleAgentRenameJid(req: Request): Promise<Response> {
+    return await this.channel.controlPlaneService.handleAgentRenameJid(req);
   }
 
   async handleAgentBranchPrune(req: Request): Promise<Response> {

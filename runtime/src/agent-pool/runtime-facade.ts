@@ -50,6 +50,22 @@ interface PromptEnvelopeMessage {
   text: string;
 }
 
+function getMostRecentSessionFile(sessionDir: string): string | null {
+  try {
+    const files = readdirSync(sessionDir)
+      .filter((entry) => entry.endsWith(".jsonl"))
+      .map((entry) => ({ fullPath: join(sessionDir, entry), entry }))
+      .map((file) => ({
+        ...file,
+        mtimeMs: statSync(file.fullPath).mtimeMs,
+      }))
+      .sort((left, right) => right.mtimeMs - left.mtimeMs);
+    return files[0]?.fullPath ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function getPersistedSessionState(chatJid: string): { current: string | null; thinkingLevel: string | null } {
   const sessionDir = join(SESSIONS_DIR, sanitiseJid(chatJid));
   if (!existsSync(sessionDir)) {
@@ -57,16 +73,11 @@ function getPersistedSessionState(chatJid: string): { current: string | null; th
     return { current: null, thinkingLevel: null };
   }
 
-  const latestFile = readdirSync(sessionDir)
-    .filter((entry) => entry.endsWith(".jsonl"))
-    .sort()
-    .pop();
-  if (!latestFile) {
+  const fullPath = getMostRecentSessionFile(sessionDir);
+  if (!fullPath) {
     persistedModelStateCache.delete(chatJid);
     return { current: null, thinkingLevel: null };
   }
-
-  const fullPath = join(sessionDir, latestFile);
   let signature = fullPath;
   try {
     const stat = statSync(fullPath);
@@ -509,9 +520,12 @@ export class AgentRuntimeFacade {
       : Boolean(session?.model?.reasoning ?? currentModelOption?.reasoning);
     const providerUsage = session?.model?.provider
       ? (peekProviderUsage(session.model.provider, { allowStale: true }) ?? null)
-      : null;
-    if (session?.model?.provider) {
-      void warmProviderUsage(this.options.authStorage, session.model.provider);
+      : currentModelOption?.provider
+        ? (peekProviderUsage(currentModelOption.provider, { allowStale: true }) ?? null)
+        : null;
+    const activeProvider = session?.model?.provider ?? currentModelOption?.provider ?? null;
+    if (activeProvider) {
+      void warmProviderUsage(this.options.authStorage, activeProvider);
     }
     const thinkingProvider = session?.model?.provider ?? currentModelOption?.provider ?? null;
     const thinkingLevelLabel = thinkingLevel && thinkingProvider

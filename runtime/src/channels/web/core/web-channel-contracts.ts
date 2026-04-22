@@ -79,7 +79,9 @@ export interface WebChannelLike
   getBuffer(turnId: string, panel: "thought" | "draft"): WebAgentBufferEntry | undefined;
   getThreadRootId(chatJid: string, messageId: string): number | null;
   saveState(): void;
-  skipFailedOnModelSwitch(chatJid: string): void;
+  skipFailedOnModelSwitch(chatJid: string): boolean;
+  retryFailedOnModelSwitch(chatJid: string): boolean;
+  recoverStaleInflightRun(chatJid: string, options?: { hasActiveStatus?: boolean; minAgeMs?: number }): boolean;
 
   setPanelExpanded(turnId: string, panel: "thought" | "draft", expanded: boolean): void;
   isPanelExpanded(turnId: string, panel: "thought" | "draft"): boolean;
@@ -153,6 +155,7 @@ export interface WebChannelLike
   handleAgentStatus(req: Request): Response;
   handleAgentContext(req: Request): Promise<Response>;
   handleAgentDebug(req: Request): Promise<Response>;
+  handleAgentCommands(req: Request): Promise<Response>;
   handleAutoresearchStatus(req: Request): Promise<Response>;
   handleAutoresearchStop(req: Request): Promise<Response>;
   handleAutoresearchDismiss(req: Request): Promise<Response>;
@@ -168,6 +171,7 @@ export interface WebChannelLike
   handleAgentBranches(req: Request): Promise<Response>;
   handleAgentBranchFork(req: Request): Promise<Response>;
   handleAgentBranchRename(req: Request): Promise<Response>;
+  handleAgentRenameJid(req: Request): Promise<Response>;
   handleAgentBranchPrune(req: Request): Promise<Response>;
   handleAgentBranchRestore(req: Request): Promise<Response>;
   handleAgentPeerMessage(req: Request): Promise<Response>;

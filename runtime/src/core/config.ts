@@ -633,6 +633,7 @@ const configWorkspaceSearchExtensions = pickStringArray(toolsConfig, [
 export interface SessionStorageConfig {
   maxSizeMb: number;
   maxSizeBytes: number;
+  maxLines: number;
   autoRotate: boolean;
 }
 
@@ -641,10 +642,16 @@ const sessionMaxSizeMb =
     "PICLAW_SESSION_MAX_SIZE_MB",
   ]) ?? configSessionMaxSizeMb ?? 32;
 
+const sessionMaxLines =
+  pickNumber({ PICLAW_SESSION_MAX_LINES: process.env.PICLAW_SESSION_MAX_LINES ?? envConfig.PICLAW_SESSION_MAX_LINES }, [
+    "PICLAW_SESSION_MAX_LINES",
+  ]) ?? 8000;
+
 /** Grouped session-file safeguards. */
 export const SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
   maxSizeMb: sessionMaxSizeMb,
   maxSizeBytes: sessionMaxSizeMb * 1024 * 1024,
+  maxLines: sessionMaxLines,
   autoRotate:
     pickBoolean({ PICLAW_SESSION_AUTO_ROTATE: process.env.PICLAW_SESSION_AUTO_ROTATE ?? envConfig.PICLAW_SESSION_AUTO_ROTATE }, [
       "PICLAW_SESSION_AUTO_ROTATE",
@@ -818,15 +825,24 @@ export function setWebTotpSecret(secret: string): string {
 
 /** Typed tool-output retention settings grouped for runtime startup wiring. */
 export interface ToolOutputConfig {
-  retentionDays: number;
+  retentionMs: number;
   cleanupIntervalMs: number;
 }
 
+const DEFAULT_TOOL_OUTPUT_RETENTION_MS = 4 * 60 * 60 * 1000;
+const DEFAULT_TOOL_OUTPUT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+const legacyToolOutputRetentionDays = parseInt(process.env.PICLAW_TOOL_OUTPUT_RETENTION_DAYS || "", 10);
+const toolOutputRetentionMs = parseInt(process.env.PICLAW_TOOL_OUTPUT_RETENTION_MS || "", 10);
+
 /** Grouped tool-output retention settings. */
 export const TOOL_OUTPUT_CONFIG = Object.freeze<ToolOutputConfig>({
-  retentionDays: parseInt(process.env.PICLAW_TOOL_OUTPUT_RETENTION_DAYS || "30", 10),
+  retentionMs: Number.isFinite(toolOutputRetentionMs) && toolOutputRetentionMs > 0
+    ? toolOutputRetentionMs
+    : Number.isFinite(legacyToolOutputRetentionDays) && legacyToolOutputRetentionDays > 0
+      ? legacyToolOutputRetentionDays * 24 * 60 * 60 * 1000
+      : DEFAULT_TOOL_OUTPUT_RETENTION_MS,
   cleanupIntervalMs: parseInt(
-    process.env.PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS || String(12 * 60 * 60 * 1000),
+    process.env.PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS || String(DEFAULT_TOOL_OUTPUT_CLEANUP_INTERVAL_MS),
     10
   ),
 });

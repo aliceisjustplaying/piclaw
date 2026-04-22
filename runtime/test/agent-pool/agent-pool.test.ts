@@ -99,6 +99,61 @@ test("agent pool aggregates streamed text and writes logs", async () => {
   expect(content).toContain("Hello world");
 });
 
+test("agent pool aggregates recovery counters into memory instrumentation", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
+
+  class RecoveringSession {
+    private listeners: Array<(event: any) => void> = [];
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "partial" } });
+          listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "Response ended with an error before finalization", content: [] } });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } });
+      }
+    }
+    async abort() {}
+    dispose() {}
+  }
+
+  const pool = new AgentPool({
+    createSession: async () => createRuntime(new RecoveringSession()) as any,
+  });
+
+  const result = await pool.runAgent("test", "web:default", { timeoutMs: 0 });
+  expect(result.status).toBe("success");
+  const snapshot = pool.getMemoryInstrumentationSnapshot();
+  expect(snapshot.recovery).toEqual({
+    attemptsTotal: 1,
+    recoveredRuns: 1,
+    exhaustedRuns: 0,
+  });
+
+  await pool.shutdown();
+});
+
 test("agent pool raises provider retry defaults for shared session settings", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
@@ -122,6 +177,7 @@ test("agent pool honors timeout overrides", async () => {
   let abortCalled = false;
   class StubSession {
     private listeners: Array<(event: any) => void> = [];
+    promptCalls = 0;
     subscribe(listener: (event: any) => void) {
       this.listeners.push(listener);
       return () => {
@@ -129,7 +185,17 @@ test("agent pool honors timeout overrides", async () => {
       };
     }
     async prompt(_prompt: string) {
-      await Bun.sleep(20);
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        await Bun.sleep(20);
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "ok" },
+        });
+      }
     }
     async abort() {
       abortCalled = true;
@@ -153,7 +219,12 @@ test("agent pool honors timeout overrides", async () => {
 
 test("agent pool clears attachments when a run errors", async () => {
   const ws = getTestWorkspace();
-  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "0",
+  });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
   const attachments = getAttachmentRegistry();
@@ -201,10 +272,12 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
   let disposed = 0;
 
   class StubSession {
+    private listeners: Array<(event: any) => void> = [];
     isStreaming = false;
     isBashRunning = false;
     isCompacting = false;
-    subscribe(_listener: (event: any) => void) {
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
       return () => {};
     }
     async prompt(_prompt: string) {
@@ -219,6 +292,12 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
         });
         expect(result.apply_timing).toBe("next_session");
         expect(getSshConfig("web:other")?.ssh_target).toBe("agent@example.com:/srv/project");
+        for (const listener of this.listeners) {
+          listener({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: "ok" },
+          });
+        }
       } finally {
         this.isStreaming = false;
       }
@@ -249,7 +328,12 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
 
 test("agent pool evicts idle sessions and recreates them", async () => {
   const ws = getTestWorkspace();
-  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "0",
+  });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
 
@@ -450,6 +534,7 @@ test("agent pool applies the pressure pool cap immediately after acquiring a sec
     PICLAW_DATA: ws.data,
     PICLAW_MAIN_SESSION_PRESSURE_RSS_BYTES: "1",
     PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE: "1",
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "0",
   });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
@@ -483,7 +568,7 @@ test("agent pool applies the pressure pool cap immediately after acquiring a sec
   await pool.shutdown();
 });
 
-test("agent pool enables the default pressure trim path before RSS reaches the old 512MB threshold", async () => {
+test("agent pool enables the default pressure trim path at the 512MB threshold", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({
     PICLAW_WORKSPACE: ws.workspace,
@@ -496,7 +581,7 @@ test("agent pool enables the default pressure trim path before RSS reaches the o
   });
 
   const originalMemoryUsageRss = process.memoryUsage.rss;
-  (process.memoryUsage as typeof process.memoryUsage & { rss: () => number }).rss = () => 400 * 1024 * 1024;
+  (process.memoryUsage as typeof process.memoryUsage & { rss: () => number }).rss = () => 520 * 1024 * 1024;
 
   try {
     const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");

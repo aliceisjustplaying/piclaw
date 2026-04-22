@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { queueStartupSessionWarmup, resolveStartupSessionWarmupOptions } from "../../src/runtime/startup.js";
-import { createTempWorkspace } from "../helpers.js";
+import { closeDbQuietly, createTempWorkspace, importFresh, setEnv } from "../helpers.js";
 
 const TEST_SHELL = process.env.SHELL || "bash";
 const RUNTIME_DIR = join(import.meta.dir, "../..");
@@ -38,6 +38,44 @@ describe("runtime startup helpers", () => {
       expect(existsSync(join(ws.workspace, "notes", "memory", "README.md"))).toBe(true);
       expect(existsSync(join(ws.workspace, ".pi", "skills"))).toBe(true);
     } finally {
+      ws.cleanup();
+    }
+  });
+
+  test("initializeRuntimeEnvironment removes orphaned active chat artifacts with empty session dirs", async () => {
+    const ws = createTempWorkspace("piclaw-startup-");
+    const restoreEnv = setEnv({
+      PICLAW_WORKSPACE: ws.workspace,
+      PICLAW_STORE: ws.store,
+      PICLAW_DATA: ws.data,
+      PICLAW_DISABLE_BACKGROUND_WORKSPACE_INDEX: "1",
+    });
+
+    let dbMod: any = null;
+    try {
+      dbMod = await importFresh("../src/db.js");
+      const startupMod = await importFresh<typeof import("../../src/runtime/startup.js")>("../src/runtime/startup.js");
+      dbMod.initDatabase();
+      const db = dbMod.getDb();
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)").run("dream:auto:web_default:ghost", "ghost", now);
+      db.prepare(
+        "INSERT INTO chat_branches (branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, created_at, updated_at, archived_at) VALUES (?, ?, ?, NULL, ?, ?, ?, NULL)"
+      ).run("branch-ghost", "dream:auto:web_default:ghost", "dream:auto:web_default:ghost", "ghost", now, now);
+
+      const sessionDir = join(ws.data, "sessions", "dream_auto_web_default_ghost");
+      mkdirSync(sessionDir, { recursive: true });
+      expect(existsSync(sessionDir)).toBe(true);
+
+      startupMod.initializeRuntimeEnvironment({ loadTimestamps() {}, loadChats() {} } as any);
+
+      const remainingChat = db.prepare("SELECT jid FROM chats WHERE jid = ?").get("dream:auto:web_default:ghost");
+      const remainingBranch = db.prepare("SELECT chat_jid FROM chat_branches WHERE chat_jid = ?").get("dream:auto:web_default:ghost");
+      expect(remainingChat).toBeNull();
+      expect(remainingBranch).toBeNull();
+    } finally {
+      closeDbQuietly(dbMod);
+      restoreEnv();
       ws.cleanup();
     }
   });
@@ -83,7 +121,7 @@ describe("runtime startup helpers", () => {
         cmd: [
           TEST_SHELL,
           "-lc",
-          "bun -e \"import { captureStartupMemorySnapshot } from './src/runtime/startup.js'; captureStartupMemorySnapshot({ getMemoryInstrumentationSnapshot() { return { cachedMainSessions: 0, cachedSideSessions: 0, activeForkBaseLeaves: 0, activeChats: 0, sessionManager: { createInFlight: 0, branchSeedRealizationsInFlight: 0, invalidDeferredSeedErrors: 0, prewarmInFlight: 0, queuedPrewarms: 0, prewarmQueueLength: 0, prewarmCooldowns: 0 } }; } }, { label: 'post-web-start' });\"",
+          "bun -e \"import { captureStartupMemorySnapshot } from './src/runtime/startup.js'; captureStartupMemorySnapshot({ getMemoryInstrumentationSnapshot() { return { cachedMainSessions: 0, cachedSideSessions: 0, activeForkBaseLeaves: 0, activeChats: 0, sessionManager: { createInFlight: 0, branchSeedRealizationsInFlight: 0, invalidDeferredSeedErrors: 0, prewarmInFlight: 0, queuedPrewarms: 0, prewarmQueueLength: 0, prewarmCooldowns: 0 }, recovery: { attemptsTotal: 0, recoveredRuns: 0, exhaustedRuns: 0 } }; } }, { label: 'post-web-start' });\"",
         ],
         cwd: RUNTIME_DIR,
         env: {
@@ -117,6 +155,9 @@ describe("runtime startup helpers", () => {
         queued_prewarms: 0,
         prewarm_queue_length: 0,
         prewarm_cooldowns: 0,
+        recovery_attempts_total: 0,
+        recovery_recovered_runs: 0,
+        recovery_exhausted_runs: 0,
       });
     } finally {
       ws.cleanup();

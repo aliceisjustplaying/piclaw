@@ -38,6 +38,7 @@ export interface WebChannelPrototypeMembers extends WebChannelLike {
   handleFetch(req: Request, server?: Bun.Server<WebSocketSessionData>): Promise<Response | undefined>;
   handleRequest(req: Request): Promise<Response>;
   recoverInflightRuns(): void;
+  recoverStaleInflightRun(chatJid: string, options?: { hasActiveStatus?: boolean; minAgeMs?: number }): boolean;
   resumePendingChats(chatJid?: string): void;
   loadState(): void;
   processChat(chatJid: string, agentId: string, threadRootId?: number | null): Promise<void>;
@@ -270,9 +271,16 @@ export function installWebChannelPrototype(
     skipFailedOnModelSwitch: {
       configurable: true,
       writable: true,
-      value: withRuntimePublicSurface((service, chatJid: string): void => {
-        service.skipFailedOnModelSwitch(chatJid);
-      }),
+      value: withRuntimePublicSurface((service, chatJid: string): boolean => (
+        service.skipFailedOnModelSwitch(chatJid)
+      )),
+    },
+    retryFailedOnModelSwitch: {
+      configurable: true,
+      writable: true,
+      value: withRuntimePublicSurface((service, chatJid: string): boolean => (
+        service.retryFailedOnModelSwitch(chatJid)
+      )),
     },
     recoverInflightRuns: {
       configurable: true,
@@ -280,6 +288,13 @@ export function installWebChannelPrototype(
       value: withRuntimePublicSurface((service): void => {
         service.recoverInflightRuns();
       }),
+    },
+    recoverStaleInflightRun: {
+      configurable: true,
+      writable: true,
+      value: withRuntimePublicSurface((service, chatJid: string, options?: { hasActiveStatus?: boolean; minAgeMs?: number }): boolean => (
+        service.recoverStaleInflightRun(chatJid, options)
+      )),
     },
     resumePendingChats: {
       configurable: true,
@@ -474,6 +489,11 @@ export function installWebChannelPrototype(
       writable: true,
       value: withHttpSurface(async (service, req: Request) => await service.handleAgentDebug(req)),
     },
+    handleAgentCommands: {
+      configurable: true,
+      writable: true,
+      value: withHttpSurface(async (service, req: Request) => await service.handleAgentCommands(req)),
+    },
     handleAutoresearchStatus: {
       configurable: true,
       writable: true,
@@ -548,6 +568,11 @@ export function installWebChannelPrototype(
       configurable: true,
       writable: true,
       value: withHttpSurface(async (service, req: Request) => await service.handleAgentBranchRename(req)),
+    },
+    handleAgentRenameJid: {
+      configurable: true,
+      writable: true,
+      value: withHttpSurface(async (service, req: Request) => await service.handleAgentRenameJid(req)),
     },
     handleAgentBranchPrune: {
       configurable: true,

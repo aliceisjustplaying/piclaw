@@ -19,6 +19,7 @@
  *   - The AgentQueue (queue.ts) serialises task execution with user messages per chat lane while allowing unrelated chats to progress in parallel.
  */
 import { WORKSPACE_DIR, getRuntimeTimingConfig } from "./core/config.js";
+import { formatRecoverySummary } from "./agent-pool/automatic-recovery.js";
 import { DREAM_TASK_ID, parseDreamPromptToken, runDreamAgentTurn, runDreamMaintenance } from "./dream.js";
 import { computeNextRun } from "./task-scheduler-utils.js";
 import { getDueTasks, getTaskById, logTaskRun, updateTaskAfterRun } from "./db.js";
@@ -207,10 +208,23 @@ export async function runScheduledTask(task, deps) {
     const fresh = getTaskById(task.id);
     if (!fresh || fresh.status !== "active")
         return;
+    const appendRecoverySummary = (text, recoverySummary) => {
+        const normalizedText = typeof text === "string" && text.trim() ? text.trim() : "";
+        const normalizedSummary = typeof recoverySummary === "string" && recoverySummary.trim() ? recoverySummary.trim() : "";
+        if (normalizedText && normalizedSummary)
+            return `${normalizedText}\n\n${normalizedSummary}`;
+        if (normalizedText)
+            return normalizedText;
+        if (normalizedSummary)
+            return normalizedSummary;
+        return null;
+    };
     const start = Date.now();
     schedulerMetrics.taskRunsStarted += 1;
     let result = null;
     let error = null;
+    let loggedResult = null;
+    let loggedError = null;
     try {
         const kind = task.task_kind === "internal"
             ? "internal"
@@ -271,15 +285,20 @@ export async function runScheduledTask(task, deps) {
                 }
                 if (!error) {
                     const out = await deps.agentPool.runAgent(task.prompt, task.chat_jid);
+                    const recoverySummary = formatRecoverySummary(out.recovery);
                     if (out.status === "error") {
                         error = out.error || "Unknown";
+                        loggedError = appendRecoverySummary(error, recoverySummary);
                     }
-                    else if (out.result) {
-                        result = out.result;
-                        const t = formatOutbound(result, detectChannel(task.chat_jid));
-                        if (t) {
-                            await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
-                            await deps.sendNudge?.(t);
+                    else {
+                        loggedResult = appendRecoverySummary(out.result, recoverySummary);
+                        if (out.result) {
+                            result = out.result;
+                            const t = formatOutbound(result, detectChannel(task.chat_jid));
+                            if (t) {
+                                await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
+                                await deps.sendNudge?.(t);
+                            }
                         }
                     }
                 }
@@ -301,19 +320,21 @@ export async function runScheduledTask(task, deps) {
     else
         schedulerMetrics.taskRunsSucceeded += 1;
     // Record the run in the task_run_logs table.
+    const effectiveResult = loggedResult ?? result;
+    const effectiveError = loggedError ?? error;
     logTaskRun({
         task_id: task.id,
         run_at: new Date().toISOString(),
         duration_ms: Date.now() - start,
         status: error ? "error" : "success",
-        result,
-        error,
+        result: effectiveResult,
+        error: effectiveError,
     });
     // Compute and persist the next execution time (null for one-shot tasks).
     const nextRun = computeNextRun(task.schedule_type, task.schedule_value, {
         currentDate: task.next_run,
     });
-    updateTaskAfterRun(task.id, nextRun, error ? `Error: ${error}` : (result?.slice(0, 200) || "Completed"));
+    updateTaskAfterRun(task.id, nextRun, error ? `Error: ${effectiveError || error}` : ((effectiveResult || result)?.slice(0, 200) || "Completed"));
 }
 /** Guard to prevent starting the loop more than once. */
 let started = false;

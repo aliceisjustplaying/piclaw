@@ -47,6 +47,7 @@ export const SLASH_COMMANDS = [
   { name: "/new-session", description: "Start a new session" },
   { name: "/switch-session", description: "Switch to a session file" },
   { name: "/session-rotate", description: "Rotate the current persisted session into an archived file" },
+  { name: "/clone", description: "Duplicate the current active branch into a new session" },
   { name: "/fork", description: "Fork from a previous message" },
   { name: "/forks", description: "List forkable messages" },
   { name: "/tree", description: "List the session tree" },
@@ -73,6 +74,7 @@ export const SLASH_COMMANDS = [
   { name: "/update", description: "Update PiClaw to latest git main" },
   { name: "/rebuild", description: "Rebuild the NixOS host" },
   { name: "/fast", description: "Show or set Codex Fast mode" },
+  { name: "/skill:", description: "Run a workspace skill (e.g. /skill:visual-artifact-generator, /skill:web-search)" },
 ];
 
 const COMPOSE_HISTORY_STORAGE_KEY = 'piclaw_compose_history';
@@ -112,6 +114,85 @@ export function resolveUiOnlyCommandNotice(commandText, response) {
     }
 
     return null;
+}
+
+export function resolveComposeSubmitButtonState(isAgentActive, canSend, isCompacting = false) {
+    if (isAgentActive && isCompacting) {
+        return {
+            mode: 'compacting',
+            className: 'icon-btn send-btn abort-mode compacting-mode',
+            title: 'Compacting context — Stop response',
+            ariaLabel: 'Compacting context — Stop response',
+            disabled: false,
+        };
+    }
+
+    if (isAgentActive) {
+        return {
+            mode: 'abort',
+            className: 'icon-btn send-btn abort-mode',
+            title: 'Stop response',
+            ariaLabel: 'Stop response',
+            disabled: false,
+        };
+    }
+
+    return {
+        mode: 'send',
+        className: 'icon-btn send-btn',
+        title: 'Send (Enter)',
+        ariaLabel: 'Send message',
+        disabled: !canSend,
+    };
+}
+
+export function isComposeSubmitAbortMode(mode) {
+    return mode === 'abort' || mode === 'compacting';
+}
+
+export function resolveComposeExtensionWorkingDisplay(workingState, frameIndex = 0) {
+    const message = typeof workingState?.message === 'string' && workingState.message.trim()
+        ? workingState.message.trim()
+        : null;
+    const indicator = workingState?.indicator && typeof workingState.indicator === 'object'
+        ? workingState.indicator
+        : null;
+
+    if (!message && !indicator) {
+        return {
+            visible: false,
+            title: '',
+            indicatorText: null,
+            animateDot: false,
+        };
+    }
+
+    if (indicator?.mode === 'hidden') {
+        return {
+            visible: Boolean(message),
+            title: message || 'Working…',
+            indicatorText: null,
+            animateDot: false,
+        };
+    }
+
+    if (indicator?.mode === 'custom' && Array.isArray(indicator.frames) && indicator.frames.length > 0) {
+        const frames = indicator.frames;
+        const safeIndex = Number.isFinite(frameIndex) && frameIndex >= 0 ? Math.floor(frameIndex) % frames.length : 0;
+        return {
+            visible: true,
+            title: message || 'Working…',
+            indicatorText: frames[safeIndex],
+            animateDot: false,
+        };
+    }
+
+    return {
+        visible: true,
+        title: message || 'Working…',
+        indicatorText: null,
+        animateDot: true,
+    };
 }
 
 /**
@@ -600,6 +681,7 @@ export function ComposeBox({
     onRestoreSession,
     showQueueStack = true,
     statusNotice = null,
+    extensionWorkingState = null,
     prefillRequest = null,
 }) {
     const [content, setContent] = useState('');
@@ -609,6 +691,7 @@ export function ComposeBox({
     const [slashMatches, setSlashMatches] = useState([]);
     const [slashIndex, setSlashIndex] = useState(0);
     const [showSlash, setShowSlash] = useState(false);
+    const dynamicCommandsRef = useRef(null);
     const [mentionMatches, setMentionMatches] = useState([]);
     const [mentionIndex, setMentionIndex] = useState(0);
     const [showMention, setShowMention] = useState(false);
@@ -623,6 +706,7 @@ export function ComposeBox({
     const [submitError, setSubmitError] = useState(null);
     const [submitNotice, setSubmitNotice] = useState(null);
     const [statusNoticeNowMs, setStatusNoticeNowMs] = useState(() => Date.now());
+    const [extensionWorkingFrameIndex, setExtensionWorkingFrameIndex] = useState(0);
     const textareaRef = useRef(null);
     const slashRef = useRef(null);
     const mentionRef = useRef(null);
@@ -673,6 +757,26 @@ export function ComposeBox({
         historyDraftRef.current = '';
     }, [historyStorageKey]);
 
+    // Fetch dynamic commands from the server for autocomplete
+    useEffect(() => {
+        let cancelled = false;
+        const chatJid = currentChatJid || 'web:default';
+        fetch(`/agent/commands?chat_jid=${encodeURIComponent(chatJid)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (cancelled || !data?.commands) return;
+                dynamicCommandsRef.current = data.commands.map(c => ({
+                    name: c.name,
+                    description: c.description || '',
+                }));
+            })
+            .catch((e) => {
+                // keep hardcoded fallback — dynamic commands are optional
+                console.debug("[compose] failed to fetch dynamic commands", e);
+            });
+        return () => { cancelled = true; };
+    }, [currentChatJid]);
+
     useEffect(() => {
         const resolved = resolveComposePrefillRequest(prefillRequest, lastPrefillTokenRef.current, searchMode);
         if (!resolved.shouldApply) return;
@@ -712,11 +816,16 @@ export function ComposeBox({
     const statusNoticeElapsedLabel = statusNoticeIsCompaction
         ? getStatusElapsedLabel(statusNotice, statusNoticeNowMs)
         : null;
+    const extensionWorkingDisplay = resolveComposeExtensionWorkingDisplay(extensionWorkingState, extensionWorkingFrameIndex);
+    const extensionWorkingIndicator = extensionWorkingState?.indicator && typeof extensionWorkingState.indicator === 'object'
+        ? extensionWorkingState.indicator
+        : null;
     const notificationTitle = notificationActive ? 'Disable notifications' : 'Enable notifications';
     const hasAttachments = mediaFiles.length > 0 || fileRefs.length > 0 || messageRefs.length > 0;
     const connectionStatusPresentation = useConnectionStatusPresentation(connectionStatus);
     const connectionStatusLabel = connectionStatusPresentation.label;
     const connectionStatusTitle = connectionStatusPresentation.title;
+    const submitButtonState = resolveComposeSubmitButtonState(isAgentActive, canSend, statusNoticeIsCompaction);
 
     const mentionAgents = (Array.isArray(activeChatAgents) ? activeChatAgents : [])
         .filter((chat) => !chat?.archived_at);
@@ -820,7 +929,8 @@ export function ComposeBox({
             setSlashMatches([]);
             return;
         }
-        const matches = SLASH_COMMANDS.filter(cmd =>
+        const commandList = dynamicCommandsRef.current || SLASH_COMMANDS;
+        const matches = commandList.filter(cmd =>
             cmd.name.startsWith(prefix) || cmd.name.replace(/-/g, '').startsWith(prefix.replace(/-/g, ''))
         );
         if (matches.length > 0 && !(matches.length === 1 && matches[0].name === prefix)) {
@@ -1795,6 +1905,20 @@ export function ComposeBox({
     }, [statusNoticeIsCompaction, statusNotice?.started_at, statusNotice?.startedAt]);
 
     useEffect(() => {
+        setExtensionWorkingFrameIndex(0);
+        if (extensionWorkingIndicator?.mode !== 'custom' || !Array.isArray(extensionWorkingIndicator.frames) || extensionWorkingIndicator.frames.length <= 1) {
+            return undefined;
+        }
+        const intervalMs = typeof extensionWorkingIndicator.intervalMs === 'number' && Number.isFinite(extensionWorkingIndicator.intervalMs) && extensionWorkingIndicator.intervalMs > 0
+            ? extensionWorkingIndicator.intervalMs
+            : 120;
+        const timer = setInterval(() => {
+            setExtensionWorkingFrameIndex((prev) => (prev + 1) % extensionWorkingIndicator.frames.length);
+        }, intervalMs);
+        return () => clearInterval(timer);
+    }, [extensionWorkingIndicator]);
+
+    useEffect(() => {
         if (searchMode) return;
         updateMentionAutocomplete(content);
     }, [mentionAgents, currentChatJid, content, searchMode]);
@@ -1810,6 +1934,18 @@ export function ComposeBox({
                     onOpenFilePill=${onOpenFilePill}
                 />
             `}
+            ${extensionWorkingDisplay.visible && html`
+                <div class="compose-inline-status extension-working" role="status" aria-live="polite">
+                    <div class="compose-inline-status-row">
+                        ${extensionWorkingDisplay.indicatorText
+                            ? html`<span class="compose-inline-status-glyph" aria-hidden="true">${extensionWorkingDisplay.indicatorText}</span>`
+                            : extensionWorkingDisplay.animateDot
+                                ? html`<span class=${buildComposeStatusDotClass({ pulsing: true })} aria-hidden="true"></span>`
+                                : null}
+                        <span class="compose-inline-status-title">${extensionWorkingDisplay.title}</span>
+                    </div>
+                </div>
+            `}
             ${statusNotice && html`
                 <div
                     class=${`compose-inline-status${statusNoticeIsCompaction ? ' compaction' : ''}`}
@@ -1824,9 +1960,6 @@ export function ComposeBox({
                     </div>
                     ${statusNoticeDetail && html`<div class="compose-inline-status-detail">${statusNoticeDetail}</div>`}
                 </div>
-            `}
-            ${submitError && html`
-                <div class="compose-submit-error compose-submit-error-top" role="status" aria-live="polite">${submitError}</div>
             `}
             ${submitNotice && html`
                 <div class="compose-inline-status compose-command-notice" role="status" aria-live="polite">
@@ -2240,13 +2373,31 @@ export function ComposeBox({
                             `}
                             ${!searchMode && html`
                                 <button 
-                                    class="icon-btn send-btn" 
+                                    class=${submitButtonState.className}
                                     type="button"
-                                    onClick=${() => { void handleSubmit(); }}
-                                    disabled=${!canSend}
-                                    title="Send (Enter)"
+                                    onClick=${() => {
+                                        if (isComposeSubmitAbortMode(submitButtonState.mode)) {
+                                            void handleSubmit('/abort', 'steer');
+                                            return;
+                                        }
+                                        void handleSubmit();
+                                    }}
+                                    disabled=${submitButtonState.disabled}
+                                    title=${submitButtonState.title}
+                                    aria-label=${submitButtonState.ariaLabel}
                                 >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                                    ${submitButtonState.mode === 'compacting'
+                                        ? html`
+                                            <span class="compose-submit-spinner" aria-hidden="true">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                                    <circle class="compose-submit-spinner-ring" cx="12" cy="12" r="10.5" stroke-width="2.25" stroke-linecap="round"></circle>
+                                                    <rect class="compose-submit-spinner-stop" x="6" y="6" width="12" height="12" rx="0" fill="currentColor"></rect>
+                                                </svg>
+                                            </span>
+                                        `
+                                        : submitButtonState.mode === 'abort'
+                                            ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5"/></svg>`
+                                            : html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`}
                                 </button>
                             `}
                         </div>

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   recoverInflightRuns,
+  recoverStaleInflightRun,
   resumePendingChats,
   type WebRecoveryContext,
   type WebRecoveryStore,
@@ -107,6 +108,127 @@ describe("web recovery helpers", () => {
     expect(cleared).toEqual([]);
     expect(rolledBack).toEqual([{ chatJid: "web:stale", prevTs: "t0" }]);
     expect(enqueued).toEqual(["resume:web:stale"]);
+  });
+
+  test("recoverStaleInflightRun rolls back and re-enqueues an old no-output inflight chat", () => {
+    const enqueued: string[] = [];
+    const rolledBack: Array<{ chatJid: string; prevTs: string }> = [];
+
+    const ctx: WebRecoveryContext = {
+      assistantName: "Pi",
+      defaultAgentId: "default",
+      enqueue: (_task, key) => { enqueued.push(key); },
+      processChat: async () => {},
+      now: () => new Date("2026-01-01T00:01:00Z").getTime(),
+    };
+
+    const store: WebRecoveryStore = {
+      getInflightRuns: () => [{ chatJid: "web:ux", prevTs: "t-prev", messageId: "m1", startedAt: "2026-01-01T00:00:00Z" }],
+      transaction: (run) => run(),
+      getAgentReplyStateAfter: () => "none",
+      clearInflightMarker: () => {},
+      rollbackInflightRun: (chatJid, prevTs) => { rolledBack.push({ chatJid, prevTs }); },
+      getAllChatCursors: () => ({}),
+      getKnownChatJids: () => [],
+      getDeferredQueuedFollowups: () => [],
+      getMessagesSince: () => [],
+    };
+
+    const recovered = recoverStaleInflightRun(ctx, "web:ux", { hasActiveStatus: false, minAgeMs: 15_000 }, store);
+    expect(recovered).toBe(true);
+    expect(rolledBack).toEqual([{ chatJid: "web:ux", prevTs: "t-prev" }]);
+    expect(enqueued).toEqual(["resume:web:ux"]);
+  });
+
+  test("recoverStaleInflightRun does nothing while a live status exists or the grace period has not elapsed", () => {
+    const ctx: WebRecoveryContext = {
+      assistantName: "Pi",
+      defaultAgentId: "default",
+      enqueue: () => {},
+      processChat: async () => {},
+      now: () => new Date("2026-01-01T00:00:10Z").getTime(),
+    };
+
+    const store: WebRecoveryStore = {
+      getInflightRuns: () => [{ chatJid: "web:ux", prevTs: "t-prev", messageId: "m1", startedAt: "2026-01-01T00:00:00Z" }],
+      transaction: (run) => run(),
+      getAgentReplyStateAfter: () => "none",
+      clearInflightMarker: () => { throw new Error("should not clear"); },
+      rollbackInflightRun: () => { throw new Error("should not roll back"); },
+      getAllChatCursors: () => ({}),
+      getKnownChatJids: () => [],
+      getDeferredQueuedFollowups: () => [],
+      getMessagesSince: () => [],
+    };
+
+    expect(recoverStaleInflightRun(ctx, "web:ux", { hasActiveStatus: true, minAgeMs: 15_000 }, store)).toBe(false);
+    expect(recoverStaleInflightRun(ctx, "web:ux", { hasActiveStatus: false, minAgeMs: 15_000 }, store)).toBe(false);
+  });
+
+  test("recoverStaleInflightRun skips replay for branch chats", () => {
+    const enqueued: string[] = [];
+    const rolledBack: Array<{ chatJid: string; prevTs: string }> = [];
+
+    const ctx: WebRecoveryContext = {
+      assistantName: "Pi",
+      defaultAgentId: "default",
+      enqueue: (_task, key) => { enqueued.push(key); },
+      processChat: async () => {},
+      now: () => new Date("2026-01-01T00:01:00Z").getTime(),
+    };
+
+    const store: WebRecoveryStore = {
+      getInflightRuns: () => [{ chatJid: "web:default:branch:abc123", prevTs: "t-prev", messageId: "m1", startedAt: "2026-01-01T00:00:00Z" }],
+      transaction: (run) => run(),
+      getAgentReplyStateAfter: () => "none",
+      clearInflightMarker: () => {},
+      rollbackInflightRun: (chatJid, prevTs) => { rolledBack.push({ chatJid, prevTs }); },
+      getAllChatCursors: () => ({}),
+      getKnownChatJids: () => [],
+      getDeferredQueuedFollowups: () => [],
+      getMessagesSince: () => [],
+    };
+
+    const recovered = recoverStaleInflightRun(ctx, "web:default:branch:abc123", { hasActiveStatus: false, minAgeMs: 15_000 }, store);
+    expect(recovered).toBe(true);
+    expect(rolledBack).toEqual([{ chatJid: "web:default:branch:abc123", prevTs: "t-prev" }]);
+    expect(enqueued).toEqual([]);  // no replay for branch
+  });
+
+  test("recoverInflightRuns skips replay for branch chats", () => {
+    const enqueued: string[] = [];
+    const cleared: string[] = [];
+
+    const ctx: WebRecoveryContext = {
+      assistantName: "Pi",
+      defaultAgentId: "default",
+      enqueue: (_task, key) => {
+        enqueued.push(key);
+      },
+      processChat: async () => {},
+      now: () => new Date("2026-01-01T00:05:00Z").getTime(),
+    };
+
+    const store: WebRecoveryStore = {
+      getInflightRuns: () => [
+        { chatJid: "web:default", prevTs: "t1", messageId: "m1", startedAt: "2026-01-01T00:04:00Z" },
+        { chatJid: "web:default:branch:abc123", prevTs: "t2", messageId: "m2", startedAt: "2026-01-01T00:04:10Z" },
+      ],
+      transaction: (run) => run(),
+      getAgentReplyStateAfter: () => "none",
+      clearInflightMarker: (chatJid) => { cleared.push(chatJid); },
+      rollbackInflightRun: () => {},
+      getAllChatCursors: () => ({}),
+      getKnownChatJids: () => [],
+      getDeferredQueuedFollowups: () => [],
+      getMessagesSince: () => [],
+    };
+
+    recoverInflightRuns(ctx, store);
+
+    // Root chat gets replayed, branch chat gets cleared without replay
+    expect(enqueued).toEqual(["resume:web:default"]);
+    expect(cleared).toEqual(["web:default:branch:abc123"]);
   });
 
   test("recoverInflightRuns stops when transaction fails", () => {

@@ -6,7 +6,7 @@
  *
  * Consumers: web/http/response-service.ts and web/request-router.ts.
  */
-import { extname, isAbsolute, relative, resolve } from "path";
+import { extname, resolve } from "path";
 import { statSync } from "fs";
 import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 import { WEB_RUNTIME_CONFIG } from "../../../core/config.js";
@@ -67,10 +67,7 @@ function renderHtmlTemplate(relPath, html) {
     }
     return renderedWithSharedFlags;
 }
-function isPathWithin(baseDir, filePath) {
-    const rel = relative(baseDir, filePath);
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
+import { isPathWithin } from "../../../utils/path-safety.js";
 /**
  * Serve a file from the web static asset directory.
  * @param relPath Relative path inside `web/static`.

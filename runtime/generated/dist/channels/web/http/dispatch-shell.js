@@ -18,7 +18,13 @@ export async function handleShellRoutes(channel, req, pathname, flags, serveStat
         return channel.handleManifest(req);
     }
     if (flags.isFavicon) {
-        const avatarResp = await channel.handleAvatar("agent", req);
+        // Serve the agent avatar as a PNG favicon.  The avatar is stored as WebP
+        // but Safari cannot render WebP favicons, so we force PNG conversion
+        // by appending ?format=png to the internal request.
+        const faviconUrl = new URL(req.url);
+        faviconUrl.searchParams.set('format', 'png');
+        const pngReq = new Request(faviconUrl.toString(), req);
+        const avatarResp = await channel.handleAvatar("agent", pngReq);
         if (avatarResp.status === 200)
             return avatarResp;
         return await serveStaticAsset(req, "favicon.ico");
@@ -63,6 +69,11 @@ export async function handleShellRoutes(channel, req, pathname, flags, serveStat
     }
     if (flags.isGetOrHead && pathname === "/avatar/user") {
         return await channel.handleAvatar("user", req);
+    }
+    if (req.method === "GET" && (pathname === "/export/timeline" || pathname === "/internal/export/timeline")) {
+        const { handleExportTimeline } = await import("../export/export-timeline-endpoint.js");
+        const runtimeDir = new URL("../../../../", import.meta.url).pathname.replace(/\/$/, "");
+        return handleExportTimeline(req, { runtimeDir });
     }
     return null;
 }

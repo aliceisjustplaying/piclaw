@@ -12,6 +12,8 @@
 import { writeFileSync } from "fs";
 import { join } from "path";
 
+import type { AgentRecoveryMetadata } from "./contracts.js";
+
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
 
 const log = createLogger("agent-pool.logging");
@@ -27,7 +29,8 @@ export function writeAgentLog(
   duration: number,
   timedOut: boolean,
   result: string | null,
-  error: string | null
+  error: string | null,
+  recovery: AgentRecoveryMetadata | null = null,
 ): void {
   try {
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -36,6 +39,12 @@ export function writeAgentLog(
       `Duration: ${duration}ms`,
       `TimedOut: ${timedOut}`,
       error ? `Error: ${error}` : null,
+      recovery ? `RecoveryAttemptsUsed: ${recovery.attemptsUsed}` : null,
+      recovery ? `RecoveryRecovered: ${recovery.recovered}` : null,
+      recovery ? `RecoveryExhausted: ${recovery.exhausted}` : null,
+      recovery?.lastClassifier ? `RecoveryLastClassifier: ${recovery.lastClassifier}` : null,
+      recovery && recovery.strategyHistory.length > 0 ? `RecoveryStrategyHistory: ${recovery.strategyHistory.join(" -> ")}` : null,
+      recovery && recovery.diagnostics.length > 0 ? `RecoveryDiagnostics: ${JSON.stringify(recovery.diagnostics)}` : null,
       "",
       "=== result ===",
       result?.slice(0, 50000) ?? "(none)",
