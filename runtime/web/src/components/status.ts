@@ -74,6 +74,28 @@ export function formatAgentStatusGitLabel(repoPath, branch) {
     return [repoName, normalizedBranch].filter(Boolean).join(' • ');
 }
 
+export function resolveAgentStatusContent(status, options = {}) {
+    const isLastActivity = options?.isLastActivity ?? Boolean(status?.last_activity || status?.lastActivity);
+    const title = status?.title;
+    const statusText = status?.status;
+    let content = '';
+    if (status?.type === 'plan') {
+        content = title ? `Planning: ${title}` : 'Planning...';
+    } else if (status?.type === 'tool_call') {
+        content = title ? `Running: ${title}` : 'Running tool...';
+    } else if (status?.type === 'tool_status') {
+        content = title ? `${title}: ${statusText || 'Working...'}` : (statusText || 'Working...');
+    } else if (status?.type === 'error') {
+        content = title || 'Agent error';
+    } else {
+        content = title || statusText || 'Working...';
+    }
+    if (!isLastActivity) return content;
+    return content && content !== 'Working...'
+        ? `Recent activity: ${content}`
+        : 'Last activity just now';
+}
+
 /** Preact component: agent status bar with draft/thought/plan panels. */
 function formatElapsed(isoString) {
     if (!isoString) return null;
@@ -277,23 +299,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
     const intentColor = resolveIntentColor(intentKind);
     const statusIntentColor = resolveIntentColor(status?.kind || (statusIsCompaction ? 'warning' : 'info'));
 
-    let content = '';
-    const title = status?.title;
-    const statusText = status?.status;
-    if (status?.type === 'plan') {
-        content = title ? `Planning: ${title}` : 'Planning...';
-    } else if (status?.type === 'tool_call') {
-        content = title ? `Running: ${title}` : 'Running tool...';
-    } else if (status?.type === 'tool_status') {
-        content = title ? `${title}: ${statusText || 'Working...'}` : (statusText || 'Working...');
-    } else if (status?.type === 'error') {
-        content = title || 'Agent error';
-    } else {
-        content = title || statusText || 'Working...';
-    }
-    if (isLastActivity) {
-        content = 'Last activity just now';
-    }
+    const content = resolveAgentStatusContent(status, { isLastActivity });
 
     const toolRepoRepoPath = toolRepoContext?.repoPath || '';
     const toolRepoBranch = toolRepoContext?.branch || '';

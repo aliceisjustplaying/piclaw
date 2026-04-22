@@ -282,6 +282,7 @@ function MainApp({ locationParams, navigate }) {
             thoughtBufferRef,
             pendingRequestRef,
             lastAgentResponseRef: surface.lastAgentResponseRef,
+            agentStatusRef: surface.agentStatusRef,
             stalledPostIdRef,
             scrollToBottomRef: timeline.scrollToBottomRef,
             setCurrentTurnId,

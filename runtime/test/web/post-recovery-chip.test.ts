@@ -157,7 +157,7 @@ afterEach(() => {
   (globalThis as any).Element = originalElement;
 });
 
-test('Post renders a visible recovery chip with the recovery tooltip', async () => {
+async function renderPostWithBlocks(contentBlocks: any[]) {
   const fakeDocument = new FakeDocument();
   (globalThis as any).document = fakeDocument;
   (globalThis as any).window = {
@@ -188,12 +188,7 @@ test('Post renders a visible recovery chip with the recovery tooltip', async () 
       data: {
         type: 'agent_response',
         content: '',
-        content_blocks: [{
-          type: 'recovery_marker',
-          recovered: true,
-          attempts_used: 2,
-          classifier: 'timeout',
-        }],
+        content_blocks: contentBlocks,
         media_ids: [],
       },
     },
@@ -217,8 +212,32 @@ test('Post renders a visible recovery chip with the recovery tooltip', async () 
     onOpenAttachmentPreview: () => {},
   }), host);
 
+  return host;
+}
+
+test('Post renders a visible recovery chip with the recovery tooltip', async () => {
+  const host = await renderPostWithBlocks([{
+    type: 'recovery_marker',
+    recovered: true,
+    attempts_used: 2,
+    classifier: 'timeout',
+  }]);
+
   const chip = findByClass(host, 'post-recovery-chip');
   expect(chip).toBeTruthy();
   expect(flattenText(chip)).toContain('recovered');
   expect(chip?.getAttribute('title')).toBe('Recovered after 2 attempts — request timeout');
+});
+
+test('Post renders a visible timeout chip with the last tool action tooltip', async () => {
+  const host = await renderPostWithBlocks([{
+    type: 'timeout_marker',
+    timed_out: true,
+    tool_action_summary: 'Timed out while running bash',
+  }]);
+
+  const chip = findByClass(host, 'post-timeout-chip');
+  expect(chip).toBeTruthy();
+  expect(flattenText(chip)).toContain('timeout');
+  expect(chip?.getAttribute('title')).toBe('Turn timed out — Timed out while running bash');
 });
