@@ -101,9 +101,8 @@ export async function handleInstallAddon(
     return json({ error: "Invalid JSON" }, 400);
   }
 
-  const slug = typeof (body as Record<string, unknown>)?.slug === "string"
-    ? (body as Record<string, unknown>).slug.trim()
-    : "";
+  const rawSlug = (body as Record<string, unknown> | null)?.slug;
+  const slug = typeof rawSlug === "string" ? rawSlug.trim() : "";
   if (!slug) return json({ error: "Missing slug" }, 400);
 
   const catalog = await fetchCatalog();
@@ -155,9 +154,8 @@ export async function handleUninstallAddon(
     return json({ error: "Invalid JSON" }, 400);
   }
 
-  const slug = typeof (body as Record<string, unknown>)?.slug === "string"
-    ? (body as Record<string, unknown>).slug.trim()
-    : "";
+  const rawSlug2 = (body as Record<string, unknown> | null)?.slug;
+  const slug = typeof rawSlug2 === "string" ? rawSlug2.trim() : "";
   if (!slug) return json({ error: "Missing slug" }, 400);
 
   const catalog = await fetchCatalog();
