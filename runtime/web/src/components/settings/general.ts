@@ -1,5 +1,48 @@
 // @ts-nocheck
-import { html, useState, useCallback } from '../../vendor/preact-htm.js';
+import { html, useState, useEffect, useCallback, useRef } from '../../vendor/preact-htm.js';
+
+function AvatarField({ label, value, onChange }) {
+    const inputRef = useRef(null);
+    const [preview, setPreview] = useState(value || '');
+
+    useEffect(() => { setPreview(value || ''); }, [value]);
+
+    const handleFileSelect = useCallback((e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result;
+            setPreview(dataUrl);
+            onChange?.(dataUrl);
+        };
+        reader.readAsDataURL(file);
+    }, [onChange]);
+
+    const handleUrlChange = useCallback((e) => {
+        const url = e.target.value;
+        setPreview(url);
+        onChange?.(url);
+    }, [onChange]);
+
+    return html`
+        <div class="settings-avatar-field">
+            <label>${label}</label>
+            <div class="settings-avatar-row">
+                <div class="settings-avatar-preview" onClick=${() => inputRef.current?.click()}>
+                    ${preview
+                        ? html`<img src=${preview} alt="avatar" />`
+                        : html`<span class="settings-avatar-placeholder">+</span>`}
+                </div>
+                <div class="settings-avatar-inputs">
+                    <input type="text" value=${value || ''} onInput=${handleUrlChange} placeholder="URL or path" />
+                    <input type="file" accept="image/*" ref=${inputRef} style="display:none" onChange=${handleFileSelect} />
+                    <button class="settings-avatar-upload-btn" onClick=${() => inputRef.current?.click()}>Upload</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
 
 export function GeneralSection({ settingsData }) {
     const d = settingsData || {};
@@ -10,13 +53,17 @@ export function GeneralSection({ settingsData }) {
     const [sessionAutoRotate, setSessionAutoRotate] = useState(d.sessionAutoRotate !== false);
     const [sessionMaxSizeMb, setSessionMaxSizeMb] = useState(d.sessionMaxSizeMb ?? 32);
     const [webTerminalEnabled, setWebTerminalEnabled] = useState(d.webTerminalEnabled !== false);
-    const [saved, setSaved] = useState(false);
 
-    const save = useCallback(async () => {
-        await fetch('/post', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: `/agent-name ${assistantName}` }) });
-        setSaved(true); setTimeout(() => setSaved(false), 2000);
-    }, [assistantName]);
+    // Auto-save agent name on change (debounced)
+    const nameTimer = useRef(null);
+    const saveAgentName = useCallback((name) => {
+        setAssistantName(name);
+        clearTimeout(nameTimer.current);
+        nameTimer.current = setTimeout(() => {
+            fetch('/post', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: `/agent-name ${name}` }) });
+        }, 600);
+    }, []);
 
     return html`
         <div class="settings-section">
@@ -25,19 +72,13 @@ export function GeneralSection({ settingsData }) {
                 <label>User name</label>
                 <input type="text" value=${userName} onInput=${e => setUserName(e.target.value)} />
             </div>
-            <div class="settings-row">
-                <label>User avatar URL</label>
-                <input type="text" value=${userAvatar} onInput=${e => setUserAvatar(e.target.value)} placeholder="https://..." />
-            </div>
+            <${AvatarField} label="User avatar" value=${userAvatar} onChange=${setUserAvatar} />
             <div class="settings-row">
                 <label>Agent name</label>
-                <input type="text" value=${assistantName} onInput=${e => { setAssistantName(e.target.value); setSaved(false); }} />
-                <button onClick=${save}>${saved ? '\u2713 Saved' : 'Save'}</button>
+                <input type="text" value=${assistantName} onInput=${e => saveAgentName(e.target.value)} />
             </div>
-            <div class="settings-row">
-                <label>Agent avatar</label>
-                <input type="text" value=${assistantAvatar} onInput=${e => setAssistantAvatar(e.target.value)} placeholder="/workspace/..." />
-            </div>
+            <${AvatarField} label="Agent avatar" value=${assistantAvatar} onChange=${setAssistantAvatar} />
+
             <h3 style="margin-top:20px">Session</h3>
             <div class="settings-row">
                 <label>Auto-rotate sessions</label>
