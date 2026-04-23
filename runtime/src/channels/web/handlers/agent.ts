@@ -228,21 +228,32 @@ function buildFailureVisibleText(options: {
   title?: string;
   detail?: string;
   actionSummary?: string;
+  attemptsUsed?: number;
+  classifier?: string;
 }): string {
   const draftText = readTrimmedString(options.draftText);
   const title = readTrimmedString(options.title);
   const detail = readTrimmedString(options.detail);
   const actionSummary = readTrimmedString(options.actionSummary);
+  const attemptsUsed = Number.isFinite(options.attemptsUsed) && (options.attemptsUsed ?? 0) > 0 ? options.attemptsUsed : undefined;
+  const classifier = readTrimmedString(options.classifier);
 
-  const diagnostics: string[] = [];
-  if (title) diagnostics.push(title);
-  if (detail && detail !== title) diagnostics.push(detail);
-  if (actionSummary) diagnostics.push(`Last action: ${actionSummary}`);
+  const rows: Array<[string, string]> = [];
+  if (title) rows.push(["Issue", title]);
+  if (detail && detail !== title) rows.push(["Detail", detail]);
+  if (actionSummary) rows.push(["Last action", actionSummary]);
+  if (attemptsUsed) rows.push(["Recovery attempts", String(attemptsUsed)]);
+  if (classifier) rows.push(["Classifier", classifier.replace(/_/g, " ")]);
 
-  if (draftText && diagnostics.length === 0) return draftText;
-  if (!draftText && diagnostics.length === 0) return "Turn failed.";
-  if (!draftText) return diagnostics.join("\n\n");
-  return [draftText, ...diagnostics].join("\n\n");
+  const useTable = rows.length >= 2;
+  const diagnosticText = useTable
+    ? ["| | |", "|---|---|", ...rows.map(([k, v]) => `| **${k}** | ${v} |`)].join("\n")
+    : rows.map(([k, v]) => `${k}: ${v}`).join("\n\n");
+
+  if (draftText && rows.length === 0) return draftText;
+  if (!draftText && rows.length === 0) return "Turn failed.";
+  if (!draftText) return diagnosticText;
+  return [draftText, "", diagnosticText].join("\n");
 }
 
 function buildRetryStatusPayload(base: {
@@ -1330,6 +1341,8 @@ export async function processChat(
       title,
       detail: detail || markerDetail,
       actionSummary: lastAction?.summary,
+      attemptsUsed: Number.isFinite(marker?.attempts_used) ? (marker.attempts_used as number) : undefined,
+      classifier: readTrimmedString(marker?.classifier),
     });
 
     return persistTerminalOutcome(text, marker);
