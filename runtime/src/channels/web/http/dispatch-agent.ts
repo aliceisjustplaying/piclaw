@@ -5,6 +5,8 @@
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import { getIdentityConfig } from "../../../core/config.js";
 import { THEME_PRESETS, THEME_LIST_COLOR_KEYS } from "../theming/ui-theme-data.js";
+import { TOOLSETS } from "../../../extensions/tool-activation.js";
+import { getToolCapability } from "../../../extensions/tool-capabilities.js";
 import {
   handleWebPushPresence,
   handleWebPushSubscriptionDelete,
@@ -217,6 +219,14 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         assistantName: identity.assistantName || "PiClaw",
         themes,
         colorKeys: [...THEME_LIST_COLOR_KEYS],
+        toolsets: TOOLSETS.map((ts) => ({
+          name: ts.name,
+          description: ts.description,
+          tools: ts.toolNames.map((tn) => {
+            const cap = getToolCapability(tn);
+            return { name: tn, kind: cap.kind, weight: cap.weight, summary: cap.summary };
+          }),
+        })),
       });
     },
   },

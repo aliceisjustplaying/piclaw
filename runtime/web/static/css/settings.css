@@ -1,19 +1,13 @@
 /* Settings dialog — floating overlay */
 .settings-portal {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 0; left: 0; right: 0; bottom: 0;
     z-index: 2400;
 }
 
 .settings-dialog-backdrop {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
@@ -21,10 +15,7 @@
     animation: settings-fade-in 0.15s ease-out;
 }
 
-@keyframes settings-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
+@keyframes settings-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .settings-dialog {
     width: min(900px, 92vw);
@@ -62,8 +53,7 @@
 }
 
 .settings-dialog-close {
-    width: 28px;
-    height: 28px;
+    width: 28px; height: 28px;
     border: none;
     background: transparent;
     color: var(--text-secondary);
@@ -88,8 +78,7 @@
 }
 
 .settings-nav {
-    width: 190px;
-    min-width: 190px;
+    width: 190px; min-width: 190px;
     border-right: 1px solid var(--border-color, rgba(128,128,128,0.2));
     padding: 12px 0;
     overflow-y: auto;
@@ -126,14 +115,10 @@
     display: flex;
     align-items: center;
     width: 20px;
-    text-align: center;
     flex-shrink: 0;
 }
 
-.settings-nav-icon svg {
-    width: 16px;
-    height: 16px;
-}
+.settings-nav-icon svg { width: 16px; height: 16px; }
 
 .settings-content {
     flex: 1;
@@ -141,15 +126,8 @@
     padding: 20px 28px;
 }
 
-.settings-section h3 {
-    margin: 0 0 14px;
-    font-size: 1.1em;
-    font-weight: 600;
-}
-
-.settings-section {
-    margin-bottom: 28px;
-}
+.settings-section { margin-bottom: 28px; }
+.settings-section h3 { margin: 0 0 14px; font-size: 1.1em; font-weight: 600; }
 
 .settings-row {
     display: flex;
@@ -204,16 +182,14 @@
     font-size: 0.92em;
 }
 
-.settings-hint a {
-    color: var(--accent-color, #1d9bf0);
-}
+.settings-hint a { color: var(--accent-color, #1d9bf0); }
 
 /* ── Tables ─────────────────────────────────────────────────────────────── */
 
 .settings-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 10px 0;
+    margin: 0;
     font-size: 0.86em;
 }
 
@@ -229,15 +205,80 @@
     background: color-mix(in srgb, var(--bg-secondary, #f5f5f5) 60%, transparent);
 }
 
+/* Borderless variant — no cell borders, subtle row hover */
+.settings-borderless th,
+.settings-borderless td {
+    border: none;
+    border-bottom: none;
+}
+
+.settings-borderless tbody tr:hover {
+    background: var(--bg-hover, rgba(128,128,128,0.06));
+}
+
 .settings-row-active {
     background: color-mix(in srgb, var(--accent-color) 8%, transparent);
 }
 
-/* ── Theme table with color swatches ───────────────────────────────────── */
-
-.settings-theme-table {
-    font-size: 0.82em;
+.settings-borderless .settings-row-active {
+    background: color-mix(in srgb, var(--accent-color) 10%, transparent);
 }
+
+.settings-table input[type="radio"],
+.settings-table input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent-color, #1d9bf0);
+}
+
+.settings-table input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.settings-empty {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 16px !important;
+    font-style: italic;
+}
+
+/* ── Model filter ──────────────────────────────────────────────────────── */
+
+.settings-model-filter {
+    margin-bottom: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-primary);
+    padding: 0 0 6px;
+}
+
+.settings-filter-input {
+    width: 100%;
+    padding: 7px 12px;
+    border: 1px solid var(--border-color, rgba(128,128,128,0.3));
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.88em;
+    box-sizing: border-box;
+}
+
+.settings-filter-input:focus {
+    outline: none;
+    border-color: var(--accent-color, #1d9bf0);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color, #1d9bf0) 20%, transparent);
+}
+
+.settings-filter-input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+/* ── Theme table ───────────────────────────────────────────────────────── */
+
+.settings-theme-table { font-size: 0.82em; }
 
 .settings-theme-table th,
 .settings-theme-table td {
@@ -248,21 +289,84 @@
 .settings-swatch-header {
     font-size: 0.78em;
     text-transform: capitalize;
+    text-align: center !important;
+}
+
+.settings-swatch-cell {
+    text-align: center !important;
 }
 
 .settings-color-swatch {
     display: inline-block;
-    width: 18px;
-    height: 18px;
+    width: 18px; height: 18px;
     border-radius: 3px;
     border: 1px solid var(--border-color, rgba(128,128,128,0.3));
     vertical-align: middle;
 }
 
-.settings-theme-table input[type="radio"] {
+/* ── Tools section ─────────────────────────────────────────────────────── */
+
+.settings-toolset {
+    margin-bottom: 16px;
+}
+
+.settings-toolset-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color, rgba(128,128,128,0.15));
+}
+
+.settings-toolset-header strong {
+    font-size: 0.9em;
+    text-transform: capitalize;
+}
+
+.settings-tool-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 4px;
+}
+
+.settings-tool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 0.84em;
+}
+
+.settings-tool-row:hover {
+    background: var(--bg-hover, rgba(128,128,128,0.06));
+}
+
+.settings-tool-row input[type="checkbox"] {
     margin: 0;
-    cursor: pointer;
     accent-color: var(--accent-color, #1d9bf0);
+}
+
+.settings-tool-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.92em;
+    color: var(--text-primary);
+    min-width: 140px;
+}
+
+.settings-tool-kind {
+    font-size: 0.82em;
+    flex-shrink: 0;
+}
+
+.settings-tool-summary {
+    color: var(--text-secondary);
+    font-size: 0.88em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* ── Add-on tags ───────────────────────────────────────────────────────── */
@@ -282,12 +386,7 @@
     color: var(--accent-color, #1d9bf0);
 }
 
-.settings-table input[type="checkbox"]:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-
-/* ── Thinking level slider ──────────────────────────────────────────────── */
+/* ── Thinking slider ─────────────────────────────────────────────────── */
 
 .settings-thinking-slider {
     margin-top: 20px;
@@ -303,13 +402,9 @@
     margin-bottom: 10px;
 }
 
-.settings-thinking-slider > label strong {
-    color: var(--text-primary);
-}
+.settings-thinking-slider > label strong { color: var(--text-primary); }
 
-.settings-slider-track {
-    padding: 0 4px;
-}
+.settings-slider-track { padding: 0 4px; }
 
 .settings-slider-track input[type="range"] {
     -webkit-appearance: none;
@@ -325,9 +420,7 @@
 
 .settings-slider-track input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
+    width: 18px; height: 18px;
     border-radius: 50%;
     background: var(--accent-color, #1d9bf0);
     border: 2px solid var(--bg-primary, #fff);
@@ -341,8 +434,7 @@
 }
 
 .settings-slider-track input[type="range"]::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
+    width: 18px; height: 18px;
     border-radius: 50%;
     background: var(--accent-color, #1d9bf0);
     border: 2px solid var(--bg-primary, #fff);
@@ -372,34 +464,28 @@
     user-select: none;
 }
 
-.settings-slider-labels span:hover {
-    color: var(--text-primary);
-}
+.settings-slider-labels span:hover { color: var(--text-primary); }
 
 .settings-slider-labels span.active {
     color: var(--accent-color, #1d9bf0);
     font-weight: 600;
 }
 
-/* ── Timeline menu (hamburger in chat area) ────────────────────────────── */
+/* ── Timeline menu ───────────────────────────────────────────────────── */
 
 .timeline-menu-wrap {
     position: absolute;
-    top: 8px;
-    left: 8px;
+    top: var(--spacing-sm, 8px);
+    right: var(--spacing-md, 12px);
     z-index: 100;
 }
 
-.timeline-menu-button {
-    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-}
-
 .timeline-menu-dropdown {
-    top: calc(100% + 4px);
-    left: 0;
+    right: 0;
+    left: auto;
 }
 
-/* ── Loading ───────────────────────────────────────────────────────────── */
+/* ── Loading ─────────────────────────────────────────────────────────── */
 
 .settings-loading {
     padding: 20px;

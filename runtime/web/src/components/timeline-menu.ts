@@ -1,8 +1,7 @@
 // @ts-nocheck
 /**
- * timeline-menu.ts — Hamburger menu that mirrors the workspace menu,
- * shown at the top of the timeline when the workspace explorer is hidden.
- * Includes a "Settings" option that opens the settings dialog.
+ * timeline-menu.ts — Hamburger menu identical to the workspace hamburger,
+ * pinned to the right edge of the timeline when workspace is collapsed.
  */
 
 import { html, useState, useEffect, useRef, useCallback } from '../vendor/preact-htm.js';
@@ -19,7 +18,6 @@ export function TimelineMenu({
     const menuRef = useRef(null);
     const btnRef = useRef(null);
 
-    // Close on outside click
     useEffect(() => {
         if (!open) return;
         const onClick = (e) => {
@@ -31,7 +29,6 @@ export function TimelineMenu({
         return () => document.removeEventListener('mousedown', onClick, true);
     }, [open]);
 
-    // Close on Escape
     useEffect(() => {
         if (!open) return;
         const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
@@ -44,14 +41,13 @@ export function TimelineMenu({
         fn?.();
     }, []);
 
-    // Only show when workspace is collapsed
     if (workspaceOpen) return null;
 
     return html`
         <div class="timeline-menu-wrap">
             <button
                 ref=${btnRef}
-                class=${`workspace-menu-button timeline-menu-button${open ? ' active' : ''}`}
+                class=${`workspace-menu-button${open ? ' active' : ''}`}
                 onClick=${() => setOpen(v => !v)}
                 title="Menu"
                 aria-label="Menu"
