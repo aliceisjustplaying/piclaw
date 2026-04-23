@@ -478,6 +478,7 @@ export async function handleAgentMessage(
   const trimmed = content.trim();
   const themeCommand = handleUiThemeCommand(trimmed);
   const metersCommand = handleUiMetersCommand(trimmed);
+  const isSettingsCommand = /^\/settings\s*$/i.test(trimmed);
   const isStreaming = typeof channel.agentPool.isStreaming === "function"
     ? channel.agentPool.isStreaming(chatJid)
     : false;
@@ -587,7 +588,7 @@ export async function handleAgentMessage(
     contentPreview: content.slice(0, 60),
   });
 
-  if (!command && !themeCommand && !metersCommand && isStreaming && requestMode === "steer") {
+  if (!command && !themeCommand && !metersCommand && !isSettingsCommand && isStreaming && requestMode === "steer") {
     const steerResponse = await queueDeferredSteer(content, "compose");
     if (steerResponse) return steerResponse;
   }
@@ -654,6 +655,14 @@ export async function handleAgentMessage(
     return channel.json(
       { thread_id: null, command: metersCommand, ui_only: true },
       200
+    );
+  }
+
+  if (isSettingsCommand) {
+    channel.broadcastEvent("ui_open_tab", { chat_jid: chatJid, path: "piclaw://settings", label: "Settings" });
+    return channel.json(
+      { thread_id: null, command: { message: "Opening settings…" }, ui_only: true },
+      200,
     );
   }
 

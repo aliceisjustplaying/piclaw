@@ -73,6 +73,7 @@ export const SLASH_COMMANDS = [
   { name: "/exit", description: "Exit the current piclaw process immediately (Supervisor will restart it)" },
   { name: "/login", description: "Login to an AI model provider (OAuth or API key)" },
   { name: "/logout", description: "Logout from an AI model provider" },
+  { name: "/settings", description: "Open the settings pane" },
   { name: "/commands", description: "List available commands" },
   { name: "/skill:", description: "Run a workspace skill (e.g. /skill:visual-artifact-generator, /skill:web-search)" },
 ];
