@@ -634,8 +634,8 @@
 
 /* Dropdown anchor depends on position */
 .timeline-menu-portal.in-chat .timeline-menu-dropdown {
-    right: 0;
-    left: auto;
+    left: 0;
+    right: auto;
 }
 
 .timeline-menu-portal.in-workspace .timeline-menu-dropdown {
