@@ -42,9 +42,9 @@ export function TimelineMenu({
                     const r = sidebar.getBoundingClientRect();
                     setPos({ top: r.top + 8, left: r.left + 8, right: undefined });
                 }
-            } else if (container) {
-                const r = container.getBoundingClientRect();
-                setPos({ top: r.top + 8, right: window.innerWidth - r.right + 12, left: undefined });
+            } else {
+                // Workspace closed: top-left, where the workspace header button would be
+                setPos({ top: 8, left: 8, right: undefined });
             }
         };
         update();
