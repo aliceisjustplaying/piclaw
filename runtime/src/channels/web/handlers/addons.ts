@@ -10,8 +10,8 @@ import { existsSync, readFileSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { WORKSPACE_DIR } from "../../../core/config.js";
 
-const CATALOG_URL = "https://raw.githubusercontent.com/rcarmo/piclaw-addons/main/catalog.json";
-const REPO_URL = "https://github.com/rcarmo/piclaw-addons.git";
+const DEFAULT_CATALOG_URL = "https://raw.githubusercontent.com/rcarmo/piclaw-addons/main/catalog.json";
+const DEFAULT_REPO_URL = "https://github.com/rcarmo/piclaw-addons.git";
 const CATALOG_CACHE_MS = 5 * 60 * 1000;
 
 let catalogCache: { data: unknown; ts: number } | null = null;
@@ -70,24 +70,27 @@ function getInstalledVersion(packageName: string): string | null {
   return null;
 }
 
-async function fetchCatalog(): Promise<CatalogData | null> {
+async function fetchCatalog(catalogUrl?: string): Promise<CatalogData | null> {
+  const url = catalogUrl || DEFAULT_CATALOG_URL;
   const now = Date.now();
-  if (catalogCache && now - catalogCache.ts < CATALOG_CACHE_MS) {
+  // Only use cache if using the default URL
+  if (!catalogUrl && catalogCache && now - catalogCache.ts < CATALOG_CACHE_MS) {
     return catalogCache.data as CatalogData;
   }
   try {
-    const response = await fetch(CATALOG_URL, { signal: AbortSignal.timeout(8000) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) return null;
     const data = await response.json();
-    catalogCache = { data, ts: now };
+    if (!catalogUrl) catalogCache = { data, ts: now };
     return data as CatalogData;
   } catch {
-    return catalogCache?.data as CatalogData ?? null;
+    return !catalogUrl ? (catalogCache?.data as CatalogData ?? null) : null;
   }
 }
 
 /** Clone or update the addons repo to a local cache directory. */
-async function ensureRepoClone(): Promise<string> {
+async function ensureRepoClone(repoUrl?: string): Promise<string> {
+  const url = repoUrl || DEFAULT_REPO_URL;
   const cacheDir = getAddonsCacheDir();
   if (existsSync(join(cacheDir, ".git"))) {
     // Pull latest
@@ -99,7 +102,7 @@ async function ensureRepoClone(): Promise<string> {
     // Fresh clone
     if (existsSync(cacheDir)) rmSync(cacheDir, { recursive: true, force: true });
     mkdirSync(cacheDir, { recursive: true });
-    const clone = Bun.spawn(["git", "clone", "--depth", "1", REPO_URL, cacheDir], {
+    const clone = Bun.spawn(["git", "clone", "--depth", "1", url, cacheDir], {
       stdout: "pipe", stderr: "pipe",
     });
     const exitCode = await clone.exited;
@@ -113,8 +116,10 @@ async function ensureRepoClone(): Promise<string> {
 
 export async function handleGetAddons(
   json: (body: unknown, status?: number) => Response,
+  url?: URL,
 ): Promise<Response> {
-  const catalog = await fetchCatalog();
+  const catalogUrl = url?.searchParams.get("catalog_url") || undefined;
+  const catalog = await fetchCatalog(catalogUrl);
   if (!catalog || !Array.isArray(catalog.addons)) {
     return json({ error: "Failed to fetch add-on catalog" }, 502);
   }
@@ -143,6 +148,7 @@ export async function handleGetAddons(
 export async function handleInstallAddon(
   req: Request,
   json: (body: unknown, status?: number) => Response,
+  url?: URL,
 ): Promise<Response> {
   let body: unknown;
   try {
@@ -155,7 +161,10 @@ export async function handleInstallAddon(
   const slug = typeof rawSlug === "string" ? rawSlug.trim() : "";
   if (!slug) return json({ error: "Missing slug" }, 400);
 
-  const catalog = await fetchCatalog();
+  const catalogUrl = url?.searchParams.get("catalog_url") || undefined;
+  const repoUrl = url?.searchParams.get("repo_url") || undefined;
+
+  const catalog = await fetchCatalog(catalogUrl);
   const addon = catalog?.addons?.find((a) => a.slug === slug);
   if (!addon) return json({ error: `Add-on "${slug}" not found in catalog` }, 404);
 
@@ -163,7 +172,7 @@ export async function handleInstallAddon(
 
   try {
     // Clone/update the addons repo locally
-    const repoDir = await ensureRepoClone();
+    const repoDir = await ensureRepoClone(repoUrl);
     const addonLocalPath = join(repoDir, addon.path || `addons/${slug}`);
 
     if (!existsSync(addonLocalPath)) {

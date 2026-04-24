@@ -284,12 +284,12 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   {
     method: "GET",
     path: "/agent/addons",
-    handle: (channel) => handleGetAddons((body, status) => channel.json(body, status)),
+    handle: (channel, req, url) => handleGetAddons((body, status) => channel.json(body, status), url),
   },
   {
     method: "POST",
     path: "/agent/addons/install",
-    handle: (channel, req) => handleInstallAddon(req, (body, status) => channel.json(body, status)),
+    handle: (channel, req, url) => handleInstallAddon(req, (body, status) => channel.json(body, status), url),
   },
   {
     method: "POST",

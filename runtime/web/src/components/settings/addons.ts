@@ -6,9 +6,22 @@ export function AddonsSection({ setStatus, filter = '' }) {
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(null);
 
+    // Read developer overrides from localStorage
+    function devParams() {
+        const params = new URLSearchParams();
+        try {
+            const cu = localStorage.getItem('piclaw_addons_catalog_url');
+            const ru = localStorage.getItem('piclaw_addons_repo_url');
+            if (cu) params.set('catalog_url', cu);
+            if (ru) params.set('repo_url', ru);
+        } catch {}
+        const qs = params.toString();
+        return qs ? `?${qs}` : '';
+    }
+
     const loadAddons = useCallback(async () => {
         try {
-            const resp = await fetch('/agent/addons');
+            const resp = await fetch(`/agent/addons${devParams()}`);
             const data = await resp.json();
             if (data.error) throw new Error(data.error);
             setAddons(data.addons || []);
@@ -20,7 +33,7 @@ export function AddonsSection({ setStatus, filter = '' }) {
     const installAddon = useCallback(async (slug) => {
         if (busy) return; setBusy(slug); setStatus?.(`Installing ${slug}\u2026`, 'info');
         try {
-            const resp = await fetch('/agent/addons/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) });
+            const resp = await fetch(`/agent/addons/install${devParams()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) });
             const data = await resp.json();
             if (data.error) { setStatus?.(data.error, 'error'); return; }
             setStatus?.(data.message, 'success'); await loadAddons();
