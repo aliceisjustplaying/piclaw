@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * timeline-menu.ts — Single hamburger menu, position:fixed.
- * Tracks the .container element's position to stay aligned with the chat area.
+ * Tracks .container/.workspace-sidebar for positioning.
  */
 
 import { html, useState, useEffect, useRef, useCallback, useLayoutEffect, render } from '../vendor/preact-htm.js';
@@ -9,18 +9,18 @@ import { html, useState, useEffect, useRef, useCallback, useLayoutEffect, render
 export function TimelineMenu({
     workspaceOpen,
     toggleWorkspace,
+    chatOnlyMode,
     onOpenTerminalTab,
     onOpenVncTab,
     onToggleTerminal,
     terminalVisible,
 }) {
     const [open, setOpen] = useState(false);
-    const [pos, setPos] = useState({ top: 8, right: 12 });
+    const [pos, setPos] = useState({ top: 8, left: 8 });
     const menuRef = useRef(null);
     const btnRef = useRef(null);
     const portalRef = useRef(null);
 
-    // Create portal host once
     useEffect(() => {
         if (typeof document === 'undefined') return;
         const host = document.createElement('div');
@@ -30,50 +30,39 @@ export function TimelineMenu({
         return () => { host.remove(); portalRef.current = null; };
     }, []);
 
-    // Track container position to align the button
     useEffect(() => {
         const update = () => {
-            const container = document.querySelector('.container');
-            const shell = document.querySelector('.app-shell');
             if (workspaceOpen) {
-                // Position over the workspace header area
                 const sidebar = document.querySelector('.workspace-sidebar');
                 if (sidebar) {
                     const r = sidebar.getBoundingClientRect();
-                    setPos({ top: r.top + 8, left: r.left + 8, right: undefined });
+                    setPos({ top: r.top + 8, left: r.left + 8 });
                 }
             } else {
-                // Workspace closed: top-left, where the workspace header button would be
-                setPos({ top: 8, left: 8, right: undefined });
+                setPos({ top: 8, left: 8 });
             }
         };
         update();
         const observer = new ResizeObserver(update);
-        const container = document.querySelector('.container');
         const sidebar = document.querySelector('.workspace-sidebar');
-        if (container) observer.observe(container);
         if (sidebar) observer.observe(sidebar);
         window.addEventListener('resize', update);
         return () => { observer.disconnect(); window.removeEventListener('resize', update); };
     }, [workspaceOpen]);
 
-    // Update portal class
     useEffect(() => {
-        if (portalRef.current) {
+        if (portalRef.current)
             portalRef.current.className = `timeline-menu-portal ${workspaceOpen ? 'in-workspace' : 'in-chat'}`;
-        }
     }, [workspaceOpen]);
 
-    // Update portal position
     useEffect(() => {
         if (!portalRef.current) return;
         const s = portalRef.current.style;
         s.top = `${pos.top}px`;
-        if (pos.right !== undefined) { s.right = `${pos.right}px`; s.left = 'auto'; }
-        else if (pos.left !== undefined) { s.left = `${pos.left}px`; s.right = 'auto'; }
+        s.left = `${pos.left}px`;
+        s.right = 'auto';
     }, [pos]);
 
-    // Close on outside click
     useEffect(() => {
         if (!open) return;
         const onClick = (e) => {
@@ -96,6 +85,16 @@ export function TimelineMenu({
 
     const run = useCallback((fn) => { setOpen(false); fn?.(); }, []);
 
+    const toggleChatOnly = useCallback(() => {
+        const url = new URL(window.location.href);
+        if (chatOnlyMode) {
+            url.searchParams.delete('chat_only');
+        } else {
+            url.searchParams.set('chat_only', '1');
+        }
+        window.location.href = url.toString();
+    }, [chatOnlyMode]);
+
     const content = html`
         <button ref=${btnRef} class=${`timeline-menu-btn${open ? ' active' : ''}`}
             onClick=${() => setOpen(v => !v)} title="Menu" aria-label="Menu"
@@ -112,10 +111,20 @@ export function TimelineMenu({
                 <button class="workspace-menu-item" role="menuitem" onClick=${() => run(toggleWorkspace)}>
                     ${workspaceOpen ? 'Hide workspace' : 'Show workspace'}
                 </button>
+                ${!workspaceOpen && !chatOnlyMode && html`
+                    <button class="workspace-menu-item" role="menuitem" onClick=${() => run(() => { toggleWorkspace(); })}>
+                        Open explorer
+                    </button>
+                `}
+                <button class=${`workspace-menu-item${chatOnlyMode ? ' active' : ''}`} role="menuitem" onClick=${() => run(toggleChatOnly)}>
+                    ${chatOnlyMode ? 'Exit chat-only mode' : 'Chat-only mode'}
+                </button>
+
                 ${(onOpenTerminalTab || onOpenVncTab || onToggleTerminal) && html`<div class="workspace-menu-separator"></div>`}
                 ${onOpenTerminalTab && html`<button class="workspace-menu-item" role="menuitem" onClick=${() => run(onOpenTerminalTab)}>Open terminal in tab</button>`}
                 ${onOpenVncTab && html`<button class="workspace-menu-item" role="menuitem" onClick=${() => run(onOpenVncTab)}>Open VNC in tab</button>`}
                 ${onToggleTerminal && html`<button class="workspace-menu-item" role="menuitem" onClick=${() => run(onToggleTerminal)}>${terminalVisible ? 'Hide terminal dock' : 'Show terminal dock'}</button>`}
+
                 <div class="workspace-menu-separator"></div>
                 <button class="workspace-menu-item" role="menuitem" onClick=${() => run(() => window.dispatchEvent(new CustomEvent('piclaw:open-settings')))}>Settings</button>
             </div>

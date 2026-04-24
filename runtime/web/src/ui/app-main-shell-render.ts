@@ -435,6 +435,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
       <${TimelineMenu}
         workspaceOpen=${workspaceOpen}
         toggleWorkspace=${toggleWorkspace}
+        chatOnlyMode=${chatOnlyMode}
         onOpenTerminalTab=${openTerminalTab}
         onOpenVncTab=${openVncTab}
         onToggleTerminal=${hasDockPanes ? toggleDock : undefined}
