@@ -1209,3 +1209,33 @@
     margin: 6px 16px;
     background: var(--border-color, rgba(128,128,128,0.2));
 }
+
+/* ── Provider setup form ─────────────────────────────────────── */
+
+.settings-provider-setup {
+    padding: 8px 12px 4px;
+    border-top: 1px solid var(--border-color, rgba(128,128,128,0.15));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-provider-method {
+    padding: 4px 0;
+}
+
+.settings-provider-setup .settings-row input[type="text"],
+.settings-provider-setup .settings-row input[type="password"] {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, rgba(128,128,128,0.3));
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.86em;
+    min-width: 0;
+}
+
+.settings-provider-card-header {
+    cursor: pointer;
+}

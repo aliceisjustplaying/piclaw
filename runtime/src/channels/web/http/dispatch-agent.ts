@@ -245,9 +245,34 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         { id: "openai-codex", name: "OpenAI Codex", hasOAuth: true, hasApiKey: false },
         { id: "openai", name: "OpenAI", hasOAuth: false, hasApiKey: true, apiKeyHint: "sk-proj-..." },
         { id: "opencode", name: "OpenCode", hasOAuth: false, hasApiKey: true, apiKeyHint: "OPENCODE_API_KEY" },
-        { id: "azure-openai", name: "Azure OpenAI", hasOAuth: false, hasApiKey: false, isCustom: true },
-        { id: "ollama", name: "Ollama", hasOAuth: false, hasApiKey: false, isCustom: true },
-        { id: "openai-compatible", name: "OpenAI-compatible", hasOAuth: false, hasApiKey: false, isCustom: true },
+        {
+          id: "azure-openai", name: "Azure OpenAI", hasOAuth: false, hasApiKey: false, isCustom: true,
+          customFields: [
+            { key: "baseUrl", label: "Base URL", placeholder: "https://myresource.openai.azure.com/openai/v1", required: true },
+            { key: "apiKey", label: "API Key (or empty for managed identity)", placeholder: "Bearer ...", required: false },
+            { key: "modelId", label: "Model ID", placeholder: "gpt-4o", required: true },
+            { key: "modelIds", label: "Additional model IDs (comma-separated)", placeholder: "gpt-4o,o3-mini", required: false },
+          ],
+        },
+        {
+          id: "ollama", name: "Ollama", hasOAuth: false, hasApiKey: false, isCustom: true,
+          customFields: [
+            { key: "baseUrl", label: "Base URL", placeholder: "http://192.168.1.100:11434/v1", required: true },
+            { key: "modelId", label: "Model ID", placeholder: "llama3:latest", required: true },
+            { key: "modelIds", label: "Additional model IDs (comma-separated)", placeholder: "qwen3:latest", required: false },
+            { key: "contextWindow", label: "Context window", placeholder: "128000", required: false },
+          ],
+        },
+        {
+          id: "openai-compatible", name: "OpenAI-compatible", hasOAuth: false, hasApiKey: false, isCustom: true,
+          customFields: [
+            { key: "baseUrl", label: "Base URL", placeholder: "https://api.example.com/v1", required: true },
+            { key: "apiKey", label: "API Key", placeholder: "sk-...", required: true },
+            { key: "modelId", label: "Model ID", placeholder: "gpt-4o", required: true },
+            { key: "modelIds", label: "Additional model IDs (comma-separated)", placeholder: "model-a,model-b", required: false },
+            { key: "contextWindow", label: "Context window", placeholder: "128000", required: false },
+          ],
+        },
       ];
 
       const providers = providerDefs.map((p) => {
