@@ -35,12 +35,8 @@ A small `postinstall` repair step still runs automatically after `bun add`, but
 it is only a fallback for incomplete source checkouts or damaged package trees.
 No devDependencies or full source rebuild are required for a working runtime.
 
-If Draw.io is missing and `postinstall` was skipped (e.g. `--ignore-scripts`),
-run manually:
-
-```bash
-bun run build:vendor:drawio
-```
+Draw.io now lives in the `piclaw-addons` repository and is no longer repaired by
+piclaw's core postinstall step.
 
 ### Full development rebuild
 

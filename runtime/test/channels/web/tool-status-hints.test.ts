@@ -11,7 +11,6 @@ import '../../../src/extensions/bun-runner.ts';
 import '../../../extensions/browser/cdp-browser/index.ts';
 import '../../../extensions/integrations/office-tools/index.ts';
 import '../../../extensions/viewers/office-viewer/index.ts';
-import '../../../extensions/viewers/drawio-editor/index.ts';
 import '../../../extensions/platform/windows/win-ui/index.ts';
 import '../../../extensions/platform/windows/powershell/index.ts';
 import {
