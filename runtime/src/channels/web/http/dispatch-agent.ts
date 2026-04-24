@@ -282,11 +282,20 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         return { ...p, configured, authType };
       });
 
+      /** Convert a local workspace path to a web-accessible URL. */
+      const toAvatarUrl = (v: string): string => {
+        if (!v) return '';
+        if (v.startsWith('http://') || v.startsWith('https://') || v.startsWith('data:')) return v;
+        // Strip /workspace/ prefix and serve via the file API
+        const rel = v.startsWith('/workspace/') ? v.slice('/workspace/'.length) : v;
+        return `/workspace/file?path=${encodeURIComponent(rel)}`;
+      };
+
       return channel.json({
         assistantName: identity.assistantName || "PiClaw",
-        assistantAvatar: identity.assistantAvatar || "",
+        assistantAvatar: toAvatarUrl(identity.assistantAvatar),
         userName: identity.userName || "",
-        userAvatar: identity.userAvatar || "",
+        userAvatar: toAvatarUrl(identity.userAvatar),
         userAvatarBackground: identity.userAvatarBackground || "",
         sessionAutoRotate: rawConfig.sessionAutoRotate ?? true,
         sessionMaxSizeMb: rawConfig.sessionMaxSizeMb ?? 32,
