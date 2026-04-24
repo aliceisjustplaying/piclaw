@@ -160,3 +160,19 @@ export function watchChatSwitchShortcuts(callbacks: ChatSwitchShortcutCallbacks,
   doc.addEventListener('keydown', onKeyDown);
   return () => doc.removeEventListener('keydown', onKeyDown);
 }
+
+/** Register Cmd/Ctrl+, shortcut to open the settings dialog. */
+export function watchSettingsShortcut(runtime: RuntimeLike = {}): () => void {
+  const doc = runtime.document ?? (typeof document !== 'undefined' ? document : null);
+  if (!doc) return () => {};
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent('piclaw:open-settings'));
+    }
+  };
+
+  doc.addEventListener('keydown', onKeyDown as EventListener);
+  return () => doc.removeEventListener('keydown', onKeyDown as EventListener);
+}
