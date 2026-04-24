@@ -1197,3 +1197,17 @@
 .workspace-header-left {
     padding-left: 32px;
 }
+
+/* ── Toolset header icon ─────────────────────────────────────── */
+.settings-toolset-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+.settings-toolset-icon svg {
+    width: 14px;
+    height: 14px;
+}
