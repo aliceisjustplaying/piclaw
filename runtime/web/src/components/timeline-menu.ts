@@ -1,13 +1,12 @@
 // @ts-nocheck
 /**
- * timeline-menu.ts — Single hamburger menu that lives in the app-shell.
- * CSS repositions it based on workspace state:
- *   - Workspace closed → top-right of chat area
- *   - Workspace open → top-left of workspace header area
- * Menu items adapt to context.
+ * timeline-menu.ts — Single hamburger menu rendered as a fixed-position button.
+ * Uses position:fixed so it's never clipped by overflow:hidden containers.
+ * Repositions based on workspace open/closed state.
  */
 
 import { html, useState, useEffect, useRef, useCallback } from '../vendor/preact-htm.js';
+import { BodyPortal } from './body-portal.js';
 
 export function TimelineMenu({
     workspaceOpen,
@@ -39,7 +38,6 @@ export function TimelineMenu({
         return () => document.removeEventListener('keydown', onKey);
     }, [open]);
 
-    // Close when workspace state changes
     useEffect(() => { setOpen(false); }, [workspaceOpen]);
 
     const run = useCallback((fn) => {
@@ -48,10 +46,10 @@ export function TimelineMenu({
     }, []);
 
     return html`
-        <div class=${`timeline-menu-wrap${workspaceOpen ? ' in-workspace' : ' in-chat'}`}>
+        <${BodyPortal} className=${`timeline-menu-portal${workspaceOpen ? ' in-workspace' : ' in-chat'}`}>
             <button
                 ref=${btnRef}
-                class=${`workspace-menu-button${open ? ' active' : ''}`}
+                class=${`timeline-menu-btn${open ? ' active' : ''}`}
                 onClick=${() => setOpen(v => !v)}
                 title="Menu"
                 aria-label="Menu"
@@ -96,6 +94,6 @@ export function TimelineMenu({
                     </button>
                 </div>
             `}
-        </div>
+        <//>
     `;
 }

@@ -589,45 +589,71 @@
 
 /* ── Timeline menu ───────────────────────────────────────────────────── */
 
-/* Timeline menu — direct child of .app-shell.
-   Repositions based on workspace open/closed state. */
-.timeline-menu-wrap {
-    position: absolute;
-    z-index: 200;
+/* Timeline menu — rendered via BodyPortal with position:fixed.
+   Avoids overflow:hidden clipping from .container or other parents. */
+.timeline-menu-portal {
+    position: fixed;
+    z-index: 2000;
+    pointer-events: none;
 }
 
-/* Workspace closed: top-right over the chat area */
-.timeline-menu-wrap.in-chat {
-    top: var(--spacing-sm, 8px);
-    right: var(--spacing-md, 12px);
+.timeline-menu-portal > * {
+    pointer-events: auto;
+}
+
+/* Workspace closed: top-right of viewport (over chat area) */
+.timeline-menu-portal.in-chat {
+    top: 8px;
+    right: 12px;
     left: auto;
 }
 
-/* Workspace open: top-left, aligned with the workspace header */
-.timeline-menu-wrap.in-workspace {
-    top: var(--spacing-sm, 8px);
-    left: var(--spacing-sm, 8px);
+/* Workspace open: top-left of viewport (over workspace header) */
+.timeline-menu-portal.in-workspace {
+    top: 8px;
+    left: 8px;
     right: auto;
 }
 
-.timeline-menu-wrap .workspace-menu-button {
+.timeline-menu-btn {
     width: 28px;
     height: 28px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--text-secondary);
+    padding: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.timeline-menu-wrap .workspace-menu-button svg {
+.timeline-menu-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-color);
+}
+
+.timeline-menu-btn.active {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+.timeline-menu-btn svg {
     width: 16px;
     height: 16px;
+    display: block;
 }
 
 /* Dropdown anchor depends on position */
-.timeline-menu-wrap.in-chat .timeline-menu-dropdown {
+.timeline-menu-portal.in-chat .timeline-menu-dropdown {
     right: 0;
     left: auto;
 }
 
-.timeline-menu-wrap.in-workspace .timeline-menu-dropdown {
+.timeline-menu-portal.in-workspace .timeline-menu-dropdown {
     left: 0;
     right: auto;
 }
@@ -1165,4 +1191,9 @@
     flex-direction: column;
     overflow: hidden;
     padding-bottom: 0;
+}
+
+/* Workspace header: add left padding to clear the fixed-position menu button */
+.workspace-header-left {
+    padding-left: 32px;
 }
