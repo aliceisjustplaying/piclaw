@@ -3,7 +3,7 @@
  */
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
-import { getIdentityConfig, PICLAW_CONFIG_PATH } from "../../../core/config.js";
+import { PICLAW_CONFIG_PATH } from "../../../core/config.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -18,6 +18,7 @@ import {
   handleRestartAddonRuntime,
   handleUninstallAddon,
 } from "../handlers/addons.js";
+import { getGeneralSettingsData, saveGeneralSettings } from "../handlers/general-settings.js";
 import {
   handleWebPushPresence,
   handleWebPushSubscriptionDelete,
@@ -215,7 +216,6 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
     method: "GET",
     path: "/agent/settings-data",
     handle: (channel) => {
-      const identity = getIdentityConfig();
       const themes = THEME_PRESETS.map((p) => {
         const palette = p.mode === "dark" ? p.dark : p.mode === "light" ? p.light : (p.light || p.dark);
         const colors: Record<string, string> = {};
@@ -289,25 +289,8 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         return { ...p, configured, authType };
       });
 
-      /** Convert a local workspace path to a web-accessible URL. */
-      const toAvatarUrl = (v: string): string => {
-        if (!v) return '';
-        if (v.startsWith('http://') || v.startsWith('https://') || v.startsWith('data:')) return v;
-        // Strip /workspace/ prefix and serve via the file API
-        const rel = v.startsWith('/workspace/') ? v.slice('/workspace/'.length) : v;
-        return `/workspace/file?path=${encodeURIComponent(rel)}`;
-      };
-
       return channel.json({
-        assistantName: identity.assistantName || "PiClaw",
-        assistantAvatar: toAvatarUrl(identity.assistantAvatar),
-        userName: identity.userName || "",
-        userAvatar: toAvatarUrl(identity.userAvatar),
-        userAvatarBackground: identity.userAvatarBackground || "",
-        sessionAutoRotate: rawConfig.sessionAutoRotate ?? true,
-        sessionMaxSizeMb: rawConfig.sessionMaxSizeMb ?? 32,
-        webTerminalEnabled: rawConfig.webTerminalEnabled ?? true,
-        toolUseBudget: parseInt(process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES || "", 10) || 64,
+        ...getGeneralSettingsData(),
         providers,
         themes,
         colorKeys: [...THEME_LIST_COLOR_KEYS],
@@ -346,6 +329,20 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
     method: "POST",
     path: "/agent/addons/uninstall",
     handle: (channel, req, url) => handleUninstallAddon(req, (body, status) => channel.json(body, status), url),
+  },
+  {
+    method: "POST",
+    path: "/agent/settings/general",
+    handle: async (channel, req) => {
+      try {
+        const body = await req.json().catch(() => ({}));
+        const saved = await saveGeneralSettings((body && typeof body === "object") ? body as Record<string, unknown> : {});
+        return channel.json({ ok: true, settings: saved });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return channel.json({ error: message || "Failed to save general settings." }, 400);
+      }
+    },
   },
 ];
 

@@ -1,11 +1,19 @@
 // @ts-nocheck
-import { html, useState, useEffect, useCallback, useRef } from '../../vendor/preact-htm.js';
+import { html, useState, useEffect, useCallback, useMemo, useRef } from '../../vendor/preact-htm.js';
+
+function resolveAvatarPreview(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    const rel = raw.startsWith('/workspace/') ? raw.slice('/workspace/'.length) : raw;
+    return `/workspace/file?path=${encodeURIComponent(rel)}`;
+}
 
 function AvatarField({ label, value, onChange }) {
     const inputRef = useRef(null);
-    const [preview, setPreview] = useState(value || '');
+    const [preview, setPreview] = useState(resolveAvatarPreview(value));
 
-    useEffect(() => { setPreview(value || ''); }, [value]);
+    useEffect(() => { setPreview(resolveAvatarPreview(value)); }, [value]);
 
     const handleFileSelect = useCallback((e) => {
         const file = e.target.files?.[0];
@@ -21,7 +29,7 @@ function AvatarField({ label, value, onChange }) {
 
     const handleUrlChange = useCallback((e) => {
         const url = e.target.value;
-        setPreview(url);
+        setPreview(resolveAvatarPreview(url));
         onChange?.(url);
     }, [onChange]);
 
@@ -44,30 +52,117 @@ function AvatarField({ label, value, onChange }) {
     `;
 }
 
-export function GeneralSection({ settingsData }) {
-    const d = settingsData || {};
-    const [userName, setUserName] = useState(d.userName || '');
-    const [userAvatar, setUserAvatar] = useState(d.userAvatar || '');
-    const [assistantName, setAssistantName] = useState(d.assistantName || '');
-    const [assistantAvatar, setAssistantAvatar] = useState(d.assistantAvatar || '');
-    const [sessionAutoRotate, setSessionAutoRotate] = useState(d.sessionAutoRotate !== false);
-    const [sessionMaxSizeMb, setSessionMaxSizeMb] = useState(d.sessionMaxSizeMb ?? 32);
-    const [webTerminalEnabled, setWebTerminalEnabled] = useState(d.webTerminalEnabled !== false);
-    const [toolUseBudget, setToolUseBudget] = useState(d.toolUseBudget ?? 64);
+function normalizeGeneralSettings(data = {}) {
+    return {
+        userName: data.userName || '',
+        userAvatar: data.userAvatar || '',
+        assistantName: data.assistantName || '',
+        assistantAvatar: data.assistantAvatar || '',
+        sessionAutoRotate: data.sessionAutoRotate !== false,
+        sessionMaxSizeMb: data.sessionMaxSizeMb ?? 32,
+        webTerminalEnabled: data.webTerminalEnabled !== false,
+        toolUseBudget: data.toolUseBudget ?? 64,
+    };
+}
+
+export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
+    const [userName, setUserName] = useState('');
+    const [userAvatar, setUserAvatar] = useState('');
+    const [assistantName, setAssistantName] = useState('');
+    const [assistantAvatar, setAssistantAvatar] = useState('');
+    const [sessionAutoRotate, setSessionAutoRotate] = useState(true);
+    const [sessionMaxSizeMb, setSessionMaxSizeMb] = useState(32);
+    const [webTerminalEnabled, setWebTerminalEnabled] = useState(true);
+    const [toolUseBudget, setToolUseBudget] = useState(64);
+    const [saving, setSaving] = useState(false);
     const [metersEnabled, setMetersEnabled] = useState(() => {
         try { const v = localStorage.getItem('piclaw_system_meters_enabled'); return v === null ? true : v === 'true'; } catch { return true; }
     });
+    const savedSnapshotRef = useRef('');
 
-    // Auto-save agent name on change (debounced)
-    const nameTimer = useRef(null);
-    const saveAgentName = useCallback((name) => {
-        setAssistantName(name);
-        clearTimeout(nameTimer.current);
-        nameTimer.current = setTimeout(() => {
-            fetch('/post', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: `/agent-name ${name}` }) });
-        }, 600);
+    const applyIncoming = useCallback((data) => {
+        const next = normalizeGeneralSettings(data);
+        setUserName(next.userName);
+        setUserAvatar(next.userAvatar);
+        setAssistantName(next.assistantName);
+        setAssistantAvatar(next.assistantAvatar);
+        setSessionAutoRotate(next.sessionAutoRotate);
+        setSessionMaxSizeMb(next.sessionMaxSizeMb);
+        setWebTerminalEnabled(next.webTerminalEnabled);
+        setToolUseBudget(next.toolUseBudget);
+        savedSnapshotRef.current = JSON.stringify(next);
     }, []);
+
+    useEffect(() => {
+        applyIncoming(settingsData || {});
+    }, [settingsData, applyIncoming]);
+
+    const currentSnapshot = useMemo(() => JSON.stringify(normalizeGeneralSettings({
+        userName,
+        userAvatar,
+        assistantName,
+        assistantAvatar,
+        sessionAutoRotate,
+        sessionMaxSizeMb,
+        webTerminalEnabled,
+        toolUseBudget,
+    })), [
+        userName,
+        userAvatar,
+        assistantName,
+        assistantAvatar,
+        sessionAutoRotate,
+        sessionMaxSizeMb,
+        webTerminalEnabled,
+        toolUseBudget,
+    ]);
+    const dirty = currentSnapshot !== savedSnapshotRef.current;
+
+    const save = useCallback(async () => {
+        if (saving) return;
+        setSaving(true);
+        setStatus?.('Saving general settings…', 'info');
+        try {
+            const response = await fetch('/agent/settings/general', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userName,
+                    userAvatar,
+                    assistantName,
+                    assistantAvatar,
+                    sessionAutoRotate,
+                    sessionMaxSizeMb,
+                    webTerminalEnabled,
+                    toolUseBudget,
+                }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload?.ok || !payload?.settings) {
+                throw new Error(payload?.error || `HTTP ${response.status}`);
+            }
+            applyIncoming(payload.settings);
+            mergeSettingsData?.(payload.settings);
+            setStatus?.('General settings saved. New turns use the updated values.', 'success');
+        } catch (e) {
+            setStatus?.(String(e?.message || e), 'error');
+        } finally {
+            setSaving(false);
+        }
+    }, [
+        saving,
+        setStatus,
+        userName,
+        userAvatar,
+        assistantName,
+        assistantAvatar,
+        sessionAutoRotate,
+        sessionMaxSizeMb,
+        webTerminalEnabled,
+        toolUseBudget,
+        applyIncoming,
+        mergeSettingsData,
+    ]);
 
     return html`
         <div class="settings-section">
@@ -79,7 +174,7 @@ export function GeneralSection({ settingsData }) {
             <${AvatarField} label="User avatar" value=${userAvatar} onChange=${setUserAvatar} />
             <div class="settings-row">
                 <label>Agent name</label>
-                <input type="text" value=${assistantName} onInput=${e => saveAgentName(e.target.value)} />
+                <input type="text" value=${assistantName} onInput=${e => setAssistantName(e.target.value)} />
             </div>
             <${AvatarField} label="Agent avatar" value=${assistantAvatar} onChange=${setAssistantAvatar} />
 
@@ -112,7 +207,14 @@ export function GeneralSection({ settingsData }) {
                     onInput=${e => setToolUseBudget(parseInt(e.target.value, 10) || 64)} />
                 <span class="settings-hint" style="margin:0">per turn</span>
             </div>
-            <p class="settings-hint">Session, terminal, and budget settings require a restart. Set <code>PICLAW_TURN_MAX_TOOL_USE_MESSAGES</code> env var or edit <code>.piclaw/config.json</code>.</p>
+            <div class="settings-row" style="margin-top:16px; align-items:center; gap:10px;">
+                <button class="settings-addon-btn settings-addon-btn-install" disabled=${saving || !dirty} onClick=${save}>
+                    ${saving ? 'Saving…' : 'Save & apply'}
+                </button>
+                <span class="settings-hint" style="margin:0">
+                    Identity, session rotation, terminal availability, and tool budget apply to new turns immediately.
+                </span>
+            </div>
         </div>
     `;
 }
