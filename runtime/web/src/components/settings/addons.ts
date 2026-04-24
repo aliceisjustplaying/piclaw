@@ -49,16 +49,22 @@ export function AddonsSection({ setStatus, filter = '' }) {
         <div class="settings-section">
             <p class="settings-hint">From <a href="https://github.com/rcarmo/piclaw-addons" target="_blank">rcarmo/piclaw-addons</a>. Restart required after install/uninstall.</p>
             <div class="settings-addon-list">
-                ${filtered.map(a => html`
+                ${filtered.map(a => {
+                    const hasSkills = (a.skills || []).length > 0;
+                    const isExtension = a.type === 'extension';
+                    const typeLabel = hasSkills && isExtension ? 'extension + skill' : hasSkills ? 'skill' : 'extension';
+                    const typeCls = hasSkills && !isExtension ? 'settings-tag-skill' : '';
+                    return html`
                     <div class=${`settings-addon-card${a.installed ? ' installed' : ''}`}>
                         <div class="settings-addon-card-header">
                             <strong>${a.slug}</strong>
+                            <span class=${`settings-tag settings-tag-type ${typeCls}`}>${typeLabel}</span>
                             <span class="settings-addon-version">${a.installed ? (a.installedVersion || '?') : (a.version || '')}</span>
                             ${a.hasUpdate && html`<span class="settings-tag settings-tag-skill">\u2191 ${a.version}</span>`}
                         </div>
                         <div class="settings-addon-card-body">${a.description}</div>
                         <div class="settings-addon-card-footer">
-                            <div class="settings-addon-tags">${(a.tags || []).map(t => html`<span class="settings-tag">${t}</span>`)}${(a.skills || []).map(s => html`<span class="settings-tag settings-tag-skill">${s}</span>`)}</div>
+                            <div class="settings-addon-tags">${(a.tags || []).map(t => html`<span class="settings-tag">${t}</span>`)}${(a.skills || []).map(s => html`<span class="settings-tag settings-tag-skill">\ud83d\udcdd ${s}</span>`)}</div>
                             <div class="settings-addon-actions">
                                 ${a.installed ? html`
                                     ${a.hasUpdate && html`<button class="settings-addon-btn settings-addon-btn-upgrade" disabled=${busy === a.slug} onClick=${() => installAddon(a.slug)}>${busy === a.slug ? '\u2026' : '\u2b06 Upgrade'}</button>`}
@@ -69,7 +75,7 @@ export function AddonsSection({ setStatus, filter = '' }) {
                             </div>
                         </div>
                     </div>
-                `)}
+                `; })}
                 ${filtered.length === 0 && html`<p class="settings-hint">No add-ons match "${filter}"</p>`}
             </div>
         </div>
