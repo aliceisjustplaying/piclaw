@@ -589,8 +589,7 @@
 
 /* ── Timeline menu ───────────────────────────────────────────────────── */
 
-/* Timeline menu — rendered via BodyPortal with position:fixed.
-   Avoids overflow:hidden clipping from .container or other parents. */
+/* Timeline menu — fixed portal, positioned by JS to track .container */
 .timeline-menu-portal {
     position: fixed;
     z-index: 2000;
@@ -599,20 +598,6 @@
 
 .timeline-menu-portal > * {
     pointer-events: auto;
-}
-
-/* Workspace closed: top-right of viewport (over chat area) */
-.timeline-menu-portal.in-chat {
-    top: 8px;
-    right: 12px;
-    left: auto;
-}
-
-/* Workspace open: top-left of viewport (over workspace header) */
-.timeline-menu-portal.in-workspace {
-    top: 8px;
-    left: 8px;
-    right: auto;
 }
 
 .timeline-menu-btn {

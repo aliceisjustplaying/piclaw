@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
- * timeline-menu.ts — Single hamburger menu, position:fixed via a manual portal.
- * Always visible. Repositions based on workspace open/closed state.
+ * timeline-menu.ts — Single hamburger menu, position:fixed.
+ * Tracks the .container element's position to stay aligned with the chat area.
  */
 
 import { html, useState, useEffect, useRef, useCallback, useLayoutEffect, render } from '../vendor/preact-htm.js';
@@ -15,6 +15,7 @@ export function TimelineMenu({
     terminalVisible,
 }) {
     const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState({ top: 8, right: 12 });
     const menuRef = useRef(null);
     const btnRef = useRef(null);
     const portalRef = useRef(null);
@@ -29,12 +30,48 @@ export function TimelineMenu({
         return () => { host.remove(); portalRef.current = null; };
     }, []);
 
-    // Update class when workspace state changes (no remount)
+    // Track container position to align the button
+    useEffect(() => {
+        const update = () => {
+            const container = document.querySelector('.container');
+            const shell = document.querySelector('.app-shell');
+            if (workspaceOpen) {
+                // Position over the workspace header area
+                const sidebar = document.querySelector('.workspace-sidebar');
+                if (sidebar) {
+                    const r = sidebar.getBoundingClientRect();
+                    setPos({ top: r.top + 8, left: r.left + 8, right: undefined });
+                }
+            } else if (container) {
+                const r = container.getBoundingClientRect();
+                setPos({ top: r.top + 8, right: window.innerWidth - r.right + 12, left: undefined });
+            }
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        const container = document.querySelector('.container');
+        const sidebar = document.querySelector('.workspace-sidebar');
+        if (container) observer.observe(container);
+        if (sidebar) observer.observe(sidebar);
+        window.addEventListener('resize', update);
+        return () => { observer.disconnect(); window.removeEventListener('resize', update); };
+    }, [workspaceOpen]);
+
+    // Update portal class
     useEffect(() => {
         if (portalRef.current) {
             portalRef.current.className = `timeline-menu-portal ${workspaceOpen ? 'in-workspace' : 'in-chat'}`;
         }
     }, [workspaceOpen]);
+
+    // Update portal position
+    useEffect(() => {
+        if (!portalRef.current) return;
+        const s = portalRef.current.style;
+        s.top = `${pos.top}px`;
+        if (pos.right !== undefined) { s.right = `${pos.right}px`; s.left = 'auto'; }
+        else if (pos.left !== undefined) { s.left = `${pos.left}px`; s.right = 'auto'; }
+    }, [pos]);
 
     // Close on outside click
     useEffect(() => {
@@ -48,7 +85,6 @@ export function TimelineMenu({
         return () => document.removeEventListener('mousedown', onClick, true);
     }, [open]);
 
-    // Close on Escape
     useEffect(() => {
         if (!open) return;
         const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
@@ -56,22 +92,14 @@ export function TimelineMenu({
         return () => document.removeEventListener('keydown', onKey);
     }, [open]);
 
-    // Close when workspace state changes
     useEffect(() => { setOpen(false); }, [workspaceOpen]);
 
     const run = useCallback((fn) => { setOpen(false); fn?.(); }, []);
 
-    // Render into portal
     const content = html`
-        <button
-            ref=${btnRef}
-            class=${`timeline-menu-btn${open ? ' active' : ''}`}
-            onClick=${() => setOpen(v => !v)}
-            title="Menu"
-            aria-label="Menu"
-            aria-haspopup="menu"
-            aria-expanded=${open ? 'true' : 'false'}
-        >
+        <button ref=${btnRef} class=${`timeline-menu-btn${open ? ' active' : ''}`}
+            onClick=${() => setOpen(v => !v)} title="Menu" aria-label="Menu"
+            aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <line x1="4" y1="7" x2="20" y2="7" />
@@ -80,7 +108,7 @@ export function TimelineMenu({
             </svg>
         </button>
         ${open && html`
-            <div class="workspace-menu-dropdown timeline-menu-dropdown" ref=${menuRef} role="menu" aria-label="Menu">
+            <div class="workspace-menu-dropdown timeline-menu-dropdown" ref=${menuRef} role="menu">
                 <button class="workspace-menu-item" role="menuitem" onClick=${() => run(toggleWorkspace)}>
                     ${workspaceOpen ? 'Hide workspace' : 'Show workspace'}
                 </button>
