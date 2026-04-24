@@ -211,6 +211,36 @@ describe("core config", () => {
     });
   });
 
+  test("mutable general-setting setters persist and apply immediately", async () => {
+    await withFreshConfig({}, async ({ workspace, config }) => {
+      config.setSessionStorageConfig({ maxSizeMb: 48, autoRotate: false });
+      config.setWebTerminalEnabled(false);
+      config.setToolUseMessageBudget(21);
+
+      expect(config.getSessionStorageConfig()).toMatchObject({
+        maxSizeMb: 48,
+        maxSizeBytes: 48 * 1024 * 1024,
+        autoRotate: false,
+      });
+      expect(config.getWebRuntimeConfig().terminalEnabled).toBe(false);
+      expect(config.getToolUseMessageBudget()).toBe(21);
+      expect(process.env.PICLAW_SESSION_MAX_SIZE_MB).toBe("48");
+      expect(process.env.PICLAW_SESSION_AUTO_ROTATE).toBe("0");
+      expect(process.env.PICLAW_WEB_TERMINAL_ENABLED).toBe("0");
+      expect(process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES).toBe("21");
+
+      const persisted = JSON.parse(readFileSync(join(workspace.workspace, ".piclaw", "config.json"), "utf8"));
+      expect(persisted).toMatchObject({
+        sessionMaxSizeMb: 48,
+        sessionAutoRotate: false,
+        turnMaxToolUseMessages: 21,
+        web: {
+          terminalEnabled: false,
+        },
+      });
+    });
+  });
+
   test("setWebTotpSecret persists updates while preserving unrelated web config and supports clearing", async () => {
     await withFreshConfig(
       {

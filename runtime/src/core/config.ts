@@ -91,6 +91,7 @@ const envConfig = readEnvFile([
   "PICLAW_TRUST_PROXY",
   "PICLAW_SESSION_MAX_SIZE_MB",
   "PICLAW_SESSION_AUTO_ROTATE",
+  "PICLAW_TURN_MAX_TOOL_USE_MESSAGES",
   "PICLAW_WORKSPACE_SEARCH_ROOTS",
   "PICLAW_INTERNAL_SECRET",
   "PICLAW_REMOTE_INTEROP_ENABLED",
@@ -556,6 +557,28 @@ export function getWebRuntimeConfig(): Readonly<WebRuntimeConfig> {
   return WEB_RUNTIME_CONFIG;
 }
 
+/** Persist and apply the web terminal toggle so new requests see it immediately. */
+export function setWebTerminalEnabled(enabled: boolean): boolean {
+  const nextEnabled = Boolean(enabled);
+  const config = readJsonConfig(PICLAW_CONFIG_PATH);
+  const web =
+    config.web && typeof config.web === "object"
+      ? { ...(config.web as Record<string, unknown>) }
+      : {};
+  const webKeys = ["terminalEnabled", "webTerminalEnabled", "PICLAW_WEB_TERMINAL_ENABLED"];
+  for (const key of webKeys) {
+    delete web[key];
+  }
+  web.terminalEnabled = nextEnabled;
+  config.web = web;
+  delete config.webTerminalEnabled;
+  writeJsonConfig(PICLAW_CONFIG_PATH, config);
+
+  process.env.PICLAW_WEB_TERMINAL_ENABLED = nextEnabled ? "1" : "0";
+  WEB_RUNTIME_CONFIG.terminalEnabled = nextEnabled;
+  return WEB_RUNTIME_CONFIG.terminalEnabled;
+}
+
 // ---------------------------------------------------------------------------
 // Remote interop configuration (cross-instance IPC).
 // ---------------------------------------------------------------------------
@@ -621,6 +644,13 @@ const configSessionAutoRotate = pickBoolean(piclawConfig, [
   "session_auto_rotate",
   "PICLAW_SESSION_AUTO_ROTATE",
 ]);
+const configTurnMaxToolUseMessages = pickNumber(piclawConfig, [
+  "turnMaxToolUseMessages",
+  "turn_max_tool_use_messages",
+  "toolUseBudget",
+  "tool_use_budget",
+  "PICLAW_TURN_MAX_TOOL_USE_MESSAGES",
+]);
 const configAdditionalDefaultTools = pickStringArray(toolsConfig, [
   "additionalDefaultTools",
   "additional_default_tools",
@@ -656,7 +686,7 @@ const sessionMaxLines =
   ]) ?? 8000;
 
 /** Grouped session-file safeguards. */
-export const SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
+export let SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
   maxSizeMb: sessionMaxSizeMb,
   maxSizeBytes: sessionMaxSizeMb * 1024 * 1024,
   maxLines: sessionMaxLines,
@@ -669,6 +699,79 @@ export const SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
 /** Return grouped session-file safeguards for runtime wiring and tests. */
 export function getSessionStorageConfig(): Readonly<SessionStorageConfig> {
   return SESSION_STORAGE_CONFIG;
+}
+
+/** Persist and apply session storage settings so new turns use them immediately. */
+export function setSessionStorageConfig(patch: { maxSizeMb?: number; autoRotate?: boolean }): Readonly<SessionStorageConfig> {
+  const nextMaxSizeMb = Number.isFinite(patch.maxSizeMb)
+    ? Math.min(256, Math.max(1, Math.round(Number(patch.maxSizeMb))))
+    : SESSION_STORAGE_CONFIG.maxSizeMb;
+  const nextAutoRotate = typeof patch.autoRotate === "boolean"
+    ? patch.autoRotate
+    : SESSION_STORAGE_CONFIG.autoRotate;
+
+  const config = readJsonConfig(PICLAW_CONFIG_PATH);
+  const clearRootKeys = [
+    "sessionMaxSizeMb",
+    "session_max_size_mb",
+    "PICLAW_SESSION_MAX_SIZE_MB",
+    "sessionAutoRotate",
+    "session_auto_rotate",
+    "PICLAW_SESSION_AUTO_ROTATE",
+  ];
+  for (const key of clearRootKeys) {
+    delete config[key];
+  }
+  config.sessionMaxSizeMb = nextMaxSizeMb;
+  config.sessionAutoRotate = nextAutoRotate;
+  writeJsonConfig(PICLAW_CONFIG_PATH, config);
+
+  process.env.PICLAW_SESSION_MAX_SIZE_MB = String(nextMaxSizeMb);
+  process.env.PICLAW_SESSION_AUTO_ROTATE = nextAutoRotate ? "1" : "0";
+
+  SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
+    ...SESSION_STORAGE_CONFIG,
+    maxSizeMb: nextMaxSizeMb,
+    maxSizeBytes: nextMaxSizeMb * 1024 * 1024,
+    autoRotate: nextAutoRotate,
+  });
+  return SESSION_STORAGE_CONFIG;
+}
+
+/** Current per-turn tool-use budget used by the agent orchestrator. */
+export let TOOL_USE_MESSAGE_BUDGET =
+  pickNumber({
+    PICLAW_TURN_MAX_TOOL_USE_MESSAGES:
+      process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES ?? envConfig.PICLAW_TURN_MAX_TOOL_USE_MESSAGES,
+  }, ["PICLAW_TURN_MAX_TOOL_USE_MESSAGES"]) ?? configTurnMaxToolUseMessages ?? 64;
+
+/** Return the current tool-use budget for a single turn. */
+export function getToolUseMessageBudget(): number {
+  return TOOL_USE_MESSAGE_BUDGET;
+}
+
+/** Persist and apply the tool-use budget so subsequent turns use it immediately. */
+export function setToolUseMessageBudget(budget: number): number {
+  const nextBudget = Number.isFinite(budget)
+    ? Math.min(512, Math.max(8, Math.round(Number(budget))))
+    : TOOL_USE_MESSAGE_BUDGET;
+  const config = readJsonConfig(PICLAW_CONFIG_PATH);
+  const clearRootKeys = [
+    "turnMaxToolUseMessages",
+    "turn_max_tool_use_messages",
+    "toolUseBudget",
+    "tool_use_budget",
+    "PICLAW_TURN_MAX_TOOL_USE_MESSAGES",
+  ];
+  for (const key of clearRootKeys) {
+    delete config[key];
+  }
+  config.turnMaxToolUseMessages = nextBudget;
+  writeJsonConfig(PICLAW_CONFIG_PATH, config);
+
+  process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES = String(nextBudget);
+  TOOL_USE_MESSAGE_BUDGET = nextBudget;
+  return TOOL_USE_MESSAGE_BUDGET;
 }
 
 // ---------------------------------------------------------------------------

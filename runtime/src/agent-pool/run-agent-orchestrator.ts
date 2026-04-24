@@ -14,7 +14,7 @@ import {
   type RecoveryClassifier,
   type RecoveryStrategy,
 } from "./automatic-recovery.js";
-import { getAgentRuntimeConfig, getSessionStorageConfig } from "../core/config.js";
+import { getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
 import { writeAgentLog } from "./logging.js";
@@ -473,10 +473,7 @@ async function runPromptAttempt(
   let assistantToolUseMessageCount = 0;
   let toolUseBudgetExceeded = false;
   const sessionEntryBaseline = snapshotSessionEntryCount(session);
-  const configuredToolUseBudget = Number.parseInt(process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES || "", 10);
-  const toolUseMessageBudget = Number.isFinite(configuredToolUseBudget) && configuredToolUseBudget > 0
-    ? configuredToolUseBudget
-    : 64;
+  const toolUseMessageBudget = getToolUseMessageBudget();
 
   const originalOnTurnComplete = runOptions.onTurnComplete;
   const onTurnComplete = originalOnTurnComplete

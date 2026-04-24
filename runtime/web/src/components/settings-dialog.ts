@@ -97,6 +97,10 @@ function SettingsDialogContent({ onClose }) {
         }
     }, [activeSection]);
 
+    const mergeSettingsData = useCallback((patch) => {
+        setSettingsData(prev => ({ ...(prev || {}), ...(patch || {}) }));
+    }, []);
+
     const renderSection = () => {
         // Check extension panes first
         if (activeMeta?.isExtension && activeMeta.component) {
@@ -104,7 +108,7 @@ function SettingsDialogContent({ onClose }) {
             return html`<${Comp} filter=${filter} />`;
         }
         switch (activeSection) {
-            case 'general': return html`<${GeneralSection} settingsData=${settingsData} />`;
+            case 'general': return html`<${GeneralSection} settingsData=${settingsData} setStatus=${setStatus} mergeSettingsData=${mergeSettingsData} />`;
             case 'providers': return html`<${ProvidersSection} providers=${settingsData?.providers} setStatus=${setStatus} />`;
             case 'models': return html`<${ModelsSection} filter=${filter} />`;
             case 'theme': return html`<${ThemeSection} themes=${settingsData?.themes} colorKeys=${settingsData?.colorKeys} />`;
