@@ -266,6 +266,7 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         sessionAutoRotate: rawConfig.sessionAutoRotate ?? true,
         sessionMaxSizeMb: rawConfig.sessionMaxSizeMb ?? 32,
         webTerminalEnabled: rawConfig.webTerminalEnabled ?? true,
+        toolUseBudget: parseInt(process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES || "", 10) || 64,
         providers,
         themes,
         colorKeys: [...THEME_LIST_COLOR_KEYS],

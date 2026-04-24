@@ -1211,3 +1211,10 @@
     width: 14px;
     height: 14px;
 }
+
+.settings-tag-type {
+    font-weight: 600;
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}

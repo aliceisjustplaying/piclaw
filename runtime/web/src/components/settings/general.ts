@@ -53,6 +53,7 @@ export function GeneralSection({ settingsData }) {
     const [sessionAutoRotate, setSessionAutoRotate] = useState(d.sessionAutoRotate !== false);
     const [sessionMaxSizeMb, setSessionMaxSizeMb] = useState(d.sessionMaxSizeMb ?? 32);
     const [webTerminalEnabled, setWebTerminalEnabled] = useState(d.webTerminalEnabled !== false);
+    const [toolUseBudget, setToolUseBudget] = useState(d.toolUseBudget ?? 64);
 
     // Auto-save agent name on change (debounced)
     const nameTimer = useRef(null);
@@ -93,7 +94,13 @@ export function GeneralSection({ settingsData }) {
                 <label>Web terminal</label>
                 <input type="checkbox" checked=${webTerminalEnabled} onChange=${e => setWebTerminalEnabled(e.target.checked)} />
             </div>
-            <p class="settings-hint">Session and terminal settings require a restart. Edit <code>.piclaw/config.json</code> for advanced options.</p>
+            <div class="settings-row">
+                <label>Tool use budget</label>
+                <input type="number" value=${toolUseBudget} min="8" max="512" style="max-width:80px"
+                    onInput=${e => setToolUseBudget(parseInt(e.target.value, 10) || 64)} />
+                <span class="settings-hint" style="margin:0">per turn</span>
+            </div>
+            <p class="settings-hint">Session, terminal, and budget settings require a restart. Set <code>PICLAW_TURN_MAX_TOOL_USE_MESSAGES</code> env var or edit <code>.piclaw/config.json</code>.</p>
         </div>
     `;
 }
