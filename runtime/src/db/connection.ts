@@ -809,6 +809,7 @@ export function initDatabase(): void {
   dropChatBranchDisplayName(db);
   ensureRemotePeerBaseUrl(db);
   ensureOutboundPairRequestsTable(db);
+  ensureMediaCompression(db);
 }
 
 /**
@@ -830,6 +831,37 @@ function ensureOutboundPairRequestsTable(database: Database): void {
     )`);
   database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_pair_outbound_instance ON remote_pair_outbound_requests(instance_id)`);
   database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_pair_outbound_status ON remote_pair_outbound_requests(status)`);
+}
+
+/**
+ * One-time migration: compress existing uncompressed text-based media.
+ * Uses PRAGMA user_version >= 2 as a migration marker.
+ */
+function ensureMediaCompression(database: Database): void {
+  const row = database.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
+  const version = typeof row?.user_version === "number" ? row.user_version : 0;
+  if (version >= 2) return;
+
+  try {
+    const { recompressExistingMedia } = require("./media-recompress.js");
+    const result = recompressExistingMedia();
+    if (result.compressed > 0) {
+      log.info("Media compression migration completed", {
+        operation: "migration.media_compression",
+        scanned: result.scanned,
+        compressed: result.compressed,
+        savedBytes: result.savedBytes,
+        skipped: result.skipped,
+        errors: result.errors,
+      });
+    }
+  } catch (err) {
+    debugSuppressedError(log, "Media compression migration failed (non-fatal).", err, {
+      operation: "migration.media_compression",
+    });
+  }
+
+  database.exec("PRAGMA user_version = 2;");
 }
 
 /**
