@@ -16,6 +16,28 @@ const TOOLSET_ICONS = {
     experiments: html`<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6v7l4.6 7.7A1 1 0 0 1 18.7 19H5.3a1 1 0 0 1-.9-1.3L9 10z"/><line x1="9" y1="3" x2="15" y2="3"/></svg>`,
     lifecycle: html`<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`,
 };
+// Tool → extension source mapping (derived from registerTool calls)
+const TOOL_EXTENSION = {
+    read: 'pi-core', write: 'pi-core', edit: 'pi-core', bash: 'pi-core', powershell: 'pi-core',
+    find: 'pi-core', grep: 'pi-core', ls: 'pi-core',
+    list_tools: 'internal-tools', list_internal_tools: 'internal-tools',
+    activate_tools: 'tool-activation', reset_active_tools: 'tool-activation',
+    list_scripts: 'runtime-scripts',
+    attach_file: 'file-attachments', read_attachment: 'file-attachments', export_attachment: 'file-attachments',
+    get_model_state: 'model-control', list_models: 'model-control', switch_model: 'model-control', switch_thinking: 'model-control',
+    messages: 'messages-crud', introspect_sql: 'sql-introspect', keychain: 'keychain-tools',
+    search_workspace: 'workspace-search', refresh_workspace_index: 'workspace-search',
+    open_drawio_editor: 'drawio-editor', open_office_viewer: 'office-viewer', office_read: 'office-viewer', office_write: 'office-viewer',
+    open_workspace_file: 'open-workspace-file', image_process: 'image-processing',
+    schedule_task: 'scheduled-tasks', scheduled_tasks: 'scheduled-tasks',
+    bun_run: 'bun-runner', exec_batch: 'exec-batch', search_tool_output: 'search-tool-output',
+    ssh: 'ssh', proxmox: 'proxmox', portainer: 'portainer', mcp: 'mcp',
+    cdp_browser: 'cdp-browser',
+    send_adaptive_card: 'send-adaptive-card', send_dashboard_widget: 'send-dashboard-widget',
+    start_autoresearch: 'autoresearch', stop_autoresearch: 'autoresearch', autoresearch_status: 'autoresearch',
+    exit_process: 'exit-process', env: 'env-tools',
+};
+
 const KIND_BADGE = { 'read-only': '\ud83d\udd0d', 'mutating': '\u270f\ufe0f', 'mixed': '\ud83d\udd04' };
 const DEFAULT_ICON = html`<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`;
 
@@ -57,7 +79,7 @@ export function ToolsSection({ toolsets, filter = '' }) {
                             <span class="settings-tool-name">${t.name}</span>
                             <span class="settings-tool-kind" title=${t.kind}>${KIND_BADGE[t.kind] || '?'}</span>
                             ${t.summary && html`<span class="settings-tool-summary">${t.summary}</span>`}
-                            <span class="settings-tool-source">${g.name}</span>
+                            <span class="settings-tool-source">${TOOL_EXTENSION[t.name] || g.name}</span>
                         </div>
                     `)}</div>`}
                 </div>
