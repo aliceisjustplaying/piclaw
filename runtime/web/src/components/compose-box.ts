@@ -1702,6 +1702,13 @@ export function ComposeBox({
             } else {
                 void handleSubmit(currentValue);
             }
+            return;
+        }
+
+        if (e.key === 'Escape') {
+            if (showModelPopup || showSessionPopup || showSlash || showMention) return;
+            e.preventDefault();
+            textareaRef.current?.blur();
         }
     };
 
@@ -1918,6 +1925,38 @@ export function ComposeBox({
         const active = popup.querySelector?.('.slash-item.active');
         active?.scrollIntoView?.({ block: 'nearest' });
     }, [showSlash, slashIndex, slashMatches.length]);
+
+    useEffect(() => {
+        const isEditableTarget = (target) => {
+            if (!target || typeof target !== 'object') return false;
+            if (target.isContentEditable) return true;
+            if (typeof target.closest !== 'function') return false;
+            return Boolean(target.closest('input, textarea, select, [contenteditable="true"], .compose-box, .compose-model-popup, .compose-session-popup, .settings-dialog, .workspace-sidebar, .editor-pane-container, .dock-panel, .timeline-menu-dropdown, .rename-branch-overlay, .agent-request-modal, .attachment-preview-modal, .vnc-pane-shell, .kanban-plugin, .mindmap-editor, .timeline-quick-actions'));
+        };
+        const onGlobalKeyDown = (event) => {
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
+            const textarea = textareaRef.current;
+            if (!textarea) return;
+            const isFocused = document.activeElement === textarea;
+            if (event.key === 'Escape' && !isFocused && !isEditableTarget(event.target)) {
+                event.preventDefault();
+                textarea.focus();
+                return;
+            }
+            if (event.key === '/' && !isFocused && !isEditableTarget(event.target)) {
+                event.preventDefault();
+                updateValue('/');
+                requestAnimationFrame(() => {
+                    textarea.focus();
+                    textarea.selectionStart = 1;
+                    textarea.selectionEnd = 1;
+                    updateSlashAutocomplete('/');
+                });
+            }
+        };
+        window.addEventListener('keydown', onGlobalKeyDown);
+        return () => window.removeEventListener('keydown', onGlobalKeyDown);
+    }, []);
 
     useEffect(() => {
         const updateFooterWidth = () => {
