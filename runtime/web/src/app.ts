@@ -171,6 +171,32 @@ function MainApp({ locationParams, navigate }) {
         currentHashtag: surface.currentHashtag,
         searchQuery: surface.searchQuery,
         followupQueueItems: surface.followupQueueItems,
+        onIdentity: useCallback((identity) => {
+            if (!identity) return;
+            const name = identity.assistant_name;
+            const avatarUrl = identity.assistant_avatar_url;
+            if (name || avatarUrl) {
+                const agentId = 'default';
+                surface.setAgents((prev) => {
+                    const existing = prev[agentId] || { id: agentId };
+                    const next = { ...existing };
+                    if (name && !next.name) next.name = name;
+                    if (avatarUrl && !next.avatar_url) next.avatar_url = avatarUrl;
+                    return { ...prev, [agentId]: next };
+                });
+            }
+            const userName = identity.user_name;
+            const userAvatarUrl = identity.user_avatar_url;
+            const userAvatarBg = identity.user_avatar_background;
+            if (userName || userAvatarUrl) {
+                surface.setUserProfile((prev) => ({
+                    ...prev,
+                    ...(userName && !prev.name ? { name: userName } : {}),
+                    ...(userAvatarUrl && !prev.avatar_url ? { avatar_url: userAvatarUrl } : {}),
+                    ...(userAvatarBg && !prev.avatar_background ? { avatar_background: userAvatarBg } : {}),
+                }));
+            }
+        }, [surface.setAgents, surface.setUserProfile]),
     });
 
     const interaction = useMainAppInteractionComposition({
