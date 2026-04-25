@@ -15,6 +15,7 @@ function setString(key, value) { try { localStorage.setItem(key, value); } catch
 function DeveloperSettingsSection() {
     const [devMode, setDevMode] = useState(() => getBool('piclaw_dev_mode', false));
     const [addonsCatalogUrl, setAddonsCatalogUrl] = useState(() => getString('piclaw_addons_catalog_url', ''));
+    const [additionalCatalogUrls, setAdditionalCatalogUrls] = useState(() => getString('piclaw_addons_catalog_urls', ''));
     const [addonsRepoUrl, setAddonsRepoUrl] = useState(() => getString('piclaw_addons_repo_url', ''));
     const [debugSse, setDebugSse] = useState(() => getBool('piclaw_debug_sse', false));
     const [debugToolCalls, setDebugToolCalls] = useState(() => getBool('piclaw_debug_tool_calls', false));
@@ -41,7 +42,17 @@ function DeveloperSettingsSection() {
                         onInput=${e => { const v = e.target.value; setAddonsCatalogUrl(v); setString('piclaw_addons_catalog_url', v); }}
                         placeholder="https://raw.githubusercontent.com/.../catalog.json" style="max-width:400px" />
                 </div>
-                <p class="settings-hint" style="margin-top:0">Override the add-on catalog URL. Leave empty for the default (<code>rcarmo/piclaw-addons</code>).</p>
+                <p class="settings-hint" style="margin-top:0">Primary add-on catalog URL. Leave empty to use the default (<code>rcarmo/piclaw-addons</code>).</p>
+                <div class="settings-row" style="align-items:flex-start;">
+                    <label>Additional catalog URLs</label>
+                    <textarea
+                        value=${additionalCatalogUrls}
+                        onInput=${e => { const v = e.target.value; setAdditionalCatalogUrls(v); setString('piclaw_addons_catalog_urls', v); }}
+                        placeholder="One URL per line\nhttps://example.com/catalog.json"
+                        style="max-width:400px; min-height:86px; resize:vertical;"
+                    ></textarea>
+                </div>
+                <p class="settings-hint" style="margin-top:0">Fetched in addition to the primary/default catalog. One URL per line.</p>
                 <div class="settings-row">
                     <label>Repo URL</label>
                     <input type="text" value=${addonsRepoUrl}

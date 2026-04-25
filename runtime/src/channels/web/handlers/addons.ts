@@ -1,7 +1,7 @@
 /**
  * web/handlers/addons.ts — Backend add-on management endpoints.
  *
- * GET  /agent/addons           — fetch catalog + local install state
+ * GET  /agent/addons           — fetch one or more catalogs + local install state
  * POST /agent/addons/install   — install an addon by slug (package-first via bun add)
  * POST /agent/addons/uninstall — uninstall an addon by slug (package-first via bun remove)
  *
@@ -16,6 +16,7 @@ import { WORKSPACE_DIR } from "../../../core/config.js";
 import { requestGracefulShutdown } from "../../../runtime/shutdown-registry.js";
 
 const DEFAULT_CATALOG_URL = "https://raw.githubusercontent.com/rcarmo/piclaw-addons/main/catalog.json";
+const DEFAULT_CATALOG_URLS = [DEFAULT_CATALOG_URL] as const;
 const DEFAULT_REPO_OWNER = "rcarmo";
 const DEFAULT_REPO_NAME = "piclaw-addons";
 const DEFAULT_REPO_BRANCH = "main";
@@ -24,7 +25,7 @@ const GITHUB_RAW_BASE = "https://raw.githubusercontent.com";
 const GITHUB_API_BASE = "https://api.github.com";
 export const WEB_RESTART_DELAY_MS = 150;
 
-let catalogCache: { data: unknown; ts: number } | null = null;
+const catalogCache = new Map<string, { data: unknown; ts: number }>();
 
 interface CatalogAddonInstall {
   kind?: string;
@@ -217,21 +218,92 @@ function maybeTranspileAddonAsset(assetPath: string, source: string): string {
   return source;
 }
 
-async function fetchCatalog(catalogUrl?: string): Promise<CatalogData | null> {
-  const url = catalogUrl || DEFAULT_CATALOG_URL;
+export function parseCatalogUrlList(values: Array<string | null | undefined>): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const parts = String(value || "")
+      .split(/[\r\n,]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      if (seen.has(part)) continue;
+      seen.add(part);
+      urls.push(part);
+    }
+  }
+  return urls;
+}
+
+export function resolveRequestedCatalogUrls(url?: URL): string[] {
+  const requested = parseCatalogUrlList(url?.searchParams.getAll("catalog_url") || []);
+  return requested.length > 0 ? requested : [...DEFAULT_CATALOG_URLS];
+}
+
+async function fetchCatalog(catalogUrl: string): Promise<CatalogData | null> {
+  const url = String(catalogUrl || "").trim();
+  if (!url) return null;
   const now = Date.now();
-  if (!catalogUrl && catalogCache && now - catalogCache.ts < CATALOG_CACHE_MS) {
-    return catalogCache.data as CatalogData;
+  const cached = catalogCache.get(url);
+  if (cached && now - cached.ts < CATALOG_CACHE_MS) {
+    return cached.data as CatalogData;
   }
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) return null;
     const data = await response.json();
-    if (!catalogUrl) catalogCache = { data, ts: now };
+    catalogCache.set(url, { data, ts: now });
     return data as CatalogData;
   } catch {
-    return !catalogUrl ? (catalogCache?.data as CatalogData ?? null) : null;
+    return (catalogCache.get(url)?.data as CatalogData | undefined) ?? null;
   }
+}
+
+export function mergeCatalogs(catalogs: CatalogData[]): CatalogData | null {
+  const validCatalogs = catalogs.filter((catalog) => catalog && Array.isArray(catalog.addons));
+  if (validCatalogs.length === 0) return null;
+  const addons: CatalogAddon[] = [];
+  const seenKeys = new Set<string>();
+  const sources: string[] = [];
+  let version = 0;
+
+  for (const catalog of validCatalogs) {
+    version = Math.max(version, Number(catalog.version) || 0);
+    const source = typeof catalog.source === "string" ? catalog.source.trim() : "";
+    if (source && !sources.includes(source)) sources.push(source);
+    for (const addon of catalog.addons) {
+      const slugKey = typeof addon?.slug === "string" && addon.slug.trim() ? `slug:${addon.slug.trim()}` : "";
+      const nameKey = typeof addon?.name === "string" && addon.name.trim() ? `name:${addon.name.trim()}` : "";
+      const dedupeKey = slugKey || nameKey;
+      if (!dedupeKey || seenKeys.has(dedupeKey)) continue;
+      if (slugKey) seenKeys.add(slugKey);
+      if (nameKey) seenKeys.add(nameKey);
+      addons.push(addon);
+    }
+  }
+
+  return {
+    version: version || undefined,
+    source: sources.join(", "),
+    addons,
+  };
+}
+
+async function fetchMergedCatalog(catalogUrls: string[]): Promise<{ catalog: CatalogData | null; urls: string[]; failedUrls: string[] }> {
+  const urls = parseCatalogUrlList(catalogUrls);
+  const results = await Promise.all(urls.map(async (catalogUrl) => ({
+    url: catalogUrl,
+    catalog: await fetchCatalog(catalogUrl),
+  })));
+  const catalogs = results
+    .map((result) => result.catalog)
+    .filter((catalog): catalog is CatalogData => Boolean(catalog && Array.isArray(catalog.addons)));
+  const failedUrls = results.filter((result) => !result.catalog || !Array.isArray(result.catalog.addons)).map((result) => result.url);
+  return {
+    catalog: mergeCatalogs(catalogs),
+    urls,
+    failedUrls,
+  };
 }
 
 export function resolveAddonInstallSpec(addon: Pick<CatalogAddon, "name" | "version" | "install">): { kind: string; spec: string; piSource?: string } {
@@ -312,8 +384,7 @@ export async function handleGetAddons(
   json: (body: unknown, status?: number) => Response,
   url?: URL,
 ): Promise<Response> {
-  const catalogUrl = url?.searchParams.get("catalog_url") || undefined;
-  const catalog = await fetchCatalog(catalogUrl);
+  const { catalog, urls, failedUrls } = await fetchMergedCatalog(resolveRequestedCatalogUrls(url));
   if (!catalog || !Array.isArray(catalog.addons)) {
     return json({ error: "Failed to fetch add-on catalog" }, 502);
   }
@@ -337,7 +408,7 @@ export async function handleGetAddons(
     };
   });
 
-  return json({ addons, source: catalog.source || "" });
+  return json({ addons, source: catalog.source || "", sources: urls, failed_sources: failedUrls });
 }
 
 export async function handleGetAddonWebEntries(
@@ -400,8 +471,7 @@ export async function handleInstallAddon(
   const slug = typeof rawSlug === "string" ? rawSlug.trim() : "";
   if (!slug) return json({ error: "Missing slug" }, 400);
 
-  const catalogUrl = url?.searchParams.get("catalog_url") || undefined;
-  const catalog = await fetchCatalog(catalogUrl);
+  const { catalog } = await fetchMergedCatalog(resolveRequestedCatalogUrls(url));
   const addon = catalog?.addons?.find((a) => a.slug === slug);
   if (!addon) return json({ error: `Add-on "${slug}" not found in catalog` }, 404);
 
@@ -499,8 +569,7 @@ export async function handleUninstallAddon(
   const slug = typeof rawSlug === "string" ? rawSlug.trim() : "";
   if (!slug) return json({ error: "Missing slug" }, 400);
 
-  const catalogUrl = url?.searchParams.get("catalog_url") || undefined;
-  const catalog = await fetchCatalog(catalogUrl);
+  const { catalog } = await fetchMergedCatalog(resolveRequestedCatalogUrls(url));
   const addon = catalog?.addons?.find((a) => a.slug === slug);
   if (!addon) return json({ error: `Add-on "${slug}" not found in catalog` }, 404);
 

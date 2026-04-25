@@ -7,10 +7,61 @@ import { withTempWorkspaceEnv } from '../helpers.js';
 import {
   getInstalledAddonWebEntries,
   handleAddonAssetRequest,
+  handleGetAddons,
   handleRestartAddonRuntime,
+  mergeCatalogs,
+  parseCatalogUrlList,
   resolveAddonInstallSpec,
+  resolveRequestedCatalogUrls,
   WEB_RESTART_DELAY_MS,
 } from '../../src/channels/web/handlers/addons.js';
+
+test('parseCatalogUrlList normalizes newline and comma separated URLs', () => {
+  expect(parseCatalogUrlList([
+    ' https://example.com/a.json\nhttps://example.com/b.json ',
+    'https://example.com/b.json, https://example.com/c.json',
+    '',
+  ])).toEqual([
+    'https://example.com/a.json',
+    'https://example.com/b.json',
+    'https://example.com/c.json',
+  ]);
+});
+
+test('resolveRequestedCatalogUrls falls back to the default catalog and preserves repeated params', () => {
+  expect(resolveRequestedCatalogUrls(new URL('https://example.test/agent/addons'))).toEqual([
+    'https://raw.githubusercontent.com/rcarmo/piclaw-addons/main/catalog.json',
+  ]);
+  expect(resolveRequestedCatalogUrls(new URL('https://example.test/agent/addons?catalog_url=https://example.com/a.json&catalog_url=https://example.com/b.json'))).toEqual([
+    'https://example.com/a.json',
+    'https://example.com/b.json',
+  ]);
+});
+
+test('mergeCatalogs combines multiple catalogs and dedupes overlapping addons by slug/name', () => {
+  expect(mergeCatalogs([
+    {
+      source: 'primary',
+      addons: [
+        { slug: 'drawio', name: 'piclaw-addon-drawio-editor', version: '1.0.0', description: 'primary drawio' },
+      ],
+    },
+    {
+      source: 'secondary',
+      addons: [
+        { slug: 'drawio', name: 'piclaw-addon-drawio-editor', version: '2.0.0', description: 'secondary drawio' },
+        { slug: 'eml', name: 'piclaw-addon-eml-viewer', version: '1.0.0', description: 'eml' },
+      ],
+    },
+  ])).toEqual({
+    version: undefined,
+    source: 'primary, secondary',
+    addons: [
+      { slug: 'drawio', name: 'piclaw-addon-drawio-editor', version: '1.0.0', description: 'primary drawio' },
+      { slug: 'eml', name: 'piclaw-addon-eml-viewer', version: '1.0.0', description: 'eml' },
+    ],
+  });
+});
 
 test('resolveAddonInstallSpec prefers explicit catalog install spec', () => {
   expect(resolveAddonInstallSpec({
@@ -47,6 +98,49 @@ test('resolveAddonInstallSpec falls back to bare npm package name when version i
     spec: 'piclaw-addon-dev-tools',
     piSource: 'npm:piclaw-addon-dev-tools',
   });
+});
+
+test('handleGetAddons merges add-ons from multiple catalog URLs', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const href = String(input);
+    if (href.includes('catalog-a.json')) {
+      return new Response(JSON.stringify({
+        source: 'catalog-a',
+        addons: [
+          { slug: 'drawio', name: 'piclaw-addon-drawio-editor', version: '1.0.0', description: 'drawio' },
+        ],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.includes('catalog-b.json')) {
+      return new Response(JSON.stringify({
+        source: 'catalog-b',
+        addons: [
+          { slug: 'eml', name: 'piclaw-addon-eml-viewer', version: '1.0.0', description: 'eml' },
+        ],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const response = await handleGetAddons(
+      (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
+      new URL('https://example.test/agent/addons?catalog_url=https://example.com/catalog-a.json&catalog_url=https://example.com/catalog-b.json'),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      source: 'catalog-a, catalog-b',
+      sources: ['https://example.com/catalog-a.json', 'https://example.com/catalog-b.json'],
+      failed_sources: [],
+      addons: [
+        expect.objectContaining({ slug: 'drawio' }),
+        expect.objectContaining({ slug: 'eml' }),
+      ],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('getInstalledAddonWebEntries discovers addon browser entrypoints', async () => {

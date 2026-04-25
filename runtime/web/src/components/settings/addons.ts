@@ -10,9 +10,14 @@ export function AddonsSection({ setStatus, filter = '' }) {
     function devParams() {
         const params = new URLSearchParams();
         try {
-            const cu = localStorage.getItem('piclaw_addons_catalog_url');
+            const primaryCatalogUrl = (localStorage.getItem('piclaw_addons_catalog_url') || '').trim();
+            const additionalCatalogUrls = (localStorage.getItem('piclaw_addons_catalog_urls') || '')
+                .split(/\r?\n/)
+                .map(v => v.trim())
+                .filter(Boolean);
             const ru = localStorage.getItem('piclaw_addons_repo_url');
-            if (cu) params.set('catalog_url', cu);
+            if (primaryCatalogUrl) params.append('catalog_url', primaryCatalogUrl);
+            for (const extraUrl of additionalCatalogUrls) params.append('catalog_url', extraUrl);
             if (ru) params.set('repo_url', ru);
         } catch (e) { void e; }
         const qs = params.toString();

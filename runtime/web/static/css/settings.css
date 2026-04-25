@@ -145,6 +145,7 @@
 
 .settings-row input[type="text"],
 .settings-row input[type="number"],
+.settings-row textarea,
 .settings-number-input {
     flex: 1;
     max-width: 280px;
@@ -818,6 +819,7 @@
 
     .settings-row label { min-width: 0; }
     .settings-row input[type="text"],
+    .settings-row textarea,
     .settings-number-input { max-width: 100%; }
     .settings-number-stepper { width: 100%; }
 
