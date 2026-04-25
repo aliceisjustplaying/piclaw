@@ -1424,6 +1424,100 @@
     line-height: 0;
 }
 
+.timeline-quick-actions-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 84px 16px 16px;
+    pointer-events: none;
+}
+
+.timeline-quick-actions {
+    width: min(680px, calc(100vw - 32px));
+    max-height: min(70vh, 720px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 26px 64px rgba(0, 0, 0, 0.34);
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+.timeline-quick-actions-header {
+    padding: 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.timeline-quick-actions-input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.timeline-quick-actions-input:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.timeline-quick-actions-list {
+    overflow: auto;
+    padding: 8px;
+}
+
+.timeline-quick-actions-section {
+    padding: 10px 10px 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.timeline-quick-actions-item {
+    width: 100%;
+    display: grid;
+    gap: 3px;
+    padding: 12px 14px;
+    border: none;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.timeline-quick-actions-item:hover,
+.timeline-quick-actions-item.active {
+    background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+
+.timeline-quick-actions-item-title {
+    font-weight: 600;
+}
+
+.timeline-quick-actions-item-subtitle {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.timeline-quick-actions-empty {
+    padding: 18px 14px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
 .compose-submit-spinner svg {
     display: block;
 }
