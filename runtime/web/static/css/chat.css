@@ -1451,15 +1451,20 @@
 }
 
 .timeline-quick-actions-header {
-    display: grid;
-    gap: 10px;
-    padding: 16px 18px 14px;
+    padding: 10px 14px 8px;
     border-bottom: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.timeline-quick-actions-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
 }
 
 .timeline-quick-actions-input {
     width: 100%;
-    height: 44px;
+    height: 40px;
     padding: 0;
     border: none;
     border-radius: 0;
@@ -1479,9 +1484,11 @@
 }
 
 .timeline-quick-actions-hints {
-    display: flex;
-    flex-wrap: wrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
     gap: 8px;
+    white-space: nowrap;
 }
 
 .timeline-quick-actions-keyhint {
@@ -1511,11 +1518,11 @@
 
 .timeline-quick-actions-list {
     overflow: auto;
-    padding: 10px 10px 14px;
+    padding: 2px 8px 8px;
 }
 
 .timeline-quick-actions-section {
-    padding: 12px 12px 6px;
+    padding: 7px 10px 3px;
     color: var(--text-secondary);
     font-size: 10.5px;
     font-weight: 700;
@@ -1527,12 +1534,12 @@
     width: 100%;
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) auto;
-    gap: 14px;
+    gap: 10px;
     align-items: center;
-    min-height: 70px;
-    padding: 14px 12px;
+    min-height: 52px;
+    padding: 7px 10px;
     border: none;
-    border-radius: 14px;
+    border-radius: 12px;
     background: transparent;
     color: var(--text-primary);
     text-align: left;
@@ -1583,7 +1590,7 @@
 .timeline-quick-actions-item-copy {
     min-width: 0;
     display: grid;
-    gap: 5px;
+    gap: 1px;
 }
 
 .timeline-quick-actions-item-title-row {
@@ -1597,7 +1604,7 @@
     min-width: 0;
     font-size: 15px;
     font-weight: 700;
-    line-height: 1.2;
+    line-height: 1.05;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1610,12 +1617,13 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    line-height: 1;
 }
 
 .timeline-quick-actions-item-subtitle {
     color: var(--text-secondary);
     font-size: 12.5px;
-    line-height: 1.35;
+    line-height: 1.1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1623,8 +1631,8 @@
 
 .timeline-quick-actions-item-category {
     align-self: start;
-    margin-top: 2px;
-    padding: 5px 9px;
+    margin-top: 1px;
+    padding: 4px 8px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
     color: var(--text-secondary);

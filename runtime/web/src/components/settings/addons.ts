@@ -133,7 +133,7 @@ export function AddonsSection({ setStatus, filter = '' }) {
                             <div class="settings-addon-actions">
                                 ${a.installed ? html`
                                     ${a.hasUpdate && html`<button class="settings-addon-btn settings-addon-btn-upgrade" disabled=${Boolean(busy)} onClick=${() => installAddon(a.slug)}>${busySlug === a.slug ? '\u2026' : '\u2b06 Upgrade'}</button>`}
-                                    <button class="settings-addon-btn settings-addon-btn-remove" disabled=${Boolean(busy)} onClick=${() => uninstallAddon(a.slug)}>${busySlug === a.slug ? '\u2026' : '\ud83d\uddd1'}</button>
+                                    <button class="settings-addon-btn settings-addon-btn-remove" disabled=${Boolean(busy)} onClick=${() => uninstallAddon(a.slug)}>${busySlug === a.slug ? '\u2026' : 'Remove'}</button>
                                 ` : html`
                                     <button class="settings-addon-btn settings-addon-btn-install" disabled=${Boolean(busy)} onClick=${() => installAddon(a.slug)}>${busySlug === a.slug ? '\u2026' : 'Install'}</button>
                                 `}

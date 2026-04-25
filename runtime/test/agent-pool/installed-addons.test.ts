@@ -4,16 +4,16 @@ import { join } from 'node:path';
 import { AuthStorage, ModelRegistry, SettingsManager, getAgentDir } from '@mariozechner/pi-coding-agent';
 import '../helpers.js';
 import { withTempWorkspaceEnv } from '../helpers.js';
-import { createSessionInDir, getInstalledAddonExtensionPaths, syncInstalledAddonExtensionBridges } from '../../src/agent-pool/session.ts';
+import { createSessionInDir, getInstalledAddonExtensionPaths } from '../../src/agent-pool/session.ts';
 import { clearExtensionRoutes, getRegisteredRoutes, handleExtensionRoutes } from '../../src/channels/web/http/extension-routes.js';
 
 afterEach(() => {
   clearExtensionRoutes();
 });
 
-test('getInstalledAddonExtensionPaths discovers package pi.extensions from .pi/addons/node_modules', async () => {
+test('getInstalledAddonExtensionPaths discovers package pi.extensions from .pi/extensions/node_modules', async () => {
   await withTempWorkspaceEnv('piclaw-installed-addon-scan-', {}, async (workspace) => {
-    const addonDir = join(workspace.workspace, '.pi', 'addons', 'node_modules', 'piclaw-addon-example');
+    const addonDir = join(workspace.workspace, '.pi', 'extensions', 'node_modules', 'piclaw-addon-example');
     mkdirSync(addonDir, { recursive: true });
     writeFileSync(join(addonDir, 'package.json'), JSON.stringify({
       name: 'piclaw-addon-example',
@@ -29,28 +29,9 @@ test('getInstalledAddonExtensionPaths discovers package pi.extensions from .pi/a
   });
 });
 
-test('syncInstalledAddonExtensionBridges mirrors installed add-ons into workspace extension discovery', async () => {
-  await withTempWorkspaceEnv('piclaw-installed-addon-bridges-', {}, async (workspace) => {
-    const addonDir = join(workspace.workspace, '.pi', 'addons', 'node_modules', 'piclaw-addon-example');
-    mkdirSync(addonDir, { recursive: true });
-    writeFileSync(join(addonDir, 'package.json'), JSON.stringify({
-      name: 'piclaw-addon-example',
-      version: '0.1.0',
-      type: 'module',
-      pi: { extensions: ['index.ts'] },
-    }, null, 2));
-    writeFileSync(join(addonDir, 'index.ts'), 'export default function noop() {}\n');
-
-    const bridgePaths = syncInstalledAddonExtensionBridges(workspace.workspace);
-    expect(bridgePaths).toHaveLength(1);
-    expect(bridgePaths[0]).toContain('.pi/extensions/addon-bridge--piclaw-addon-example--0.ts');
-    expect(readFileSync(bridgePaths[0], 'utf8')).toContain('../addons/node_modules/piclaw-addon-example/index.ts');
-  });
-});
-
-test('web sessions load installed addon extensions from workspace extension bridges', async () => {
+test('web sessions load installed addon extensions from the workspace extensions package root', async () => {
   await withTempWorkspaceEnv('piclaw-installed-addon-runtime-', {}, async (workspace) => {
-    const addonDir = join(workspace.workspace, '.pi', 'addons', 'node_modules', 'piclaw-addon-example');
+    const addonDir = join(workspace.workspace, '.pi', 'extensions', 'node_modules', 'piclaw-addon-example');
     mkdirSync(addonDir, { recursive: true });
     writeFileSync(join(addonDir, 'package.json'), JSON.stringify({
       name: 'piclaw-addon-example',
@@ -101,7 +82,7 @@ test('web sessions load installed addon extensions from workspace extension brid
 test('installed eml addon registers the attachment preview route', async () => {
   await withTempWorkspaceEnv('piclaw-installed-addon-eml-', {}, async (workspace) => {
     const sourceDir = join(import.meta.dir, 'fixtures', 'eml-viewer');
-    const addonDir = join(workspace.workspace, '.pi', 'addons', 'node_modules', 'piclaw-addon-eml-viewer');
+    const addonDir = join(workspace.workspace, '.pi', 'extensions', 'node_modules', 'piclaw-addon-eml-viewer');
     mkdirSync(addonDir, { recursive: true });
     writeFileSync(join(addonDir, 'package.json'), readFileSync(join(sourceDir, 'package.json'), 'utf8'));
     writeFileSync(join(addonDir, 'index.ts'), readFileSync(join(sourceDir, 'index.ts'), 'utf8'));
