@@ -2060,8 +2060,7 @@ test("processChat surfaces provider rate limits as a visible outcome bubble", as
   const timeline = db.getTimeline("web:default", 10);
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.length).toBe(1);
-  expect(botMessages[0].data.content).toContain("Provider retry budget exhausted");
-  // The raw error text is in the outcome marker detail, not the visible content after refactor
+  expect(String(botMessages[0].data.content || "")).toBe("");
   expect(botMessages[0].data.content_blocks).toContainEqual(expect.objectContaining({
     type: "turn_outcome_marker",
     kind: "provider",
@@ -2157,13 +2156,50 @@ test("processChat includes the last action summary in visible failure fallbacks"
 
   const timeline = db.getTimeline("web:default", 10);
   const last = timeline[timeline.length - 1];
-  expect(String(last.data.content || "")).toContain("Turn failed");
-  // Last action is now in the outcome marker, not necessarily duplicated in content text
+  expect(String(last.data.content || "")).toBe("");
   expect(last.data.content_blocks).toContainEqual(expect.objectContaining({
     type: "turn_outcome_marker",
     kind: "error",
     tool_action_summary: expect.stringContaining("bash"),
   }));
+});
+
+test("processChat suppresses a redundant failure bubble when a turn is aborted", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async () => ({ status: "error", error: "The operation was aborted.", result: null, attachments: [] }),
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+
+  const timeline = db.getTimeline("web:default", 10);
+  expect(timeline).toHaveLength(1);
+  expect(String(timeline[0]?.data?.content || "")).toBe("hello");
 });
 
 test("processChat persists a compact recovery bubble instead of a generic no-response warning when compaction/recovery stalls", async () => {
@@ -2268,7 +2304,7 @@ test("processChat consumes an empty successful output with a compact no-reply bu
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.some((item: any) => Array.isArray(item.data.content_blocks)
     && item.data.content_blocks.some((block: any) => block?.type === "turn_outcome_marker" && block?.label === "no reply"))).toBe(true);
-  expect(botMessages.some((item: any) => String(item.data.content || "").includes("Agent produced no response"))).toBe(true);
+  expect(botMessages.some((item: any) => String(item.data.content || "") === "")).toBe(true);
 });
 
 test("processChat does not replay empty-output turns on subsequent passes", async () => {

@@ -108,6 +108,11 @@ function isToolBudgetExceededError(text: string): boolean {
   return /tool.use budget exceeded/i.test(text);
 }
 
+function isAbortError(errorText: string | null | undefined): boolean {
+  if (!errorText) return false;
+  return /\b(?:aborterror|aborted|operation was aborted|request was aborted)\b/i.test(errorText);
+}
+
 function buildErrorOutcomeMarker(
   errorText: string,
   options: {
@@ -253,8 +258,7 @@ function buildFailureVisibleText(options: {
   // and rendered by the client as a collapsible pill. The visible text
   // is just the draft output (or a minimal fallback).
   if (draftText) return draftText;
-  const title = readTrimmedString(options.title);
-  return title || "Turn failed.";
+  return "";
 }
 
 function buildRetryStatusPayload(base: {
@@ -1558,12 +1562,20 @@ export async function processChat(
     }
 
     const errorText = output.error || "Agent error";
+    const aborted = isAbortError(errorText);
     const rateLimited = isRateLimitError(errorText);
     const fallbackPublished = errorText.toLowerCase().includes("timed out")
       ? publishDraftFallback("timeout", errorText)
       : rateLimited
         ? publishDraftFallback("rate-limit", errorText)
-        : publishDraftFallback("error", errorText);
+        : aborted
+          ? false
+          : publishDraftFallback("error", errorText);
+
+    if (aborted) {
+      await finalizeSuccessfulRun();
+      return;
+    }
 
     if (fallbackPublished) {
       await finalizeSuccessfulRun();
