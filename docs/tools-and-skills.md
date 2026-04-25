@@ -257,9 +257,9 @@ You can extend that baseline with `.piclaw/config.json`:
 - `bun_run` — run a workspace Bun script directly; kept in the default active baseline on Windows so there is still a first-party script runner alongside PowerShell
 - `exit_process` — gracefully terminate piclaw so Supervisor restarts it; kept always active because lifecycle control should not depend on same-turn lazy activation
 - `ssh` — get, set, or clear the session-scoped SSH profile used by remote-backed core tools (`read`, `write`, `edit`, `bash`)
-- `proxmox` — get, set, or clear the session-scoped Proxmox API profile, perform ad-hoc Proxmox API requests, or run common VM/task/metrics workflows with keychain-backed token auth
-- `portainer` — get, set, or clear the session-scoped Portainer API profile, perform ad-hoc Portainer API requests, or run common endpoint/stack/container workflows with keychain-backed token auth
 - `mcp` — token-efficient proxy for external MCP servers via the bundled `pi-mcp-adapter`; supports search, describe, connect, tool calls, and MCP UI message retrieval using shared `.mcp.json` plus optional Pi-owned override config
+
+> **Note:** `proxmox` and `portainer` tools have been moved to the [piclaw-addons](https://github.com/rcarmo/piclaw-addons) repository. When the addons package is installed, these tools are registered automatically. They use the same session-scoped profile + `discover` → `capabilities` → `workflow` pattern as `ssh`.
 
 `messages` `search` accepts `query`, `chat_jid` (or `*`/`all`), `role`, `sender`, `after`, `before`, `since`, `after_row`, `before_row`, `limit`, `offset`, `excerpt_chars`, and `details_max_chars` for controlling detail payloads.
 `messages` `get` accepts `row_ids`, optional `chat_jid`, `role`, `context_before`, `context_after`, `details_max_chars`, `content_lines`, and `content_grep`.
@@ -280,7 +280,7 @@ Infrastructure tools follow one shared pattern:
 
 That shared shape improves tool discoverability and keeps prompt usage down: the agent can ask what exists, narrow by family or intent, inspect just one workflow, and only then expand into concrete execution parameters.
 
-`ssh` uses the profile half of that model for remote-backed core tools. `proxmox` and `portainer` implement the full pattern.
+`ssh` uses the profile half of that model for remote-backed core tools. The `proxmox` and `portainer` addon extensions (in [piclaw-addons](https://github.com/rcarmo/piclaw-addons)) implement the full pattern.
 
 `ssh` accepts:
 - `action` — `get`, `set`, or `clear`
@@ -292,6 +292,8 @@ That shared shape improves tool discoverability and keeps prompt usage down: the
 - `strict_host_key_checking` — `yes`, `accept-new`, or `no`
 
 When a live session already exists, `ssh set` and `ssh clear` apply immediately to subsequent tool/model steps in the same turn.
+
+> The `proxmox` and `portainer` tool documentation below describes the addon-provided tools from [piclaw-addons](https://github.com/rcarmo/piclaw-addons). These tools are only available when the addons package is installed.
 
 `proxmox` accepts:
 - `action` — `get`, `set`, `clear`, `discover`, `capabilities`, `workflow_help`, `recommend`, `request`, or `workflow`
@@ -535,14 +537,18 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `visual-artifact-generator` | Generate polished self-contained HTML pages, diagrams, data tables, diff reviews, slide decks, and draw.io files using Piclaw vendored libraries. See [visual-artifact-generator.md](visual-artifact-generator.md). |
 | `situate-daily-notes` | Situation report and Obsidian-style daily summary notes |
 | `timeline-cleanup` | Delete low-value timeline messages by keyword patterns |
-| `proxmox-management` | Manage Proxmox VM lifecycle, USB mapping passthrough, and backup-restore moves |
-| `proxmox-guest-compare-chart` | Compare two Proxmox guests using native `proxmox` data collection and render SVG/CSV outputs |
-| `portainer-container-compare-chart` | Compare two Portainer containers using native `portainer` data collection and render SVG/CSV outputs |
 | `remote-peer` | Send signed prompts to paired remote piclaw instances (see [cross-instance-ipc.md](cross-instance-ipc.md)) |
 
-`kanban-management` is now archived and retains historical references only. Active project operations use GitHub Issues + GitHub Projects. Visual/editor references such as `*.kanban.md` are preserved in archive only.
+> **Addon-provided skills** (from [piclaw-addons](https://github.com/rcarmo/piclaw-addons), available when the addons package is installed):
+>
+> | Skill | Description |
+> |-------|-------------|
+> | `proxmox-guest-compare-chart` | Compare two Proxmox guests and render SVG/CSV outputs |
+> | `portainer-container-compare-chart` | Compare two Portainer containers and render SVG/CSV outputs |
 
-For agent-driven work, prefer the native `proxmox` / `portainer` tools first. The old packaged Proxmox/Portainer helper CLIs were removed once the chat-scoped native tools and shared workflow engines became the canonical path. For shell-oriented Proxmox lifecycle work that still belongs in the skill layer, use the remaining `proxmox-management` skill wrappers instead. Comparison/chart skills for Proxmox and Portainer are now colocated with their packaged integration extensions and surfaced via each extension's `resources_discover` hook, rather than living only in the flat packaged-skill tree.
+`kanban-management` is now archived and retains historical references only. Active project operations use GitHub Issues + GitHub Projects.
+
+For agent-driven infrastructure work, use the addon-provided `proxmox` / `portainer` tools from [piclaw-addons](https://github.com/rcarmo/piclaw-addons). These tools and their colocated skills are registered automatically when the addons package is installed.
 
 ## Web extension UI note
 
