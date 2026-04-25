@@ -7,7 +7,7 @@ import { resolve } from "path";
 
 import { ensureDreamTask, runDreamAgentTurn } from "../dream.js";
 import { WORKSPACE_DIR } from "../core/config.js";
-import { MANUAL_DREAM_DEFAULT_DAYS } from "../dream-defaults.js";
+import { AUTO_DREAM_DEFAULT_DAYS } from "../dream-defaults.js";
 import { startIpcWatcher, type IpcDeps } from "../ipc.js";
 import { startSchedulerLoop, type SchedulerDeps } from "../task-scheduler.js";
 import { createUuid } from "../utils/ids.js";
@@ -107,13 +107,13 @@ export function startRuntimeWorkers(
     log.info("Queueing initial Dream bootstrap", {
       operation: "start_runtime_workers.queue_dream_bootstrap",
       chatJid,
-      days: MANUAL_DREAM_DEFAULT_DAYS,
+      days: AUTO_DREAM_DEFAULT_DAYS,
       missingFiles: getDreamBootstrapFiles().filter((path) => !existsSync(path)),
     });
     queue.enqueueTask(taskId, async () => {
       const result = await runDreamAgentTurn({
         chatJid,
-        days: MANUAL_DREAM_DEFAULT_DAYS,
+        days: AUTO_DREAM_DEFAULT_DAYS,
         mode: "auto",
         agentPool,
       });
