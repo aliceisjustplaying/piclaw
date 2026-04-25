@@ -1136,7 +1136,16 @@
     display: inline-flex;
     align-items: flex-end;
     justify-content: flex-end;
+    gap: calc(var(--spacing-xs) - 2px);
     flex: 0 0 auto;
+}
+
+.compose-send-stack .send-btn:not(.abort-mode) {
+    order: 2;
+}
+
+.compose-send-stack .send-btn.abort-mode {
+    order: 1;
 }
 
 .compose-connection-status {
