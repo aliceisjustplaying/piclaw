@@ -18,18 +18,21 @@ Core tools (from `pi`):
 - `edit` — replace exact text
 - `write` — write files
 
-Piclaw keeps a small always-active baseline and lazily enables other tools on demand. This is one of the main context-conservation strategies: keep default tool exposure small, promote only what the current turn needs, and prefer compact discovery surfaces before expanding into detailed schemas or examples.
+Piclaw keeps the agent's always-active baseline intentionally small and uses `list_tools` plus `activate_tools` to expand capabilities on demand. The baseline helps preserve prompt context by keeping only frequent, high-value schemas in-band by default.
 
-In addition to the fixed baseline below, the effective default active set now auto-includes:
+#### Why this matters for token usage
 
-- available **read-only** tools
-- message/timeline access (`messages`)
-- scheduling helpers (`schedule_task`, `scheduled_tasks` when present)
-- attachment helpers (`attach_file`, `read_attachment`, `export_attachment` when present)
+- **Default-active tools** are sent as full tool schemas in the prompt.
+- **On-demand tools** are discoverable via compact metadata and only contribute their full schema once activated.
 
-This removes most activation friction for safe inspection/search, messaging, scheduling, and attachment flows while keeping broader mutating and remote/admin tools opt-in.
+The practical tradeoff is predictable context spend:
 
-Fixed baseline:
+| Tool tier | Typical prompt impact |
+| --- | --- |
+| Default-active | `~50-200` tokens each |
+| On-demand catalog entry | `~10-15` tokens each |
+
+Fixed baseline (always in active defaults):
 
 - `read`
 - `edit`
@@ -43,7 +46,31 @@ Fixed baseline:
 - `keychain`
 - `exit_process`
 
-Newly activated tools become available immediately to subsequent tool/model steps in the same turn. For critical actions, keep the needed tool in the default baseline or promote it with config. Read-only tools plus the message/scheduling/attachment helpers listed above are activated automatically as part of the effective default set when they exist in the current tool catalog.
+At session start, piclaw also auto-promotes additional safe tools to the effective default set:
+
+- available **read-only + lightweight** tools (for example `grep`, `find`, `ls`, `get_model_state`)
+- message/scheduling/attachment helpers when present:
+  - `messages`, `schedule_task`, `scheduled_tasks`, `read_attachment`, `export_attachment`
+- `attach_file` and `keychain` remain part of baseline tooling
+
+This preserves low-latency common inspection workflows while keeping heavier tools opt-in.
+
+Add `tools.additionalDefaultTools` to `.piclaw/config.json` for more persistent defaults:
+
+```json
+{
+  "tools": {
+    "additionalDefaultTools": [
+      "search_workspace",
+      "introspect_sql"
+    ]
+  }
+}
+```
+
+A comma-separated string is also accepted, and env var `PICLAW_ADDITIONAL_DEFAULT_TOOLS` is equivalent.
+
+`reset_active_tools` restores this configured default set (not just the fixed baseline). Unknown tool names are ignored. New activations are session-scoped and reset on restart/session rotation.
 
 ### Preferred staged internal-tool flow
 

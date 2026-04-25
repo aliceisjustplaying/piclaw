@@ -402,10 +402,28 @@ Notes:
 
 ### Default active tools
 
-Piclaw now keeps the agent's always-active tool list intentionally small and uses
+Piclaw keeps the agent's always-active baseline intentionally small and uses
 `list_tools` and `activate_tools` to enable extra capabilities on demand (`list_internal_tools` remains as a deprecated compatibility alias during migration).
 
-Built-in default baseline:
+#### How tool activation affects token usage
+
+- **Default-active tools** are injected as full schemas (all fields and constraints)
+  into the system prompt.
+- **On-demand tools** are represented by compact catalog entries (name +
+  short summary/metadata) until explicitly activated.
+
+Because the system prompt is sent on every model request, active tool schemas
+always contribute extra token cost. Typical magnitudes in this setup are:
+
+| Tool tier | Typical prompt impact |
+| --- | --- |
+| Default-active | `~50-200` tokens each |
+| On-demand catalog entry | `~10-15` tokens each |
+
+With all bundled tools present, this staged setup keeps context spend predictable
+and avoids full-schema bloat for rarely used tools.
+
+#### Built-in default baseline
 
 - `read`
 - `edit`
@@ -418,6 +436,25 @@ Built-in default baseline:
 - `messages`
 - `keychain`
 - `exit_process`
+
+At session start, piclaw also auto-promotes available tools to the effective
+default set when they are already safe/cheap:
+
+- read-only + lightweight tools (for example `grep`, `find`, `ls`, `get_model_state`),
+- message/scheduling/attachment helpers when present (`messages`, `schedule_task`,
+  `scheduled_tasks`, `read_attachment`, `export_attachment`),
+- `attach_file` and `keychain` when available.
+
+This keeps common read/inspect workflows fast while leaving more expensive tools
+opt-in via activation.
+
+#### How to unlock additional tools
+
+Follow the existing path:
+
+1. `list_tools` with `query` or `intent` for compact discovery.
+2. Activate only the needed tool(s) via `activate_tools`.
+3. Use them in the same turn or next turn; activation updates apply within-session.
 
 Add more always-active tools in `.piclaw/config.json` under `tools.additionalDefaultTools`:
 
@@ -442,12 +479,17 @@ A comma-separated string is also accepted:
 }
 ```
 
+The environment variable `PICLAW_ADDITIONAL_DEFAULT_TOOLS` is equivalent.
+
 Notes:
 
 - `reset_active_tools` restores this configured default set, not just the built-in baseline.
-- Unknown tool names are ignored when the active tool list is applied.
+- Unknown tool names are silently ignored when applying the default set.
 - On Windows, `bash` is replaced by the `powershell` tool in the default active set.
-- Newly activated tools become available immediately to subsequent tool/model steps in the same turn; keep critical control tools in the default baseline or config-defined defaults.
+- Newly activated tools become available immediately to subsequent tool/model steps
+  in the same turn; keep critical control tools in defaults.
+- Tool activation is session-scoped and resets on session rotation or restart.
+- On-demand tools still carry a small catalog cost in prompts even before activation.
 
 ### Workspace search / FTS roots
 
