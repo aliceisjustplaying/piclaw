@@ -83,7 +83,6 @@ export function NumberStepper({
                 value=${localValue}
                 min=${min}
                 max=${max}
-                step=${step}
                 disabled=${disabled}
                 style=${`width:${width}`}
                 onInput=${(e) => {

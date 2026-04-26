@@ -1378,6 +1378,25 @@
     font-size: var(--font-size-sm);
 }
 
+.compose-search-filter-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 4px;
+    cursor: pointer;
+}
+
+.compose-search-filter-wrap input[type="checkbox"] {
+    margin: 0;
+    accent-color: var(--accent-color);
+}
+
+.compose-search-filter-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
 .icon-btn {
     background: none;
     border: none;

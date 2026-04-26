@@ -732,6 +732,8 @@ export function ComposeBox({
 }) {
     const [content, setContent] = useState('');
     const [searchText, setSearchText] = useState('');
+    const [searchFilterImages, setSearchFilterImages] = useState(false);
+    const [searchFilterAttachments, setSearchFilterAttachments] = useState(false);
     const [mediaFiles, setMediaFiles] = useState([]);
     const [isDragActive, setIsDragActive] = useState(false);
     const [slashMatches, setSlashMatches] = useState([]);
@@ -1698,7 +1700,7 @@ export function ComposeBox({
             e.preventDefault();
             if (searchMode) {
                 if (currentValue.trim()) {
-                    onSearch?.(currentValue.trim(), searchScope);
+                    onSearch?.(currentValue.trim(), searchScope, { images: searchFilterImages, attachments: searchFilterAttachments });
                 }
             } else {
                 void handleSubmit(currentValue, "steer");
@@ -1710,7 +1712,7 @@ export function ComposeBox({
             e.preventDefault();
             if (searchMode) {
                 if (currentValue.trim()) {
-                    onSearch?.(currentValue.trim(), searchScope);
+                    onSearch?.(currentValue.trim(), searchScope, { images: searchFilterImages, attachments: searchFilterAttachments });
                 }
             } else {
                 void handleSubmit(currentValue);
@@ -2467,6 +2469,14 @@ export function ComposeBox({
                                 <option value="root">Branch family</option>
                                 <option value="all">All chats</option>
                             </select>
+                        </label>
+                        <label class="compose-search-filter-wrap" title="Only show messages with images">
+                            <input type="checkbox" checked=${searchFilterImages} onChange=${() => setSearchFilterImages(v => !v)} />
+                            <span class="compose-search-filter-label">Images</span>
+                        </label>
+                        <label class="compose-search-filter-wrap" title="Only show messages with attachments">
+                            <input type="checkbox" checked=${searchFilterAttachments} onChange=${() => setSearchFilterAttachments(v => !v)} />
+                            <span class="compose-search-filter-label">Attachments</span>
                         </label>
                     `}
                     <button
