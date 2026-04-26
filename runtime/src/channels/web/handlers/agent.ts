@@ -79,6 +79,32 @@ function isQuotaError(errorText: string | null | undefined): boolean {
   return /quota|usage.*limit|out of.*usage|billing|insufficient.*funds|exceeded.*limit|credit/i.test(errorText);
 }
 
+function isNetworkError(errorText: string | null | undefined): boolean {
+  if (!errorText) return false;
+  return /\bENOTFOUND\b|\bECONNREFUSED\b|\bETIMEDOUT\b|\bECONNRESET\b|getaddrinfo|dns.*failed|network.*error|connection.*error|fetch failed|socket hang up|connection.*refused|connection.*lost/i.test(errorText);
+}
+
+function describeNetworkError(errorText: string): string {
+  if (/ENOTFOUND|getaddrinfo|dns/i.test(errorText)) {
+    const hostMatch = errorText.match(/ENOTFOUND\s+(\S+)|getaddrinfo.*?\s+(\S+?)(?:\s|$|:)/i);
+    const host = hostMatch?.[1] || hostMatch?.[2] || '';
+    return host ? `DNS lookup failed for ${host}` : 'DNS lookup failed — provider hostname not reachable';
+  }
+  if (/ECONNREFUSED|connection.*refused/i.test(errorText)) {
+    return 'Connection refused — provider API endpoint is down or blocked';
+  }
+  if (/ETIMEDOUT|timed? out|timeout/i.test(errorText)) {
+    return 'Connection timed out — provider API did not respond';
+  }
+  if (/ECONNRESET|connection.*reset|socket hang up/i.test(errorText)) {
+    return 'Connection reset — provider closed the connection unexpectedly';
+  }
+  if (/fetch failed/i.test(errorText)) {
+    return 'Network request failed — check provider URL and connectivity';
+  }
+  return 'Network error — check provider connectivity';
+}
+
 type TurnOutcomeSeverity = "warning" | "error" | "critical" | "info";
 
 function buildTurnOutcomeMarker(options: {
@@ -157,6 +183,19 @@ function buildErrorOutcomeMarker(
         : isQuotaError(errorText)
           ? "Provider quota exceeded"
           : "Model configuration error",
+      detail: errorText.slice(0, 500),
+      severity: options.severity ?? "error",
+      draftRecovered: options.draftRecovered,
+      attemptsUsed: options.attemptsUsed,
+      classifier: options.classifier,
+    });
+  }
+
+  if (isNetworkError(errorText)) {
+    return buildTurnOutcomeMarker({
+      kind: "network",
+      label: "network",
+      title: describeNetworkError(errorText),
       detail: errorText.slice(0, 500),
       severity: options.severity ?? "error",
       draftRecovered: options.draftRecovered,
@@ -1597,6 +1636,8 @@ export async function processChat(
     const errorText = output.error || "Agent error";
     const aborted = isAbortError(errorText);
     const rateLimited = isRateLimitError(errorText);
+    const networkFailed = isNetworkError(errorText);
+    const networkDetail = networkFailed ? describeNetworkError(errorText) : null;
     const fallbackPublished = errorText.toLowerCase().includes("timed out")
       ? publishDraftFallback("timeout", errorText)
       : rateLimited
@@ -1637,8 +1678,8 @@ export async function processChat(
       thread_id: threadId,
       agent_id: agentId,
       type: "error",
-      title: rateLimited ? "AI provider rate limit" : errorText,
-      detail: rateLimited ? errorText : undefined,
+      title: rateLimited ? "AI provider rate limit" : networkFailed ? networkDetail! : errorText,
+      detail: rateLimited ? errorText : networkFailed ? errorText : undefined,
       turn_id: turnId,
     });
     return;
