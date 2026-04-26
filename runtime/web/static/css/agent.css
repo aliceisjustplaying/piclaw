@@ -1034,8 +1034,8 @@
 }
 
 .agent-request-icon svg {
-    color: #ffffff;
-    stroke: #ffffff;
+    color: var(--accent-contrast-text, #ffffff);
+    stroke: var(--accent-contrast-text, #ffffff);
 }
 
 .agent-request-title {
