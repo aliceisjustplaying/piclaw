@@ -633,10 +633,18 @@ function App() {
     return html`<${MainApp} locationParams=${locationParams} navigate=${navigate} />`;
 }
 
-// Mount the app — defensively unmount first so stale cached HTML or duplicate
-// module evaluation cannot stack a second full app tree into #app.
+// Mount the app — defensively unmount first so stale cached HTML, fallback
+// loading markup, duplicate module evaluation, or prior crash-state DOM cannot
+// stack a second full app tree into #app.
 const appRoot = document.getElementById('app');
+if (typeof window !== 'undefined') {
+    window.__PICLAW_APP_BOOTED__ = false;
+}
 if (appRoot) {
     render(null, appRoot);
+    appRoot.replaceChildren();
     render(html`<${App} />`, appRoot);
+    if (typeof window !== 'undefined') {
+        window.__PICLAW_APP_BOOTED__ = true;
+    }
 }
