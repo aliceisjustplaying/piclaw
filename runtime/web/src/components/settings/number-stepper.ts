@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { html, useCallback } from '../../vendor/preact-htm.js';
+import { html, useCallback, useRef, useState, useEffect } from '../../vendor/preact-htm.js';
 
 function toFiniteNumber(value, fallback) {
     if (value === '' || value === null || value === undefined) return fallback;
@@ -43,13 +43,27 @@ export function NumberStepper({
     onChange,
 }) {
     const effectiveFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : normalizeNumberValue(value, { fallback: 0, min, max });
-    const commitValue = useCallback((next) => {
-        const normalized = normalizeNumberValue(next, { fallback: effectiveFallback, min, max });
+    const [localValue, setLocalValue] = useState(String(value ?? effectiveFallback));
+    const editingRef = useRef(false);
+
+    // Sync from parent when not actively editing
+    useEffect(() => {
+        if (!editingRef.current) {
+            setLocalValue(String(value ?? effectiveFallback));
+        }
+    }, [value, effectiveFallback]);
+
+    const commit = useCallback((raw) => {
+        editingRef.current = false;
+        const normalized = normalizeNumberValue(raw, { fallback: effectiveFallback, min, max });
+        setLocalValue(String(normalized));
         onChange?.(normalized);
     }, [effectiveFallback, min, max, onChange]);
 
     const nudge = useCallback((direction) => {
+        editingRef.current = false;
         const next = stepNumberValue(value, { direction, step, fallback: effectiveFallback, min, max });
+        setLocalValue(String(next));
         onChange?.(next);
     }, [effectiveFallback, max, min, onChange, step, value]);
 
@@ -66,13 +80,24 @@ export function NumberStepper({
             <input
                 class="settings-number-input"
                 type="number"
-                value=${value}
+                value=${localValue}
                 min=${min}
                 max=${max}
                 step=${step}
                 disabled=${disabled}
                 style=${`width:${width}`}
-                onInput=${(e) => commitValue(e.target.value)}
+                onInput=${(e) => {
+                    editingRef.current = true;
+                    setLocalValue(e.target.value);
+                }}
+                onBlur=${(e) => commit(e.target.value)}
+                onKeyDown=${(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commit(e.target.value);
+                        e.target.blur();
+                    }
+                }}
             />
             <button
                 type="button"
