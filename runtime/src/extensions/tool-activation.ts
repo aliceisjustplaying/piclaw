@@ -78,7 +78,7 @@ export const TOOLSETS: ToolsetDefinition[] = [
   {
     name: "lifecycle",
     description: "Managed process lifecycle control.",
-    toolNames: ["exit_process"],
+    toolNames: ["exit_process", "session_status"],
   },
 ];
 
@@ -95,6 +95,7 @@ const DEFAULT_ACTIVE_TOOL_NAMES = [
   "messages",
   "keychain",
   "exit_process",
+  "session_status",
 ] as const;
 
 const WINDOWS_DEFAULT_ACTIVE_TOOL_NAMES = [

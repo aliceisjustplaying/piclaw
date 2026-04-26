@@ -5,6 +5,12 @@
 import { type AgentSession, type AgentSessionEvent, type AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 
 import type { AttachmentInfo } from "./attachments.js";
+import {
+  trackToolStart as trackToolStartActivity,
+  trackToolEnd as trackToolEndActivity,
+  updateSessionStreaming,
+  updateSessionModel,
+} from "../extensions/session-status.js";
 
 import {
   decideAutomaticRecovery,
@@ -472,6 +478,7 @@ async function runPromptAttempt(
   let hadToolFailure = false;
   let failedToolName: string | null = null;
   let assistantToolUseMessageCount = 0;
+  let toolExecutionCount = 0;
   let toolUseBudgetExceeded = false;
   const sessionEntryBaseline = snapshotSessionEntryCount(session);
   const toolUseMessageBudget = getToolUseMessageBudget();
@@ -494,6 +501,18 @@ async function runPromptAttempt(
     "list_scripts",
   ].includes(toolName);
   const wrappedOnEvent = (event: AgentSessionEvent) => {
+    // Track session activity for cross-session visibility
+    if (event.type === "tool_execution_start") {
+      const e = event as { toolCallId?: string; toolName?: string; args?: unknown };
+      if (e.toolCallId && e.toolName) {
+        trackToolStartActivity(chatJid, e.toolCallId, e.toolName, e.args);
+      }
+    }
+    if (event.type === "tool_execution_end") {
+      const e = event as { toolCallId?: string };
+      if (e.toolCallId) trackToolEndActivity(chatJid, e.toolCallId);
+    }
+
     if (event.type === "message_update") {
       const messageEvent = (event as { assistantMessageEvent?: { type?: string; delta?: string } }).assistantMessageEvent;
       if (messageEvent?.type === "text_delta" && typeof messageEvent.delta === "string" && messageEvent.delta.length > 0) {
@@ -506,6 +525,9 @@ async function runPromptAttempt(
       || event.type === "tool_execution_end"
     ) {
       hadToolActivity = true;
+      if (event.type === "tool_execution_end") {
+        toolExecutionCount += 1;
+      }
       const toolName = (event as { toolName?: unknown }).toolName;
       if (!isRetrySafeToolName(toolName)) {
         onlyReadOnlyToolActivity = false;
@@ -610,6 +632,7 @@ async function runPromptAttempt(
   if (timedOut) {
     output = { status: "error", result: null, error: `Timed out after ${formatTimeoutDuration(timeoutMs)}` };
   } else if (toolUseBudgetExceeded && !finalText && finalAttachments.length === 0) {
+    sawCompactionIntent = true;
     output = {
       status: "error",
       result: null,
@@ -712,6 +735,9 @@ async function runPromptAttempt(
       sawCompactionIntent,
       sawAssistantToolCall: sawAssistantToolCallMessage,
       onlyReadOnlyToolActivity,
+      toolUseBudgetExceeded,
+      assistantToolUseMessageCount,
+      toolExecutionCount,
     },
   };
 }
@@ -725,6 +751,8 @@ export async function runAgentPrompt(
 ): Promise<AgentOutput> {
   const startTime = Date.now();
   options.clearAttachments(chatJid);
+  updateSessionStreaming(chatJid, true);
+  const sessionModel = runOptions.onEvent ? null : null; // model tracked via session below
 
   // Tool-cap and tool-ceiling state – declared outside try so cleanup
   // can run in finally regardless of how the try exits.
@@ -742,6 +770,8 @@ export async function runAgentPrompt(
     const runtime = await options.getOrCreateRuntime(chatJid);
     let session = runtime.session;
     session = await maybeAutoRotateSession(session, runtime, chatJid, options);
+    const modelLabel = session.model ? `${session.model.provider}/${session.model.id}` : null;
+    updateSessionModel(chatJid, modelLabel, session.thinkingLevel ?? null);
     await maybeAutoCompactSessionBeforePrompt(session, chatJid, options, runOptions.onEvent);
     pruneOrphanToolResults(session, chatJid);
     const forkBaseLeafId = typeof session.sessionManager?.getLeafId === "function"
@@ -970,6 +1000,9 @@ export async function runAgentPrompt(
                 hadCompletedTurnOutput: attempt.snapshot.hadCompletedTurnOutput,
                 compactionErrorMessage: compactionResult.errorMessage,
                 sawCompactionIntent: true,
+                toolUseBudgetExceeded: attempt.snapshot.toolUseBudgetExceeded,
+                assistantToolUseMessageCount: attempt.snapshot.assistantToolUseMessageCount,
+                toolExecutionCount: attempt.snapshot.toolExecutionCount,
               },
             });
             lastClassifier = compactDecision.classifier;
@@ -988,6 +1021,9 @@ export async function runAgentPrompt(
                   hadCompletedTurnOutput: attempt.snapshot.hadCompletedTurnOutput,
                   compactionErrorMessage: compactionResult.errorMessage,
                   sawCompactionIntent: true,
+                  toolUseBudgetExceeded: attempt.snapshot.toolUseBudgetExceeded,
+                  assistantToolUseMessageCount: attempt.snapshot.assistantToolUseMessageCount,
+                  toolExecutionCount: attempt.snapshot.toolExecutionCount,
                 },
               ));
               const duration = Date.now() - startTime;
@@ -1043,6 +1079,7 @@ export async function runAgentPrompt(
     });
     return { status: "error", result: null, error: errorMsg };
   } finally {
+    updateSessionStreaming(chatJid, false);
     toolCallUnsub?.();
     if (sessionCtrl && savedToolNames !== null && originalSetActiveToolsByName) {
       sessionCtrl.setActiveToolsByName = originalSetActiveToolsByName;

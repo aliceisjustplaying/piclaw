@@ -51,6 +51,7 @@ import { exitProcess } from "./exit-process.js";
 import { autoresearchSupervisor } from "./autoresearch-supervisor.js";
 import { imageProcessing } from "./image-processing.js";
 import { remotePair } from "./remote-pair.js";
+import { sessionStatus } from "./session-status.js";
 
 /** Build the built-in extension factory list used for session creation. */
 export function createBuiltinExtensionFactories(options?: {
@@ -78,6 +79,7 @@ export function createBuiltinExtensionFactories(options?: {
     autoresearchSupervisor,
     imageProcessing,
     remotePair,
+    sessionStatus,
   ];
 }
 

@@ -3,6 +3,11 @@
  */
 
 import {
+  getSessionIsolationLevel,
+  setSessionIsolationLevel,
+  type SessionIsolationLevel,
+} from "../../../extensions/session-status.js";
+import {
   getIdentityConfig,
   getSessionStorageConfig,
   getToolUseMessageBudget,
@@ -41,6 +46,7 @@ export interface GeneralSettingsData {
     otpauth: string;
     qrSvg: string;
   };
+  sessionIsolation: "none" | "summary" | "full";
 }
 
 export interface GeneralSettingsInput {
@@ -54,6 +60,7 @@ export interface GeneralSettingsInput {
   composeUploadLimitMb?: unknown;
   workspaceUploadLimitMb?: unknown;
   toolUseBudget?: unknown;
+  sessionIsolation?: unknown;
 }
 
 function normalizeOptionalString(value: unknown): string | null | undefined {
@@ -119,6 +126,7 @@ export function getGeneralSettingsData(): GeneralSettingsData {
     workspaceUploadLimitMb: web.workspaceUploadLimitMb,
     toolUseBudget: getToolUseMessageBudget(),
     instanceTotp: buildTotpSettingsData(),
+    sessionIsolation: getSessionIsolationLevel(),
   };
 }
 
@@ -184,6 +192,11 @@ export async function saveGeneralSettings(input: GeneralSettingsInput): Promise<
   const nextToolUseBudget = normalizeOptionalInt(input.toolUseBudget, 8, 512);
   if (nextToolUseBudget !== undefined) {
     setToolUseMessageBudget(nextToolUseBudget);
+  }
+
+  const nextSessionIsolation = typeof input.sessionIsolation === "string" ? input.sessionIsolation.trim().toLowerCase() : undefined;
+  if (nextSessionIsolation === "none" || nextSessionIsolation === "summary" || nextSessionIsolation === "full") {
+    setSessionIsolationLevel(nextSessionIsolation as SessionIsolationLevel);
   }
 
   return getGeneralSettingsData();

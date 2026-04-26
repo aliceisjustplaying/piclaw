@@ -559,6 +559,15 @@ const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
       nouns: ["process", "service", "piclaw"],
     }),
   },
+  session_status: {
+    kind: "read-only",
+    weight: "lightweight",
+    recommend: rec({
+      domains: ["lifecycle", "sessions"],
+      verbs: ["check", "list", "inspect"],
+      nouns: ["session", "active", "running", "tool"],
+    }),
+  },
 
   // image processing
   image_process: {
