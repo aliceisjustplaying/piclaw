@@ -1,30 +1,32 @@
 // @ts-nocheck
-import { render, useEffect, useLayoutEffect, useState } from '../vendor/preact-htm.js';
+import { render, useEffect, useRef } from '../vendor/preact-htm.js';
 
 export function BodyPortal({ children, className = '' }) {
-    const [host, setHost] = useState(null);
+    const hostRef = useRef(null);
 
+    // Create the host div once on mount, remove on unmount
     useEffect(() => {
         if (typeof document === 'undefined') return undefined;
-        const nextHost = document.createElement('div');
-        if (className) nextHost.className = className;
-        document.body.appendChild(nextHost);
-        setHost(nextHost);
+        const host = document.createElement('div');
+        if (className) host.className = className;
+        document.body.appendChild(host);
+        hostRef.current = host;
         return () => {
+            hostRef.current = null;
             try {
-                render(null, nextHost);
+                render(null, host);
             } finally {
-                nextHost.remove();
-                setHost((current) => (current === nextHost ? null : current));
+                host.remove();
             }
         };
     }, [className]);
 
-    useLayoutEffect(() => {
-        if (!host) return undefined;
+    // Render children into the host div on every update
+    useEffect(() => {
+        const host = hostRef.current;
+        if (!host) return;
         render(children, host);
-        return undefined;
-    }, [children, host]);
+    });
 
     return null;
 }
