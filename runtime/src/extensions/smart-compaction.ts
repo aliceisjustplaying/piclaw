@@ -51,7 +51,7 @@ const MAX_PROMPT_CHARS = 60_000;
 const TOOL_RESULT_MAX_CHARS = 1_500;
 
 /** How many recent messages to always include verbatim. */
-const TAIL_MESSAGES = 20;
+const TAIL_MESSAGES = 30;
 
 /** How many earliest user turns to include for goal context. */
 const HEAD_USER_TURNS = 3;
@@ -61,7 +61,7 @@ const TOPIC_SHIFT_CONTEXT_BEFORE = 2;
 const TOPIC_SHIFT_CONTEXT_AFTER = 6;
 
 /** Context messages to pin after the latest user request (separate from shift). */
-const LATEST_REQUEST_CONTEXT_AFTER = 4;
+const LATEST_REQUEST_CONTEXT_AFTER = 12;
 
 /** Preview length for embedded user-topic snippets. */
 const USER_PREVIEW_MAX_CHARS = 300;
@@ -108,6 +108,59 @@ const JUNK_PATH_PATTERNS: RegExp[] = [
   /\.bundle\.(js|css)$/,               // bundles
   /\.meta\.json$/,                     // meta files
 ];
+
+/**
+ * Compress a list of file paths by factoring out the longest common prefix
+ * and grouping by directory. Saves tokens when paths share deep prefixes.
+ *
+ * Example:
+ *   /workspace/piclaw/runtime/web/src/ui/app.ts
+ *   /workspace/piclaw/runtime/web/src/ui/theme.ts
+ *   /workspace/piclaw/runtime/web/src/components/post.ts
+ *   /workspace/piclaw/runtime/test/web/app.test.ts
+ * →
+ *   base: /workspace/piclaw/runtime/
+ *   web/src/ui/: app.ts, theme.ts
+ *   web/src/components/: post.ts
+ *   test/web/: app.test.ts
+ */
+function compressFilePaths(paths: string[]): string {
+  if (paths.length === 0) return "(none)";
+  if (paths.length <= 3) return paths.join("\n");
+
+  // Find longest common prefix ending at a /
+  let prefix = paths[0];
+  for (let i = 1; i < paths.length; i++) {
+    while (!paths[i].startsWith(prefix)) {
+      const slash = prefix.lastIndexOf("/", prefix.length - 2);
+      if (slash < 0) { prefix = ""; break; }
+      prefix = prefix.slice(0, slash + 1);
+    }
+    if (!prefix) break;
+  }
+
+  // Group by directory relative to prefix
+  const groups = new Map<string, string[]>();
+  for (const p of paths) {
+    const rel = prefix ? p.slice(prefix.length) : p;
+    const lastSlash = rel.lastIndexOf("/");
+    const dir = lastSlash >= 0 ? rel.slice(0, lastSlash + 1) : "";
+    const file = lastSlash >= 0 ? rel.slice(lastSlash + 1) : rel;
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir)!.push(file);
+  }
+
+  const lines: string[] = [];
+  if (prefix) lines.push(`base: ${prefix}`);
+  for (const [dir, files] of [...groups.entries()].sort()) {
+    if (files.length === 1) {
+      lines.push(`${dir}${files[0]}`);
+    } else {
+      lines.push(`${dir || "./"}: ${files.join(", ")}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 function filterJunkPaths(paths: string[]): string[] {
   return paths.filter((p) => !JUNK_PATH_PATTERNS.some((re) => re.test(p)));
@@ -572,16 +625,14 @@ function buildSelectivePrompt(
 
   sec.push(`\n## Files Modified (verified from tool results)`);
   if (modifiedFiles.length > 0) {
-    for (const f of modifiedFiles) sec.push(`- ${f}`);
+    sec.push(compressFilePaths(modifiedFiles));
   } else {
     sec.push(`- (none)`);
   }
 
   sec.push(`\n## Files Read (not modified)`);
   if (readFiles.length > 0) {
-    const shown = readFiles.slice(0, 20);
-    for (const f of shown) sec.push(`- ${f}`);
-    if (readFiles.length > 20) sec.push(`- … and ${readFiles.length - 20} more`);
+    sec.push(compressFilePaths(readFiles));
   } else {
     sec.push(`- (none)`);
   }
@@ -825,11 +876,11 @@ function appendFileLists(base: string, fileOps: FileOperations): string {
   const parts: string[] = [base];
 
   if (readFiles.length > 0) {
-    parts.push(`\n<read-files>\n${readFiles.join("\n")}\n</read-files>`);
+    parts.push(`\n<read-files>\n${compressFilePaths(readFiles)}\n</read-files>`);
   }
   if (modifiedFiles.length > 0) {
     parts.push(
-      `\n<modified-files>\n${modifiedFiles.join("\n")}\n</modified-files>`,
+      `\n<modified-files>\n${compressFilePaths(modifiedFiles)}\n</modified-files>`,
     );
   }
 
@@ -995,11 +1046,11 @@ export const smartCompaction: ExtensionFactory = (pi: ExtensionAPI) => {
         ) {
           const parts: string[] = [];
           if (readFiles.length > 0) {
-            parts.push(`\n<read-files>\n${readFiles.join("\n")}\n</read-files>`);
+            parts.push(`\n<read-files>\n${compressFilePaths(readFiles)}\n</read-files>`);
           }
           if (modifiedFiles.length > 0) {
             parts.push(
-              `\n<modified-files>\n${modifiedFiles.join("\n")}\n</modified-files>`,
+              `\n<modified-files>\n${compressFilePaths(modifiedFiles)}\n</modified-files>`,
             );
           }
           if (parts.length) fullSummary += "\n" + parts.join("\n");
