@@ -5,7 +5,7 @@ import { renderMarkdown, renderMermaidDiagrams, sanitizeUrl } from '../markdown.
 import { formatCount, formatFileSize, formatTime, formatTimestamp } from '../utils/format.js';
 import { buildPostMarkdownCopyPayload } from '../utils/post-copy-markdown.js';
 import { DEFAULT_AGENT_NAME, getAvatarInfo } from '../ui/agent-utils.js';
-import { getAttachmentPreviewKind } from '../ui/attachment-preview.js';
+import { getAttachmentPreviewKind, getAttachmentPreviewLabel } from '../ui/attachment-preview.js';
 import { extractCardBlocks, renderAdaptiveCard } from '../ui/adaptive-card-renderer.js';
 import { buildAdaptiveCardSubmissionFallbackText, describeAdaptiveCardSubmission, extractAdaptiveCardSubmissionBlocks } from '../ui/adaptive-card-submission.js';
 import { buildGeneratedWidgetPayload, canRenderGeneratedWidget } from '../ui/generated-widget.js';
@@ -220,6 +220,7 @@ function AttachmentPill({ attachment, onPreview }) {
     const filename = info?.filename || attachment.label || `attachment-${attachment.id}`;
     const downloadHref = Number.isFinite(mediaId) ? getMediaUrl(mediaId) : null;
     const previewKind = getAttachmentPreviewKind(info?.content_type, info?.filename || attachment?.label);
+    const previewLabel = getAttachmentPreviewLabel(previewKind);
     const canPreview = previewKind !== 'unsupported';
 
     return html`
