@@ -11,7 +11,7 @@ function resolveAvatarPreview(value) {
     return `/workspace/file?path=${encodeURIComponent(rel)}`;
 }
 
-function AvatarField({ label, value, onChange }) {
+function AvatarField({ value, onChange }) {
     const inputRef = useRef(null);
     const [preview, setPreview] = useState(resolveAvatarPreview(value));
 
@@ -30,16 +30,11 @@ function AvatarField({ label, value, onChange }) {
     }, [onChange]);
 
     return html`
-        <div class="settings-avatar-field">
-            <label>${label}</label>
-            <div class="settings-avatar-row">
-                <div class="settings-avatar-preview settings-avatar-clickable" onClick=${() => inputRef.current?.click()} title="Click to upload a new avatar">
-                    ${preview
-                        ? html`<img src=${preview} alt="avatar" />`
-                        : html`<span class="settings-avatar-placeholder">+</span>`}
-                </div>
-                <input type="file" accept="image/*" ref=${inputRef} style="display:none" onChange=${handleFileSelect} />
-            </div>
+        <div class="settings-avatar-inline" onClick=${() => inputRef.current?.click()} title="Click to upload">
+            ${preview
+                ? html`<img src=${preview} alt="avatar" />`
+                : html`<span class="settings-avatar-placeholder">+</span>`}
+            <input type="file" accept="image/*" ref=${inputRef} style="display:none" onChange=${handleFileSelect} />
         </div>
     `;
 }
@@ -52,9 +47,8 @@ function normalizeGeneralSettings(data = {}) {
         assistantAvatar: data.assistantAvatar || '',
         sessionAutoRotate: data.sessionAutoRotate !== false,
         sessionMaxSizeMb: data.sessionMaxSizeMb ?? 32,
-        webTerminalEnabled: data.webTerminalEnabled !== false,
         composeUploadLimitMb: data.composeUploadLimitMb ?? 32,
-        workspaceUploadLimitMb: data.workspaceUploadLimitMb ?? 512,
+        workspaceUploadLimitMb: data.workspaceUploadLimitMb ?? 256,
         toolUseBudget: data.toolUseBudget ?? 64,
     };
 }
@@ -66,9 +60,8 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
     const [assistantAvatar, setAssistantAvatar] = useState('');
     const [sessionAutoRotate, setSessionAutoRotate] = useState(true);
     const [sessionMaxSizeMb, setSessionMaxSizeMb] = useState(32);
-    const [webTerminalEnabled, setWebTerminalEnabled] = useState(true);
     const [composeUploadLimitMb, setComposeUploadLimitMb] = useState(32);
-    const [workspaceUploadLimitMb, setWorkspaceUploadLimitMb] = useState(512);
+    const [workspaceUploadLimitMb, setWorkspaceUploadLimitMb] = useState(256);
     const [toolUseBudget, setToolUseBudget] = useState(64);
     const [metersEnabled, setMetersEnabled] = useState(() => readStoredMetersEnabled(false));
     const [appliedHint, setAppliedHint] = useState(false);
@@ -89,7 +82,6 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
         setAssistantAvatar(next.assistantAvatar);
         setSessionAutoRotate(next.sessionAutoRotate);
         setSessionMaxSizeMb(next.sessionMaxSizeMb);
-        setWebTerminalEnabled(next.webTerminalEnabled);
         setComposeUploadLimitMb(next.composeUploadLimitMb);
         setWorkspaceUploadLimitMb(next.workspaceUploadLimitMb);
         setToolUseBudget(next.toolUseBudget);
@@ -110,11 +102,11 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
 
     const currentSnapshot = useMemo(() => JSON.stringify(normalizeGeneralSettings({
         userName, userAvatar, assistantName, assistantAvatar,
-        sessionAutoRotate, sessionMaxSizeMb, webTerminalEnabled,
+        sessionAutoRotate, sessionMaxSizeMb,
         composeUploadLimitMb, workspaceUploadLimitMb, toolUseBudget,
     })), [
         userName, userAvatar, assistantName, assistantAvatar,
-        sessionAutoRotate, sessionMaxSizeMb, webTerminalEnabled,
+        sessionAutoRotate, sessionMaxSizeMb,
         composeUploadLimitMb, workspaceUploadLimitMb, toolUseBudget,
     ]);
 
@@ -140,7 +132,9 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
                 mergeSettingsData?.(payload.settings);
                 setAppliedHint(true);
                 setTimeout(() => { if (mountedRef.current) setAppliedHint(false); }, 4000);
-            } catch { /* silent */ }
+            } catch (error) {
+                console.warn('[settings/general] Failed to persist general settings snapshot.', error);
+            }
         }, 800);
         return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     }, [currentSnapshot, mergeSettingsData]);
@@ -163,15 +157,15 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
             `}
             <h3>Identity</h3>
             <div class="settings-row">
-                <label>User name</label>
-                <input type="text" value=${userName} onInput=${e => setUserName(e.target.value)} />
+                <label>User</label>
+                <input type="text" value=${userName} onInput=${e => setUserName(e.target.value)} placeholder="Your name" />
+                <${AvatarField} value=${userAvatar} onChange=${setUserAvatar} />
             </div>
-            <${AvatarField} label="User avatar" value=${userAvatar} onChange=${setUserAvatar} />
             <div class="settings-row">
-                <label>Agent name</label>
-                <input type="text" value=${assistantName} onInput=${e => setAssistantName(e.target.value)} />
+                <label>Agent</label>
+                <input type="text" value=${assistantName} onInput=${e => setAssistantName(e.target.value)} placeholder="Agent name" />
+                <${AvatarField} value=${assistantAvatar} onChange=${setAssistantAvatar} />
             </div>
-            <${AvatarField} label="Agent avatar" value=${assistantAvatar} onChange=${setAssistantAvatar} />
 
             <h3 style="margin-top:20px">Session</h3>
             <div class="settings-row">
@@ -189,10 +183,6 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
                     width="80px"
                     onChange=${setSessionMaxSizeMb}
                 />
-            </div>
-            <div class="settings-row">
-                <label>Web terminal</label>
-                <input type="checkbox" checked=${webTerminalEnabled} onChange=${e => setWebTerminalEnabled(e.target.checked)} />
             </div>
             <div class="settings-row">
                 <label>System meters</label>
@@ -239,12 +229,12 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
                     label="workspace upload limit"
                     value=${workspaceUploadLimitMb}
                     min=${1}
-                    max=${512}
-                    fallback=${512}
+                    max=${1024}
+                    fallback=${256}
                     width="80px"
                     onChange=${setWorkspaceUploadLimitMb}
                 />
-                <span class="settings-hint" style="margin:0">bounded by the current 512 MB request cap</span>
+                <span class="settings-hint" style="margin:0">defaults to 256 MB; chunked uploads allow up to 1 GB</span>
             </div>
             <div class="settings-totp-panel">
                 <div class="settings-totp-header">
