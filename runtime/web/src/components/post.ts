@@ -667,6 +667,12 @@ function enhanceCodeBlocks(container) {
     };
 }
 
+function normalizeFileRef(value) {
+    const trimmed = String(value || '').trim();
+    const codeWrapped = trimmed.match(/^`([^`]+)`$/);
+    return (codeWrapped ? codeWrapped[1] : trimmed).trim();
+}
+
 function extractFileRefs(content) {
     if (!content) return { content, fileRefs: [] };
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -684,7 +690,8 @@ function extractFileRefs(content) {
     for (; end < lines.length; end += 1) {
         const line = lines[end];
         if (/^\s*-\s+/.test(line)) {
-            refs.push(line.replace(/^\s*-\s+/, '').trim());
+            const normalizedRef = normalizeFileRef(line.replace(/^\s*-\s+/, '').trim());
+            if (normalizedRef) refs.push(normalizedRef);
         } else if (!line.trim()) {
             break;
         } else {

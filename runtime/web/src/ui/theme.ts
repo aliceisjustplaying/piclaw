@@ -715,19 +715,25 @@ export function initTheme() {
 
 export function applyThemeFromEvent(payload) {
     if (!payload || typeof payload !== 'object') return;
-    const chatJid = payload.chat_jid || payload.chatJid || resolveCurrentChatJid();
+    const currentChatJid = resolveCurrentChatJid();
+    const eventChatJid = payload.chat_jid || payload.chatJid || null;
+    const chatJid = eventChatJid || currentChatJid;
     const theme = payload.theme ?? payload.name ?? payload.colorTheme;
     const tint = payload.tint ?? null;
 
-    // Store per-chat override
+    // Store per-chat override so future visits to that chat/window restore it.
     setChatTheme(chatJid, theme || 'default', tint);
 
-    // Apply immediately
-    applyThemeState({ theme: theme || 'default', tint }, { persist: false });
+    // Only apply immediately when the event targets the current chat (or is a
+    // local/global apply with no explicit chat affinity). This prevents branch
+    // or sibling-window theme events from flipping the active window while the
+    // user switches focus between windows.
+    if (!eventChatJid || eventChatJid === currentChatJid) {
+        applyThemeState({ theme: theme || 'default', tint }, { persist: false });
+    }
 
-    // Only update global fallback when on the root/default chat,
-    // so branch themes don't bleed into other chats.
-    if (!chatJid || chatJid === 'web:default') {
+    // Only update global fallback when the root/default chat changes.
+    if (!eventChatJid || eventChatJid === 'web:default') {
         setLocalStorageItem(THEME_STORAGE_KEY, theme || 'default');
         setLocalStorageItem(TINT_STORAGE_KEY, tint || '');
     }

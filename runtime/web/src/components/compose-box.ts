@@ -413,6 +413,12 @@ function unwrapQueuedTranscriptContent(value) {
     return sawTranscript && collected.length > 0 ? collected.filter(Boolean).join('\n\n') : value;
 }
 
+function normalizeQueuedFileRef(value) {
+    const trimmed = String(value || '').trim();
+    const codeWrapped = trimmed.match(/^`([^`]+)`$/);
+    return (codeWrapped ? codeWrapped[1] : trimmed).trim();
+}
+
 function extractQueuedFileRefs(value) {
     if (!value) return { content: value, fileRefs: [] };
     const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -430,7 +436,8 @@ function extractQueuedFileRefs(value) {
     for (; end < lines.length; end += 1) {
         const line = lines[end];
         if (/^\s*-\s+/.test(line)) {
-            refs.push(line.replace(/^\s*-\s+/, '').trim());
+            const normalizedRef = normalizeQueuedFileRef(line.replace(/^\s*-\s+/, '').trim());
+            if (normalizedRef) refs.push(normalizedRef);
         } else if (!line.trim()) {
             break;
         } else {
@@ -1468,9 +1475,10 @@ export function ComposeBox({
         // the item is already pulled into compose so this is the desired state.
         try {
             onRemoveQueuedFollowup?.(queuedItem);
-        } catch {
-            // Swallow — the item is already in compose; a stale queue entry
+        } catch (error) {
+            // The item is already restored into compose; a stale queue entry
             // will be cleaned up on the next queue refresh.
+            console.warn('[compose-box] Failed to remove returned queued follow-up from the sidebar queue.', error);
         }
         requestAnimationFrame(() => {
             resizeTextarea();

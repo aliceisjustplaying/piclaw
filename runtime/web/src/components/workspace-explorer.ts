@@ -24,9 +24,13 @@ import {
     readWorkspaceScaleEnvironment,
     resolveWorkspaceScale,
 } from '../ui/workspace-scale.js';
+import {
+    WORKSPACE_CLIENT_SETTINGS_EVENT,
+    WORKSPACE_FOLDER_PREVIEW_DEPTH_STORAGE_KEY,
+    WORKSPACE_REFRESH_INTERVAL_STORAGE_KEY,
+    readWorkspaceClientSettings,
+} from '../ui/workspace-settings.js';
 import { hasSpecializedWorkspaceTab, shouldAutoOpenWorkspaceFile } from '../ui/workspace-auto-open.js';
-
-const REFRESH_INTERVAL_MS = 60000;
 
 const isHiddenNode = (node) => {
     if (!node || !node.name) return false;
@@ -111,7 +115,6 @@ function replaceNodeAtPath(node, targetPath, nextNode) {
 
 const STARBURST_MAX_DEPTH = 4;
 const STARBURST_MAX_CHILDREN = 14;
-const STARBURST_FETCH_DEPTH = 8;
 const STARBURST_CACHE_LIMIT = 16;
 
 function computeSubtreeBytes(node) {
@@ -627,12 +630,15 @@ export function WorkspaceExplorer({
     const [folderChart,  setFolderChart]   = useState(null);
     const [workspaceIndexStatus, setWorkspaceIndexStatus] = useState(null);
     const [workspaceReindexing, setWorkspaceReindexing] = useState(false);
+    const [workspaceClientSettings, setWorkspaceClientSettings] = useState(() => readWorkspaceClientSettings());
     const [isDarkTheme,  setIsDarkTheme]   = useState(() => detectDarkTheme());
     const [explorerScale, setExplorerScale] = useState(() => resolveWorkspaceScale({
         stored: getLocalStorageItem(WORKSPACE_SCALE_STORAGE_KEY),
         ...readWorkspaceScaleEnvironment(),
     }));
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    const refreshIntervalMs = Math.max(15000, (Number(workspaceClientSettings?.refreshIntervalSec) || 60) * 1000);
+    const folderPreviewDepth = Math.max(0, Number(workspaceClientSettings?.folderPreviewDepth) || 0);
 
     // ── Stable refs (never trigger re-renders) ────────────────────────────────
     const expandedRef     = useRef(expanded);
@@ -744,6 +750,43 @@ export function WorkspaceExplorer({
             window.removeEventListener('storage', onStorage);
             removeMediaListener(pointerMedia, onResize);
             removeMediaListener(hoverMedia, onResize);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+
+        const syncWorkspaceClientSettings = () => {
+            setWorkspaceClientSettings(readWorkspaceClientSettings());
+        };
+
+        const onStorage = (event) => {
+            if (!event || event.key === null
+                || event.key === WORKSPACE_REFRESH_INTERVAL_STORAGE_KEY
+                || event.key === WORKSPACE_FOLDER_PREVIEW_DEPTH_STORAGE_KEY) {
+                syncWorkspaceClientSettings();
+            }
+        };
+        const onFocus = () => syncWorkspaceClientSettings();
+        const onWorkspaceClientSettingsUpdated = (event) => {
+            const next = event?.detail?.settings;
+            if (next && typeof next === 'object') {
+                setWorkspaceClientSettings({
+                    refreshIntervalSec: Number(next.refreshIntervalSec) || 60,
+                    folderPreviewDepth: Math.max(0, Number(next.folderPreviewDepth) || 0),
+                });
+                return;
+            }
+            syncWorkspaceClientSettings();
+        };
+
+        window.addEventListener('focus', onFocus);
+        window.addEventListener('storage', onStorage);
+        window.addEventListener(WORKSPACE_CLIENT_SETTINGS_EVENT, onWorkspaceClientSettingsUpdated);
+        return () => {
+            window.removeEventListener('focus', onFocus);
+            window.removeEventListener('storage', onStorage);
+            window.removeEventListener(WORKSPACE_CLIENT_SETTINGS_EVENT, onWorkspaceClientSettingsUpdated);
         };
     }, []);
 
@@ -1261,15 +1304,18 @@ export function WorkspaceExplorer({
         scheduleVisibilityUpdate();
     }, [visible, active]);
 
-    // Mount once; interval always calls the ref, never a stale copy.
     useEffect(() => {
         loadTreeFnRef.current();
         loadWorkspaceIndexStatusRef.current?.();
-        updateVisibility();
         const timer = setInterval(() => {
             loadTreeFnRef.current();
             loadWorkspaceIndexStatusRef.current?.();
-        }, REFRESH_INTERVAL_MS);
+        }, refreshIntervalMs);
+        return () => clearInterval(timer);
+    }, [refreshIntervalMs]);
+
+    useEffect(() => {
+        updateVisibility();
         // Apply saved preview height
         const saved = getLocalStorageNumber('previewHeight', null);
         const h = Number.isFinite(saved) ? Math.min(Math.max(saved, 80), 600) : 280;
@@ -1288,7 +1334,6 @@ export function WorkspaceExplorer({
         document.addEventListener('visibilitychange', onVisibilityChange);
 
         return () => {
-            clearInterval(timer);
             if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
             if (media.removeEventListener) {
                 media.removeEventListener('change', onVisibilityChange);
@@ -1324,8 +1369,15 @@ export function WorkspaceExplorer({
             return;
         }
 
+        if (folderPreviewDepth <= 0) {
+            setFolderChart({ loading: false, error: null, payload: null, disabled: true });
+            folderChartPayloadRef.current = null;
+            folderChartPathRef.current = null;
+            return;
+        }
+
         const fetchPath = selectedPath;
-        const cacheKey = `${showHidden ? 'hidden' : 'visible'}:${selectedPath}`;
+        const cacheKey = `${showHidden ? 'hidden' : 'visible'}:${folderPreviewDepth}:${selectedPath}`;
         const cache = folderChartCacheRef.current;
 
         const cached = cache.get(cacheKey);
@@ -1336,16 +1388,16 @@ export function WorkspaceExplorer({
             if (payload) {
                 folderChartPayloadRef.current = payload;
                 folderChartPathRef.current = selectedPath;
-                setFolderChart({ loading: false, error: null, payload });
+                setFolderChart({ loading: false, error: null, payload, disabled: false });
             }
             return;
         }
 
         const lastPayload = folderChartPayloadRef.current;
         const lastPath = folderChartPathRef.current;
-        setFolderChart({ loading: true, error: null, payload: lastPath === selectedPath ? lastPayload : null });
+        setFolderChart({ loading: true, error: null, payload: lastPath === selectedPath ? lastPayload : null, disabled: false });
 
-        getWorkspaceTree(selectedPath, STARBURST_FETCH_DEPTH, showHidden)
+        getWorkspaceTree(selectedPath, folderPreviewDepth, showHidden)
             .then((data) => {
                 if (selectedPathRef.current !== fetchPath) return;
                 const entry = { root: data?.root, truncated: Boolean(data?.truncated) };
@@ -1359,13 +1411,13 @@ export function WorkspaceExplorer({
                 const payload = createFolderStarburstPayload(entry.root, entry.truncated, isDarkTheme);
                 folderChartPayloadRef.current = payload;
                 folderChartPathRef.current = selectedPath;
-                setFolderChart({ loading: false, error: null, payload });
+                setFolderChart({ loading: false, error: null, payload, disabled: false });
             })
             .catch((err) => {
                 if (selectedPathRef.current !== fetchPath) return;
-                setFolderChart({ loading: false, error: err?.message || 'Failed to load folder size chart', payload: lastPath === selectedPath ? lastPayload : null });
+                setFolderChart({ loading: false, error: err?.message || 'Failed to load folder size chart', payload: lastPath === selectedPath ? lastPayload : null, disabled: false });
             });
-    }, [selectedPath, selectedIsDir, showHidden, isDarkTheme]);
+    }, [selectedPath, selectedIsDir, showHidden, isDarkTheme, folderPreviewDepth]);
 
     const canEdit = Boolean(preview && preview.kind === 'text' && !selectedIsDir && (!preview.size || preview.size <= 256 * 1024));
     const editTitle = canEdit
@@ -2250,7 +2302,7 @@ export function WorkspaceExplorer({
                                     <button class="workspace-menu-item danger" role="menuitem" onClick=${handleMenuDelete}>Delete selected file</button>
                                 `}
                                 <div class="workspace-menu-separator"></div>
-                                <button class="workspace-menu-item" role="menuitem" onClick=${() => { setHeaderMenuOpen(false); window.dispatchEvent(new CustomEvent('piclaw:open-settings')); }}>Settings</button>
+                                <button class="workspace-menu-item" role="menuitem" onClick=${() => { setHeaderMenuOpen(false); window.dispatchEvent(new CustomEvent('piclaw:open-settings', { detail: { section: 'workspace' } })); }}>Settings</button>
                             </div>
                         `}
                     </div>
@@ -2474,6 +2526,7 @@ export function WorkspaceExplorer({
                     ${preview?.error && html`<div class="workspace-error">${preview.error}</div>`}
                     ${selectedIsDir && html`
                         <div class="workspace-preview-text">Folder selected — create file, upload files, or download as zip.</div>
+                        ${folderChart?.disabled && html`<div class="workspace-preview-text">Folder size preview scanning is disabled in Workspace settings.</div>`}
                         ${folderChart?.loading && html`<div class="workspace-loading">Loading folder size preview…</div>`}
                         ${folderChart?.error && html`<div class="workspace-error">${folderChart.error}</div>`}
                         ${folderChart?.payload && folderChart.payload.segments?.length > 0 && html`

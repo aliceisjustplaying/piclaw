@@ -206,6 +206,13 @@ export async function saveQuickActionsSettings(payload) {
     });
 }
 
+export async function saveWorkspaceSettings(payload) {
+    return request('/agent/settings/workspace', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+    });
+}
+
 /**
  * List currently active chat agents/branches known to the backend session pool.
  */
@@ -698,7 +705,7 @@ export async function attachWorkspaceFile(path) {
 }
 
 /** Upload a file to the workspace. Uses chunked upload by default. */
-const MAX_UPLOAD_SIZE = 512 * 1024 * 1024;
+const MAX_UPLOAD_SIZE = 1024 * 1024 * 1024;
 const WORKSPACE_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
 
 function buildWorkspaceUploadUrl(pathname, targetPath = '', options = {}) {
