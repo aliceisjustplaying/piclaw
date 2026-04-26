@@ -63,6 +63,8 @@ const EXPECTED_BUILTIN_TOOL_NAMES = [
   "send_adaptive_card",
   // send-dashboard-widget
   "send_dashboard_widget",
+  // chat-tool
+  "chat",
   // open-workspace-file
   "open_workspace_file",
   // env-tools

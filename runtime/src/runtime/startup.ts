@@ -9,6 +9,7 @@ import { WebChannel } from "../channels/web.js";
 import { PushoverChannel } from "../channels/pushover.js";
 import { WhatsAppChannel } from "../channels/whatsapp.js";
 import { setMessagesPostFn } from "../extensions/messages-crud.js";
+import { setChatToolRelayFn } from "../extensions/chat-tool.js";
 import {
   DATA_DIR,
   STORE_DIR,
@@ -318,6 +319,34 @@ export async function startWebChannel(queue: AgentQueue, agentPool: AgentPool): 
     if (!interaction) return null;
     web.broadcastEvent(isBot ? "agent_response" : "new_post", interaction);
     return interaction.id;
+  });
+
+  // Wire the cross-session chat tool through the existing peer-message route so
+  // the target chat gets normal inbound-message semantics (queue/defer/steer).
+  setChatToolRelayFn(async (payload) => {
+    const req = new Request("http://internal/agent/peer-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const res = await web.handleRequest(req);
+    const body = await res.json().catch(() => ({} as Record<string, unknown>));
+    if (!res.ok) {
+      const message = typeof body.error === "string" ? body.error : `Cross-session chat relay failed (${res.status}).`;
+      throw new Error(message);
+    }
+    return body as {
+      status?: string;
+      relayed?: boolean;
+      source_chat_jid: string;
+      source_agent_name?: string;
+      target_chat_jid: string;
+      target_agent_name?: string;
+      row_id?: number | null;
+      queued?: string;
+      thread_id?: number | null;
+      created?: boolean;
+    };
   });
 
   return web;

@@ -87,6 +87,53 @@ export function extractOutcomeMarkerBlocks(contentBlocks) {
     return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'turn_outcome_marker');
 }
 
+export function extractPeerMessageBlocks(contentBlocks) {
+    if (!Array.isArray(contentBlocks)) return [];
+    return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'peer_message');
+}
+
+function fallbackPeerAgentHandle(chatJid) {
+    return String(chatJid || '')
+        .split(/[:/]/)
+        .filter(Boolean)
+        .pop() || 'agent';
+}
+
+export function getPeerMessageMeta(contentBlocks) {
+    const block = extractPeerMessageBlocks(contentBlocks)[0] || null;
+    if (!block) return null;
+    const sourceChatJid = typeof block.source_chat_jid === 'string' ? block.source_chat_jid.trim() : '';
+    const sourceAgentName = typeof block.source_agent_name === 'string' && block.source_agent_name.trim()
+        ? block.source_agent_name.trim()
+        : fallbackPeerAgentHandle(sourceChatJid);
+    const targetChatJid = typeof block.target_chat_jid === 'string' ? block.target_chat_jid.trim() : '';
+    const targetAgentName = typeof block.target_agent_name === 'string' ? block.target_agent_name.trim() : '';
+    const body = typeof block.body === 'string' ? block.body : '';
+    return {
+        block,
+        sourceChatJid,
+        sourceAgentName,
+        targetChatJid,
+        targetAgentName,
+        body,
+    };
+}
+
+export function getPeerMessageDisplayContent(content, contentBlocks) {
+    const peer = getPeerMessageMeta(contentBlocks);
+    const original = typeof content === 'string' ? content : '';
+    if (!peer) return original;
+    if (peer.body && peer.body.trim()) return peer.body;
+    const sourceAgentPattern = peer.sourceAgentName
+        ? peer.sourceAgentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        : '[^\\s>]+';
+    const sourceChatPattern = peer.sourceChatJid
+        ? peer.sourceChatJid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        : '[^>\\n]+';
+    const stripped = original.replace(new RegExp(`^from:\\s+@${sourceAgentPattern}\\s+<jid:${sourceChatPattern}>\\s*\\n\\n`, 'i'), '');
+    return stripped || original;
+}
+
 const RECOVERY_CLASSIFIER_LABELS = {
     context_recover: 'context limit exceeded',
     rate_limit: 'rate limit hit',
@@ -824,9 +871,12 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
 
     const blocks = data.content_blocks || [];
     const mediaIds = data.media_ids || [];
+    const peerMessageMeta = getPeerMessageMeta(blocks);
+    const showPeerAgentTag = Boolean(peerMessageMeta?.sourceAgentName);
 
     // Keep original message text even when link previews are available.
     let displayContent = getDisplayContent(data.content, data.link_previews);
+    displayContent = getPeerMessageDisplayContent(displayContent, blocks);
     const { content: cleanedContent, fileRefs } = extractFileRefs(displayContent);
     const { content: cleanedWithMsgRefs, messageRefs } = extractMessageRefs(cleanedContent);
     const { content: cleanedWithAttachments, attachments } = extractAttachmentRefs(cleanedWithMsgRefs);
@@ -1088,6 +1138,14 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 </div>
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
+                    ${showPeerAgentTag && html`
+                        <span
+                            class="post-chat-agent-tag"
+                            title=${`From ${peerMessageMeta?.sourceChatJid || ''}`.trim()}
+                        >
+                            @${peerMessageMeta?.sourceAgentName}
+                        </span>
+                    `}
                     ${showSearchChatAgentTag && html`<span class="post-chat-agent-tag" title=${`Chat: ${searchChatAgentName}`}>@${searchChatAgentName}</span>`}
                     <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
                         e.preventDefault();
