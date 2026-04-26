@@ -50,6 +50,7 @@ function normalizeGeneralSettings(data = {}) {
         composeUploadLimitMb: data.composeUploadLimitMb ?? 32,
         workspaceUploadLimitMb: data.workspaceUploadLimitMb ?? 256,
         toolUseBudget: data.toolUseBudget ?? 64,
+        sessionIsolation: data.sessionIsolation || 'none',
     };
 }
 
@@ -63,6 +64,7 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
     const [composeUploadLimitMb, setComposeUploadLimitMb] = useState(32);
     const [workspaceUploadLimitMb, setWorkspaceUploadLimitMb] = useState(256);
     const [toolUseBudget, setToolUseBudget] = useState(64);
+    const [sessionIsolation, setSessionIsolation] = useState('none');
     const [metersEnabled, setMetersEnabled] = useState(() => readStoredMetersEnabled(false));
     const [appliedHint, setAppliedHint] = useState(false);
     const savedSnapshotRef = useRef('');
@@ -85,6 +87,7 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
         setComposeUploadLimitMb(next.composeUploadLimitMb);
         setWorkspaceUploadLimitMb(next.workspaceUploadLimitMb);
         setToolUseBudget(next.toolUseBudget);
+        setSessionIsolation(next.sessionIsolation);
         savedSnapshotRef.current = JSON.stringify(next);
     }, []);
 
@@ -104,10 +107,12 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
         userName, userAvatar, assistantName, assistantAvatar,
         sessionAutoRotate, sessionMaxSizeMb,
         composeUploadLimitMb, workspaceUploadLimitMb, toolUseBudget,
+        sessionIsolation,
     })), [
         userName, userAvatar, assistantName, assistantAvatar,
         sessionAutoRotate, sessionMaxSizeMb,
         composeUploadLimitMb, workspaceUploadLimitMb, toolUseBudget,
+        sessionIsolation,
     ]);
 
     // Auto-save on every change with debounce.
@@ -207,6 +212,14 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
                     onChange=${setToolUseBudget}
                 />
                 <span class="settings-hint" style="margin:0">per turn</span>
+            </div>
+            <div class="settings-row">
+                <label>Session isolation</label>
+                <select value=${sessionIsolation} onChange=${e => setSessionIsolation(e.target.value)}>
+                    <option value="none">None — full cross-session visibility</option>
+                    <option value="summary">Summary — tools visible, no arguments</option>
+                    <option value="full">Full — sessions cannot see each other</option>
+                </select>
             </div>
 
             <h3 style="margin-top:20px">Instance Configuration</h3>
