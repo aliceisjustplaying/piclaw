@@ -788,8 +788,8 @@ describe("smart-compaction", () => {
       expect(capturedPrompt).toContain("Total messages: 120");
       expect(capturedPrompt).toContain("Session type: implementation");
 
-      // Should have gap markers (not all 120 messages included)
-      expect(capturedPrompt).toContain("messages omitted");
+      // Should have backward-walk strategy in the header
+      expect(capturedPrompt).toContain("backwards walk");
 
       // Should have file tracking
       expect(capturedPrompt).toContain("Files Modified");
@@ -850,7 +850,7 @@ describe("smart-compaction", () => {
       expect(capturedPrompt).toContain("Previous topic preview: \"Review the widget CSS and the pane resize behavior.\"");
       expect(capturedPrompt).toContain("New active topic preview: \"New topic: debug Azure gpt-5-4 streaming failures with response.failed and unknown error details.\"");
       expect(capturedPrompt).toContain("Treat earlier summary content as background unless it is reaffirmed after message 6.");
-      expect(capturedPrompt).toContain("latest topic-shift boundary");
+      expect(capturedPrompt).toContain("topic-shift boundary");
       // Should include disambiguation note before previous summary
       expect(capturedPrompt).toContain("PREVIOUS compaction summary");
     });

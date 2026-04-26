@@ -53,6 +53,9 @@ const TOOL_RESULT_MAX_CHARS = 1_500;
 /** How many recent messages to always include verbatim. */
 const TAIL_MESSAGES = 30;
 
+/** Char budget for the backwards-walk recent context. */
+const RECENT_CONTEXT_BUDGET_CHARS = 25_000;
+
 /** How many earliest user turns to include for goal context. */
 const HEAD_USER_TURNS = 3;
 
@@ -213,6 +216,117 @@ function serializeMessage(msg: Message, idx: number): string {
     return `[${idx}|ToolResult:${(msg as any).toolName ?? "?"}]: ${trunc}`;
   }
   return "";
+}
+
+/**
+ * Compress a tool call + result pair into a single compact outcome line.
+ * Keeps tool name and key arg, plus a brief outcome summary.
+ */
+function serializeToolCompact(assistantMsg: Message, resultMsg: Message | null, idx: number): string {
+  const calls: string[] = [];
+  for (const block of (assistantMsg.content as any[])) {
+    if (block.type === "toolCall") {
+      const args = block.arguments ?? {};
+      const keyArg = args.path ?? args.command ?? args.pattern ?? args.query ?? null;
+      const argStr = typeof keyArg === "string"
+        ? (keyArg.length > 80 ? keyArg.slice(0, 77) + "..." : keyArg)
+        : "";
+      calls.push(`${block.name}(${argStr})`);
+    }
+    if (block.type === "text" && block.text?.trim()) {
+      const t = block.text.trim();
+      calls.push(t.length > 150 ? t.slice(0, 147) + "..." : t);
+    }
+  }
+  if (calls.length === 0) return "";
+
+  let outcome = "";
+  if (resultMsg) {
+    const text = extractText(resultMsg.content).trim();
+    if (text) {
+      // Extract just the first meaningful line or error indicator
+      const firstLine = text.split("\n").find(l => l.trim().length > 0) || "";
+      outcome = firstLine.length > 120 ? firstLine.slice(0, 117) + "..." : firstLine;
+    }
+  }
+
+  return outcome
+    ? `[${idx}|Tool]: ${calls.join("; ")} → ${outcome}`
+    : `[${idx}|Tool]: ${calls.join("; ")}`;
+}
+
+/**
+ * Walk backwards from the end of the message array, capturing user intent
+ * with full fidelity while aggressively compressing tool call/result pairs.
+ *
+ * Returns a set of message indices to include, plus pre-rendered compact
+ * versions for tool pairs (overrides the normal serializeMessage output).
+ */
+function selectRecentContextBackwards(
+  messages: Message[],
+): { included: Set<number>; compactOverrides: Map<number, string> } {
+  const included = new Set<number>();
+  const compactOverrides = new Map<number, string>();
+  let budget = RECENT_CONTEXT_BUDGET_CHARS;
+
+  let i = messages.length - 1;
+  while (i >= 0 && budget > 0) {
+    const msg = messages[i];
+
+    if (msg.role === "user") {
+      // User messages get full fidelity — they carry intent
+      const line = serializeMessage(msg, i);
+      included.add(i);
+      budget -= line.length;
+      i--;
+      continue;
+    }
+
+    if (msg.role === "assistant") {
+      const hasToolCalls = Array.isArray(msg.content) &&
+        (msg.content as any[]).some((b: any) => b.type === "toolCall");
+      const hasText = Array.isArray(msg.content) &&
+        (msg.content as any[]).some((b: any) => b.type === "text" && b.text?.trim());
+
+      if (hasToolCalls) {
+        // Find the corresponding tool result ahead
+        const resultIdx = i + 1 < messages.length && messages[i + 1].role === "toolResult" ? i + 1 : null;
+        const compact = serializeToolCompact(msg, resultIdx !== null ? messages[resultIdx] : null, i);
+        if (compact) {
+          included.add(i);
+          compactOverrides.set(i, compact);
+          if (resultIdx !== null) {
+            included.add(resultIdx); // mark result as consumed
+            compactOverrides.set(resultIdx, ""); // skip separate rendering
+          }
+          budget -= compact.length;
+        }
+        i--;
+        continue;
+      }
+
+      if (hasText) {
+        // Assistant explanatory text — keep full
+        const line = serializeMessage(msg, i);
+        included.add(i);
+        budget -= line.length;
+        i--;
+        continue;
+      }
+    }
+
+    if (msg.role === "toolResult") {
+      // Orphaned tool result not yet consumed by assistant handler above.
+      // Skip — it will be captured when the backwards walk reaches the
+      // assistant message that issued the call.
+      i--;
+      continue;
+    }
+
+    i--;
+  }
+
+  return { included, compactOverrides };
 }
 
 // ---------------------------------------------------------------------------
@@ -521,36 +635,20 @@ function buildSelectivePrompt(
   const { readFiles, modifiedFiles } = fileListsFromOps(input.fileOps);
 
   // A1 requirement: always preserve enough context to distinguish the newest
-  // active topic from older background material. The core stale-summary failure
-  // happens when compaction keeps the old goal but under-represents the pivot.
-  // We therefore pin four classes of excerpts:
-  //   1. head          → original goal / session setup,
-  //   2. tail          → newest state,
-  //   3. complaints    → user corrections that invalidate "done" claims,
-  //   4. topic shifts  → the transition boundary between old and new topics.
-  const included = new Set<number>();
+  // active topic from older background material.
+  //
+  // Strategy: walk BACKWARDS from the end with a char budget, compressing
+  // tool call/result pairs into compact outcome lines. This captures far more
+  // user turns (intent) than a fixed tail window that wastes budget on verbose
+  // tool output. Then pin head, complaints, and topic-shift boundaries.
+  const { included: recentIncluded, compactOverrides } = selectRecentContextBackwards(allMessages);
+  const included = new Set<number>(recentIncluded);
 
   // 1. Head — first few user turns for goal context
   const headEnd = Math.min(HEAD_USER_TURNS * 3, total);
   for (let i = 0; i < headEnd; i++) included.add(i);
 
-  // 2. Tail — most recent messages for current state
-  const tailStart = Math.max(0, total - TAIL_MESSAGES);
-  for (let i = tailStart; i < total; i++) included.add(i);
-
-  // 3. Latest request — pin the newest user instruction even if a long tool run
-  // pushed it outside the fixed tail window.
-  if (latestRequest) {
-    for (
-      let j = Math.max(0, latestRequest.index - 1);
-      j <= Math.min(total - 1, latestRequest.index + LATEST_REQUEST_CONTEXT_AFTER);
-      j++
-    ) {
-      included.add(j);
-    }
-  }
-
-  // 4. User complaints + surrounding context
+  // 2. User complaints + surrounding context
   for (const idx of complaints) {
     for (
       let j = Math.max(0, idx - 1);
@@ -561,8 +659,7 @@ function buildSelectivePrompt(
     }
   }
 
-  // 5. Topic-shift boundary — if we think A1 is in play, pin the turns on both
-  // sides of the pivot so the summarizer can explicitly demote the stale topic.
+  // 3. Topic-shift boundary — pin turns on both sides of the pivot
   if (shift) {
     for (
       let j = Math.max(0, shift.previous.index - TOPIC_SHIFT_CONTEXT_BEFORE);
@@ -573,7 +670,7 @@ function buildSelectivePrompt(
     }
   }
 
-  // 6. Key decision messages from the middle
+  // 4. Key decision messages from the middle
   const decisions = findKeyDecisionMessages(allMessages, included);
   for (const idx of decisions) {
     included.add(idx);
@@ -651,9 +748,9 @@ function buildSelectivePrompt(
 
   sec.push(`\n## Conversation Excerpts`);
   sec.push(
-    shift
-      ? `(Selected fragments from ${total} messages — head, tail, complaints, key decisions, and the latest topic-shift boundary)\n`
-      : `(Selected fragments from ${total} messages — head, tail, complaints, and key decisions)\n`,
+    `(Selected fragments from ${total} messages \u2014 backwards walk with compressed tool calls, head, complaints${
+      shift ? ", topic-shift boundary" : ""
+    }, and key decisions)\n`,
   );
 
   const sorted = [...included].sort((a, b) => a - b);
@@ -662,13 +759,15 @@ function buildSelectivePrompt(
 
   for (const idx of sorted) {
     if (chars > MAX_PROMPT_CHARS) {
-      sec.push(`\n… (prompt limit reached, ${sorted.length - sorted.indexOf(idx)} more selected messages omitted)`);
+      sec.push(`\n\u2026 (prompt limit reached, ${sorted.length - sorted.indexOf(idx)} more selected messages omitted)`);
       break;
     }
     if (lastIdx >= 0 && idx > lastIdx + 1) {
       sec.push(`\n--- [${idx - lastIdx - 1} messages omitted] ---\n`);
     }
-    const line = serializeMessage(allMessages[idx], idx);
+    // Use compact override if available (compressed tool pairs)
+    const override = compactOverrides.get(idx);
+    const line = override !== undefined ? override : serializeMessage(allMessages[idx], idx);
     if (line) {
       sec.push(line);
       chars += line.length;
