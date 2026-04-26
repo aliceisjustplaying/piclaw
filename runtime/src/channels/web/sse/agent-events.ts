@@ -162,6 +162,21 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
     return "Rate limited (HTTP 429)";
   };
 
+  const isNetworkError = (message?: string): boolean => {
+    if (!message) return false;
+    return /\bENOTFOUND\b|\bECONNREFUSED\b|\bETIMEDOUT\b|\bECONNRESET\b|getaddrinfo|dns.*failed|fetch failed|socket hang up|connection.*refused|connection.*lost/i.test(message);
+  };
+
+  const describeNetworkError = (message?: string): string => {
+    if (!message) return "Network error";
+    if (/ENOTFOUND|getaddrinfo|dns/i.test(message)) return "DNS lookup failed";
+    if (/ECONNREFUSED|connection.*refused/i.test(message)) return "Connection refused";
+    if (/ETIMEDOUT|timed? out/i.test(message)) return "Connection timed out";
+    if (/ECONNRESET|socket hang up/i.test(message)) return "Connection reset";
+    if (/fetch failed/i.test(message)) return "Network request failed";
+    return "Network error";
+  };
+
   let pendingRateLimit: { message: string } | null = null;
   let pendingRateLimitTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -460,9 +475,12 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
           pendingRateLimitTimer = null;
         }
       }
+      const isNetwork = isNetworkError(errorMessage);
       const title = isRateLimit
         ? `${describeRateLimit(errorMessage)} — retrying (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`
-        : `Retrying after error (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`;
+        : isNetwork
+          ? `${describeNetworkError(errorMessage)} — retrying (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`
+          : `Retrying after error (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`;
       options.emitter.status({
         ...base,
         type: "intent",
@@ -477,7 +495,9 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
         const finalError = e.finalError || "Request failed after retries";
         const title = isRateLimitError(finalError)
           ? `${describeRateLimit(finalError)} — retry budget exhausted`
-          : finalError;
+          : isNetworkError(finalError)
+            ? `${describeNetworkError(finalError)} — retry budget exhausted`
+            : finalError;
         options.emitter.status({
           ...base,
           type: "error",
