@@ -43,12 +43,14 @@ export interface SearchTimelineOptions {
     chatJid: string,
     scope: string,
     rootChatJid: string,
+    filters?: { images?: boolean; attachments?: boolean } | null,
   ) => Promise<{ results?: any[] }>;
   setSearchScope: (value: string) => void;
   setSearchQuery: (value: string | null) => void;
   setCurrentHashtag: (value: string | null) => void;
   setPosts: StateSetter<any[] | null>;
   setHasMore: (value: boolean) => void;
+  filters?: { images?: boolean; attachments?: boolean } | null;
 }
 
 /** Execute timeline search and move UI into search-results mode. */
@@ -76,7 +78,7 @@ export async function searchTimeline(options: SearchTimelineOptions): Promise<vo
   setPosts(null);
 
   try {
-    const result = await searchPosts(trimmed, 50, 0, currentChatJid, normalizedScope, currentRootChatJid);
+    const result = await searchPosts(trimmed, 50, 0, currentChatJid, normalizedScope, currentRootChatJid, options.filters);
     setPosts(Array.isArray(result?.results) ? result.results : []);
     setHasMore(false);
   } catch (error) {

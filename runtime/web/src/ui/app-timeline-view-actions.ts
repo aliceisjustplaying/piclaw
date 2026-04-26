@@ -89,7 +89,7 @@ export function useTimelineViewActions(options: UseTimelineViewActionsOptions) {
     });
   }, [loadPosts, setCurrentHashtag, setPosts, setSearchQuery]);
 
-  const handleSearch = useCallback(async (query: unknown, scope = searchScope) => {
+  const handleSearch = useCallback(async (query: unknown, scope = searchScope, filters?: { images?: boolean; attachments?: boolean } | null) => {
     await searchTimeline({
       query,
       scope,
@@ -101,6 +101,7 @@ export function useTimelineViewActions(options: UseTimelineViewActionsOptions) {
       setCurrentHashtag,
       setPosts,
       setHasMore,
+      filters,
     });
   }, [currentChatJid, currentRootChatJid, searchPosts, searchScope, setCurrentHashtag, setHasMore, setPosts, setSearchQuery, setSearchScope]);
 

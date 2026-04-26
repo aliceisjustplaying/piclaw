@@ -123,11 +123,13 @@ export async function getPostsByHashtag(hashtag, limit = 50, offset = 0, chatJid
 /**
  * Search posts
  */
-export async function searchPosts(query, limit = 50, offset = 0, chatJid = null, scope = 'current', rootChatJid = null) {
+export async function searchPosts(query, limit = 50, offset = 0, chatJid = null, scope = 'current', rootChatJid = null, filters = null) {
     const chatQuery = chatJid ? `&chat_jid=${encodeURIComponent(chatJid)}` : '';
     const scopeQuery = scope ? `&scope=${encodeURIComponent(scope)}` : '';
     const rootQuery = rootChatJid ? `&root_chat_jid=${encodeURIComponent(rootChatJid)}` : '';
-    return request(`/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${chatQuery}${scopeQuery}${rootQuery}`);
+    const imagesQuery = filters?.images ? '&images=1' : '';
+    const attachmentsQuery = filters?.attachments ? '&attachments=1' : '';
+    return request(`/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${chatQuery}${scopeQuery}${rootQuery}${imagesQuery}${attachmentsQuery}`);
 }
 
 /**
