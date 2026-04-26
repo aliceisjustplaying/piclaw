@@ -245,6 +245,16 @@ const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
       negativeTerms: ["notes", "workspace"],
     }),
   },
+  chat: {
+    kind: "mutating",
+    weight: "lightweight",
+    recommend: rec({
+      domains: ["messages", "chat", "sessions", "agents"],
+      verbs: ["send", "relay", "route", "message", "contact"],
+      nouns: ["session", "agent", "branch", "chat", "message"],
+      negativeTerms: ["timeline search", "history", "notes"],
+    }),
+  },
   introspect_sql: {
     kind: "read-only",
     weight: "standard",
