@@ -76,6 +76,8 @@ export interface WebChannelLike
   postDashboardWidget(chatJid: string, options?: { threadId?: number | null; text?: string; widgetId?: string }): Promise<void>;
   updateAgentStatus(chatJid: string, status: Record<string, unknown>): void;
   getAgentStatus(chatJid: string): Record<string, unknown> | null;
+  setContextUsage(chatJid: string, usage: Record<string, unknown> | null): void;
+  getContextUsage(chatJid: string): Record<string, unknown> | null;
   getBuffer(turnId: string, panel: "thought" | "draft"): WebAgentBufferEntry | undefined;
   getThreadRootId(chatJid: string, messageId: string): number | null;
   saveState(): void;
@@ -143,7 +145,7 @@ export interface WebChannelLike
   handleWorkspaceVisibility(req: Request): Promise<Response>;
   handleTimeline(limit: number, before?: number, chatJid?: string): Response;
   handleHashtag(tag: string, limit: number, offset: number, chatJid?: string): Response;
-  handleSearch(query: string, limit: number, offset: number, chatJid?: string, searchScope?: "current" | "root" | "all", rootChatJid?: string): Response;
+  handleSearch(query: string, limit: number, offset: number, chatJid?: string, searchScope?: "current" | "root" | "all", rootChatJid?: string, filters?: { images?: boolean; attachments?: boolean } | null): Response;
   handleThread(id: number | null, chatJid?: string): Response;
   handleThought(panel: string | null, turnId: string | null): Response;
   handleThoughtVisibility(req: Request): Promise<Response>;
@@ -173,6 +175,7 @@ export interface WebChannelLike
   handleAgentBranchRename(req: Request): Promise<Response>;
   handleAgentRenameJid(req: Request): Promise<Response>;
   handleAgentBranchPrune(req: Request): Promise<Response>;
+  handleAgentBranchPurge(req: Request): Promise<Response>;
   handleAgentBranchRestore(req: Request): Promise<Response>;
   handleAgentPeerMessage(req: Request): Promise<Response>;
   handleAgentRespond(req: Request): Promise<Response>;

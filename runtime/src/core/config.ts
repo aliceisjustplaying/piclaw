@@ -82,6 +82,8 @@ const envConfig = readEnvFile([
   "PICLAW_WEB_INTERNAL_SECRET",
   "PICLAW_WEB_PASSKEY_MODE",
   "PICLAW_WEB_TERMINAL_ENABLED",
+  "PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB",
+  "PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB",
   "PICLAW_WEB_NOTIFICATION_DEBUG_LABELS",
   "PICLAW_WEB_VNC_ALLOW_DIRECT",
   "PICLAW_VNC_ALLOW_DIRECT",
@@ -91,13 +93,16 @@ const envConfig = readEnvFile([
   "PICLAW_TRUST_PROXY",
   "PICLAW_SESSION_MAX_SIZE_MB",
   "PICLAW_SESSION_AUTO_ROTATE",
+  "PICLAW_TURN_MAX_TOOL_USE_MESSAGES",
   "PICLAW_WORKSPACE_SEARCH_ROOTS",
   "PICLAW_INTERNAL_SECRET",
   "PICLAW_REMOTE_INTEROP_ENABLED",
   "PICLAW_REMOTE_INTEROP_ALLOW_HTTP",
+  "PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK",
   "PICLAW_REMOTE_INSTANCE_NAME",
   "PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED",
   "PICLAW_REMOTE_INTEROP_DECISION_MODEL",
+  "PICLAW_WEB_EXTERNAL_URL",
   "PICLAW_LOG_LEVEL",
   "LOG_LEVEL",
 ]);
@@ -155,6 +160,13 @@ const HAS_DEFAULT_TLS = existsSync(DEFAULT_TLS_CERT_PATH) && existsSync(DEFAULT_
 
 /** Absolute path to the JSON config file. */
 export const PICLAW_CONFIG_PATH = resolve(WORKSPACE_DIR, ".piclaw", "config.json");
+
+/** Resolve the config path at call time so tests can override PICLAW_WORKSPACE. */
+export function getConfigPath(): string {
+  const ws = process.env.PICLAW_WORKSPACE?.trim();
+  return ws ? resolve(ws, ".piclaw", "config.json") : PICLAW_CONFIG_PATH;
+}
+
 const piclawConfig = readJsonConfig(PICLAW_CONFIG_PATH);
 
 // Sub-objects inside the config file for namespaced settings.
@@ -259,6 +271,20 @@ const configWebPasskeyMode = pickString(webConfig, [
   "webPasskeyMode",
   "web_passkey_mode",
   "PICLAW_WEB_PASSKEY_MODE",
+]);
+const configWebComposeUploadLimitMb = pickNumber(webConfig, [
+  "composeUploadLimitMb",
+  "compose_upload_limit_mb",
+  "webComposeUploadLimitMb",
+  "web_compose_upload_limit_mb",
+  "PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB",
+]);
+const configWebWorkspaceUploadLimitMb = pickNumber(webConfig, [
+  "workspaceUploadLimitMb",
+  "workspace_upload_limit_mb",
+  "webWorkspaceUploadLimitMb",
+  "web_workspace_upload_limit_mb",
+  "PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB",
 ]);
 const configTrustProxy = pickBoolean(webConfig, [
   "trustProxy",
@@ -471,6 +497,8 @@ export interface WebRuntimeConfig {
   internalSecret: string;
   passkeyMode: string;
   terminalEnabled: boolean;
+  composeUploadLimitMb: number;
+  workspaceUploadLimitMb: number;
   notificationDebugLabels: boolean;
   vncAllowDirect: boolean;
   vncTargetsRaw: string;
@@ -486,6 +514,18 @@ export function isDefaultWebVncDirectEnabled(platform = process.platform): boole
   return platform === "linux" || platform === "darwin" || platform === "win32";
 }
 
+function clampComposeUploadLimitMb(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(512, Math.max(1, Math.round(parsed)));
+}
+
+function clampWorkspaceUploadLimitMb(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(1024, Math.max(1, Math.round(parsed)));
+}
+
 const nestedWebTerminalEnabled = pickBoolean(webConfig, ["terminalEnabled", "webTerminalEnabled", "PICLAW_WEB_TERMINAL_ENABLED"]);
 const legacyWebTerminalEnabled = pickBoolean(piclawConfig, ["webTerminalEnabled"]);
 const envWebTerminalEnabled = pickBoolean({ PICLAW_WEB_TERMINAL_ENABLED: process.env.PICLAW_WEB_TERMINAL_ENABLED ?? envConfig.PICLAW_WEB_TERMINAL_ENABLED }, ["PICLAW_WEB_TERMINAL_ENABLED"]);
@@ -497,6 +537,10 @@ const legacyWebVncAllowDirect = pickBoolean(piclawConfig, ["webVncAllowDirect"])
 const envWebVncAllowDirect = pickBoolean({ PICLAW_WEB_VNC_ALLOW_DIRECT: process.env.PICLAW_WEB_VNC_ALLOW_DIRECT ?? envConfig.PICLAW_WEB_VNC_ALLOW_DIRECT ?? process.env.PICLAW_VNC_ALLOW_DIRECT ?? envConfig.PICLAW_VNC_ALLOW_DIRECT }, ["PICLAW_WEB_VNC_ALLOW_DIRECT"]);
 const nestedWebVncTargets = pickString(webConfig, ["vncTargets", "vnc_targets", "webVncTargets", "PICLAW_WEB_VNC_TARGETS", "PICLAW_VNC_TARGETS"]);
 const legacyWebVncTargets = pickString(piclawConfig, ["webVncTargets"]);
+const legacyWebComposeUploadLimitMb = pickNumber(piclawConfig, ["webComposeUploadLimitMb", "composeUploadLimitMb"]);
+const legacyWebWorkspaceUploadLimitMb = pickNumber(piclawConfig, ["webWorkspaceUploadLimitMb", "workspaceUploadLimitMb"]);
+const envWebComposeUploadLimitMb = pickNumber({ PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB: process.env.PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB ?? envConfig.PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB }, ["PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB"]);
+const envWebWorkspaceUploadLimitMb = pickNumber({ PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB: process.env.PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB ?? envConfig.PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB }, ["PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB"]);
 const debugCards = pickBoolean(piclawConfig, ["debugCardSubmissions", "PICLAW_DEBUG_CARD_SUBMISSIONS"]);
 const envDebugCards = pickBoolean({ PICLAW_DEBUG_CARD_SUBMISSIONS: process.env.PICLAW_DEBUG_CARD_SUBMISSIONS ?? envConfig.PICLAW_DEBUG_CARD_SUBMISSIONS }, ["PICLAW_DEBUG_CARD_SUBMISSIONS"]);
 const envTrustProxyRaw = process.env.PICLAW_TRUST_PROXY ?? envConfig.PICLAW_TRUST_PROXY;
@@ -535,6 +579,14 @@ export const WEB_RUNTIME_CONFIG: WebRuntimeConfig = Object.seal({
     "totp-fallback"
   ).toLowerCase(),
   terminalEnabled: envWebTerminalEnabled ?? nestedWebTerminalEnabled ?? legacyWebTerminalEnabled ?? isDefaultWebTerminalEnabled(),
+  composeUploadLimitMb: clampComposeUploadLimitMb(
+    envWebComposeUploadLimitMb ?? configWebComposeUploadLimitMb ?? legacyWebComposeUploadLimitMb,
+    32,
+  ),
+  workspaceUploadLimitMb: clampWorkspaceUploadLimitMb(
+    envWebWorkspaceUploadLimitMb ?? configWebWorkspaceUploadLimitMb ?? legacyWebWorkspaceUploadLimitMb,
+    256,
+  ),
   notificationDebugLabels: envWebNotificationDebugLabels ?? nestedWebNotificationDebugLabels ?? legacyWebNotificationDebugLabels ?? false,
   vncAllowDirect: envWebVncAllowDirect ?? nestedWebVncAllowDirect ?? legacyWebVncAllowDirect ?? isDefaultWebVncDirectEnabled(),
   vncTargetsRaw:
@@ -554,6 +606,99 @@ export function getWebRuntimeConfig(): Readonly<WebRuntimeConfig> {
   return WEB_RUNTIME_CONFIG;
 }
 
+/** Persist and apply the web terminal toggle so new requests see it immediately. */
+export function setWebTerminalEnabled(enabled: boolean): boolean {
+  const nextEnabled = Boolean(enabled);
+  const config = readJsonConfig(getConfigPath());
+  const web =
+    config.web && typeof config.web === "object"
+      ? { ...(config.web as Record<string, unknown>) }
+      : {};
+  const webKeys = ["terminalEnabled", "webTerminalEnabled", "PICLAW_WEB_TERMINAL_ENABLED"];
+  for (const key of webKeys) {
+    delete web[key];
+  }
+  web.terminalEnabled = nextEnabled;
+  config.web = web;
+  delete config.webTerminalEnabled;
+  writeJsonConfig(getConfigPath(), config);
+
+  process.env.PICLAW_WEB_TERMINAL_ENABLED = nextEnabled ? "1" : "0";
+  WEB_RUNTIME_CONFIG.terminalEnabled = nextEnabled;
+  return WEB_RUNTIME_CONFIG.terminalEnabled;
+}
+
+export function setWebVncAllowDirect(enabled: boolean): boolean {
+  const nextEnabled = Boolean(enabled);
+  const config = readJsonConfig(getConfigPath());
+  const web =
+    config.web && typeof config.web === "object"
+      ? { ...(config.web as Record<string, unknown>) }
+      : {};
+  const webKeys = ["vncAllowDirect", "vnc_allow_direct", "webVncAllowDirect", "PICLAW_WEB_VNC_ALLOW_DIRECT", "PICLAW_VNC_ALLOW_DIRECT"];
+  for (const key of webKeys) {
+    delete web[key];
+    delete config[key];
+  }
+  web.vncAllowDirect = nextEnabled;
+  config.web = web;
+  delete config.webVncAllowDirect;
+  writeJsonConfig(getConfigPath(), config);
+
+  process.env.PICLAW_WEB_VNC_ALLOW_DIRECT = nextEnabled ? "1" : "0";
+  process.env.PICLAW_VNC_ALLOW_DIRECT = nextEnabled ? "1" : "0";
+  WEB_RUNTIME_CONFIG.vncAllowDirect = nextEnabled;
+  return WEB_RUNTIME_CONFIG.vncAllowDirect;
+}
+
+function persistWebNumberSetting(options: {
+  keys: string[];
+  value: number;
+  envKey: string;
+  runtimeKey: "composeUploadLimitMb" | "workspaceUploadLimitMb";
+  clamp: (value: unknown, fallback: number) => number;
+}): number {
+  const nextValue = options.clamp(options.value, WEB_RUNTIME_CONFIG[options.runtimeKey]);
+  const config = readJsonConfig(getConfigPath());
+  const web =
+    config.web && typeof config.web === "object"
+      ? { ...(config.web as Record<string, unknown>) }
+      : {};
+
+  for (const key of options.keys) {
+    delete web[key];
+    delete config[key];
+  }
+
+  web[options.keys[0]] = nextValue;
+  config.web = web;
+  writeJsonConfig(getConfigPath(), config);
+
+  process.env[options.envKey] = String(nextValue);
+  WEB_RUNTIME_CONFIG[options.runtimeKey] = nextValue;
+  return WEB_RUNTIME_CONFIG[options.runtimeKey];
+}
+
+export function setWebComposeUploadLimitMb(limitMb: number): number {
+  return persistWebNumberSetting({
+    keys: ["composeUploadLimitMb", "webComposeUploadLimitMb", "PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB"],
+    value: limitMb,
+    envKey: "PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB",
+    runtimeKey: "composeUploadLimitMb",
+    clamp: clampComposeUploadLimitMb,
+  });
+}
+
+export function setWebWorkspaceUploadLimitMb(limitMb: number): number {
+  return persistWebNumberSetting({
+    keys: ["workspaceUploadLimitMb", "webWorkspaceUploadLimitMb", "PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB"],
+    value: limitMb,
+    envKey: "PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB",
+    runtimeKey: "workspaceUploadLimitMb",
+    clamp: clampWorkspaceUploadLimitMb,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Remote interop configuration (cross-instance IPC).
 // ---------------------------------------------------------------------------
@@ -562,6 +707,7 @@ export function getWebRuntimeConfig(): Readonly<WebRuntimeConfig> {
 export interface RemoteInteropConfig {
   enabled: boolean;
   allowHttp: boolean;
+  allowPrivateNetwork: boolean;
   shortCircuitEnabled: boolean;
   instanceName: string;
   decisionModel: string;
@@ -569,6 +715,7 @@ export interface RemoteInteropConfig {
 
 const remoteInteropEnabledRaw = pickBoolean(piclawConfig, ["remoteInteropEnabled", "PICLAW_REMOTE_INTEROP_ENABLED"]);
 const remoteInteropAllowHttpRaw = pickBoolean(piclawConfig, ["remoteInteropAllowHttp", "PICLAW_REMOTE_INTEROP_ALLOW_HTTP"]);
+const remoteInteropAllowPrivateNetworkRaw = pickBoolean(piclawConfig, ["remoteInteropAllowPrivateNetwork", "PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK"]);
 const remoteShortCircuitRaw = pickBoolean(piclawConfig, ["remoteInteropShortCircuitEnabled", "PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED"]);
 
 /** Grouped remote interop settings with existing config/env precedence preserved. */
@@ -581,6 +728,10 @@ export const REMOTE_INTEROP_CONFIG = Object.freeze<RemoteInteropConfig>({
     remoteInteropAllowHttpRaw ??
     ((process.env.PICLAW_REMOTE_INTEROP_ALLOW_HTTP || "").toLowerCase() === "true" ||
       process.env.PICLAW_REMOTE_INTEROP_ALLOW_HTTP === "1"),
+  allowPrivateNetwork:
+    remoteInteropAllowPrivateNetworkRaw ??
+    ((process.env.PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK || "").toLowerCase() === "true" ||
+      process.env.PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK === "1"),
   shortCircuitEnabled:
     remoteShortCircuitRaw ??
     ((process.env.PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED || "").toLowerCase() === "true" ||
@@ -613,6 +764,13 @@ const configSessionAutoRotate = pickBoolean(piclawConfig, [
   "session_auto_rotate",
   "PICLAW_SESSION_AUTO_ROTATE",
 ]);
+const configTurnMaxToolUseMessages = pickNumber(piclawConfig, [
+  "turnMaxToolUseMessages",
+  "turn_max_tool_use_messages",
+  "toolUseBudget",
+  "tool_use_budget",
+  "PICLAW_TURN_MAX_TOOL_USE_MESSAGES",
+]);
 const configAdditionalDefaultTools = pickStringArray(toolsConfig, [
   "additionalDefaultTools",
   "additional_default_tools",
@@ -627,6 +785,11 @@ const configWorkspaceSearchExtensions = pickStringArray(toolsConfig, [
   "workspaceSearchExtensions",
   "workspace_search_extensions",
   "PICLAW_WORKSPACE_SEARCH_EXTENSIONS",
+]);
+const configSearchMatchMode = pickString(toolsConfig, [
+  "searchMatchMode",
+  "search_match_mode",
+  "PICLAW_SEARCH_MATCH_MODE",
 ]);
 
 /** Typed session-file safeguards grouped for runtime/session wiring. */
@@ -648,7 +811,7 @@ const sessionMaxLines =
   ]) ?? 8000;
 
 /** Grouped session-file safeguards. */
-export const SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
+export let SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
   maxSizeMb: sessionMaxSizeMb,
   maxSizeBytes: sessionMaxSizeMb * 1024 * 1024,
   maxLines: sessionMaxLines,
@@ -661,6 +824,79 @@ export const SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
 /** Return grouped session-file safeguards for runtime wiring and tests. */
 export function getSessionStorageConfig(): Readonly<SessionStorageConfig> {
   return SESSION_STORAGE_CONFIG;
+}
+
+/** Persist and apply session storage settings so new turns use them immediately. */
+export function setSessionStorageConfig(patch: { maxSizeMb?: number; autoRotate?: boolean }): Readonly<SessionStorageConfig> {
+  const nextMaxSizeMb = Number.isFinite(patch.maxSizeMb)
+    ? Math.min(256, Math.max(1, Math.round(Number(patch.maxSizeMb))))
+    : SESSION_STORAGE_CONFIG.maxSizeMb;
+  const nextAutoRotate = typeof patch.autoRotate === "boolean"
+    ? patch.autoRotate
+    : SESSION_STORAGE_CONFIG.autoRotate;
+
+  const config = readJsonConfig(getConfigPath());
+  const clearRootKeys = [
+    "sessionMaxSizeMb",
+    "session_max_size_mb",
+    "PICLAW_SESSION_MAX_SIZE_MB",
+    "sessionAutoRotate",
+    "session_auto_rotate",
+    "PICLAW_SESSION_AUTO_ROTATE",
+  ];
+  for (const key of clearRootKeys) {
+    delete config[key];
+  }
+  config.sessionMaxSizeMb = nextMaxSizeMb;
+  config.sessionAutoRotate = nextAutoRotate;
+  writeJsonConfig(getConfigPath(), config);
+
+  process.env.PICLAW_SESSION_MAX_SIZE_MB = String(nextMaxSizeMb);
+  process.env.PICLAW_SESSION_AUTO_ROTATE = nextAutoRotate ? "1" : "0";
+
+  SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
+    ...SESSION_STORAGE_CONFIG,
+    maxSizeMb: nextMaxSizeMb,
+    maxSizeBytes: nextMaxSizeMb * 1024 * 1024,
+    autoRotate: nextAutoRotate,
+  });
+  return SESSION_STORAGE_CONFIG;
+}
+
+/** Current per-turn tool-use budget used by the agent orchestrator. */
+export let TOOL_USE_MESSAGE_BUDGET =
+  pickNumber({
+    PICLAW_TURN_MAX_TOOL_USE_MESSAGES:
+      process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES ?? envConfig.PICLAW_TURN_MAX_TOOL_USE_MESSAGES,
+  }, ["PICLAW_TURN_MAX_TOOL_USE_MESSAGES"]) ?? configTurnMaxToolUseMessages ?? 64;
+
+/** Return the current tool-use budget for a single turn. */
+export function getToolUseMessageBudget(): number {
+  return TOOL_USE_MESSAGE_BUDGET;
+}
+
+/** Persist and apply the tool-use budget so subsequent turns use it immediately. */
+export function setToolUseMessageBudget(budget: number): number {
+  const nextBudget = Number.isFinite(budget)
+    ? Math.min(512, Math.max(8, Math.round(Number(budget))))
+    : TOOL_USE_MESSAGE_BUDGET;
+  const config = readJsonConfig(getConfigPath());
+  const clearRootKeys = [
+    "turnMaxToolUseMessages",
+    "turn_max_tool_use_messages",
+    "toolUseBudget",
+    "tool_use_budget",
+    "PICLAW_TURN_MAX_TOOL_USE_MESSAGES",
+  ];
+  for (const key of clearRootKeys) {
+    delete config[key];
+  }
+  config.turnMaxToolUseMessages = nextBudget;
+  writeJsonConfig(getConfigPath(), config);
+
+  process.env.PICLAW_TURN_MAX_TOOL_USE_MESSAGES = String(nextBudget);
+  TOOL_USE_MESSAGE_BUDGET = nextBudget;
+  return TOOL_USE_MESSAGE_BUDGET;
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +912,9 @@ export interface ToolActivationConfig {
 export const TOOL_ACTIVATION_CONFIG = Object.freeze<ToolActivationConfig>({
   additionalDefaultTools: configAdditionalDefaultTools ?? [],
 });
+
+/** FTS match mode for multi-word queries: "or" = any keyword, "and" = all keywords. */
+export type SearchMatchMode = "or" | "and";
 
 /** Typed workspace-search config grouped for FTS root and extension selection. */
 export interface WorkspaceSearchConfig {
@@ -703,6 +942,48 @@ export const WORKSPACE_SEARCH_CONFIG = Object.freeze<WorkspaceSearchConfig>({
 /** Return grouped workspace-search config for runtime wiring and tests. */
 export function getWorkspaceSearchConfig(): Readonly<WorkspaceSearchConfig> {
   return WORKSPACE_SEARCH_CONFIG;
+}
+
+// ---------------------------------------------------------------------------
+// Search match mode – controls whether multi-word FTS queries use OR or AND.
+// ---------------------------------------------------------------------------
+
+function parseSearchMatchMode(raw: string | null | undefined): SearchMatchMode {
+  const lower = (raw ?? "").trim().toLowerCase();
+  return lower === "and" ? "and" : "or";
+}
+
+let SEARCH_MATCH_MODE: SearchMatchMode = parseSearchMatchMode(
+  process.env.PICLAW_SEARCH_MATCH_MODE ?? configSearchMatchMode,
+);
+
+/** Return the current FTS match mode ("or" = any keyword, "and" = all keywords). */
+export function getSearchMatchMode(): SearchMatchMode {
+  // Read dynamically so test env overrides take effect.
+  const envOverride = process.env.PICLAW_SEARCH_MATCH_MODE?.trim().toLowerCase();
+  if (envOverride === "and" || envOverride === "or") return envOverride;
+  return SEARCH_MATCH_MODE;
+}
+
+/** Persist and apply the search match mode. */
+export function setSearchMatchMode(mode: SearchMatchMode): SearchMatchMode {
+  const nextMode: SearchMatchMode = mode === "and" ? "and" : "or";
+  const config = readJsonConfig(getConfigPath());
+  const tools =
+    config.tools && typeof config.tools === "object"
+      ? { ...(config.tools as Record<string, unknown>) }
+      : {};
+  const clearKeys = ["searchMatchMode", "search_match_mode", "PICLAW_SEARCH_MATCH_MODE"];
+  for (const key of clearKeys) {
+    delete tools[key];
+  }
+  tools.searchMatchMode = nextMode;
+  config.tools = tools;
+  writeJsonConfig(getConfigPath(), config);
+
+  process.env.PICLAW_SEARCH_MATCH_MODE = nextMode;
+  SEARCH_MATCH_MODE = nextMode;
+  return SEARCH_MATCH_MODE;
 }
 
 /** Return grouped tool-activation config for runtime wiring and tests. */
@@ -779,7 +1060,7 @@ export function setUserAvatarBackground(background: string): void {
 export function setWebTotpSecret(secret: string): string {
   const next = (secret || "").trim();
 
-  const config = readJsonConfig(PICLAW_CONFIG_PATH);
+  const config = readJsonConfig(getConfigPath());
   const web =
     config.web && typeof config.web === "object"
       ? { ...(config.web as Record<string, unknown>) }
@@ -807,7 +1088,7 @@ export function setWebTotpSecret(secret: string): string {
     delete config.web;
   }
 
-  writeJsonConfig(PICLAW_CONFIG_PATH, config);
+  writeJsonConfig(getConfigPath(), config);
 
   WEB_RUNTIME_CONFIG.totpSecret = next;
   if (next) {

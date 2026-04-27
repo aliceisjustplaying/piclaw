@@ -72,6 +72,11 @@ function readWidgetNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function truncateErrorDetail(msg: string, maxLen = 120): string {
+  const s = String(msg || "").trim();
+  return s.length <= maxLen ? s : s.slice(0, maxLen) + "…";
+}
+
 function buildGeneratedWidgetPayload(
   args: unknown,
   base: Record<string, unknown>,
@@ -160,6 +165,21 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
     if (hasTpm) return "Rate limited (TPM)";
     if (hasRpm) return "Rate limited (RPM)";
     return "Rate limited (HTTP 429)";
+  };
+
+  const isNetworkError = (message?: string): boolean => {
+    if (!message) return false;
+    return /\bENOTFOUND\b|\bECONNREFUSED\b|\bETIMEDOUT\b|\bECONNRESET\b|getaddrinfo|dns.*failed|fetch failed|socket hang up|connection.*refused|connection.*lost/i.test(message);
+  };
+
+  const describeNetworkError = (message?: string): string => {
+    if (!message) return "Network error";
+    if (/ENOTFOUND|getaddrinfo|dns/i.test(message)) return "DNS lookup failed";
+    if (/ECONNREFUSED|connection.*refused/i.test(message)) return "Connection refused";
+    if (/ETIMEDOUT|timed? out/i.test(message)) return "Connection timed out";
+    if (/ECONNRESET|socket hang up/i.test(message)) return "Connection reset";
+    if (/fetch failed/i.test(message)) return "Network request failed";
+    return "Network error";
   };
 
   let pendingRateLimit: { message: string } | null = null;
@@ -460,9 +480,12 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
           pendingRateLimitTimer = null;
         }
       }
+      const isNetwork = isNetworkError(errorMessage);
       const title = isRateLimit
         ? `${describeRateLimit(errorMessage)} — retrying (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`
-        : `Retrying after error (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`;
+        : isNetwork
+          ? `${describeNetworkError(errorMessage)} — retrying (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`
+          : `Retrying after error (attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}, ${delaySec}s delay)`;
       options.emitter.status({
         ...base,
         type: "intent",
@@ -477,7 +500,9 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
         const finalError = e.finalError || "Request failed after retries";
         const title = isRateLimitError(finalError)
           ? `${describeRateLimit(finalError)} — retry budget exhausted`
-          : finalError;
+          : isNetworkError(finalError)
+            ? `${describeNetworkError(finalError)} — retry budget exhausted`
+            : finalError;
         options.emitter.status({
           ...base,
           type: "error",
@@ -491,7 +516,7 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
       const title = reason === "overflow"
         ? "Compacting context"
         : reason === "threshold"
-          ? "Auto-compacting after response"
+          ? "Smart compaction"
           : "Compacting context";
       const detail = reason === "overflow"
         ? "Recovering from context pressure so the turn can continue."
@@ -534,14 +559,17 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
     const customEventType = (event as { type?: string }).type;
 
     if (customEventType === "recovery_start") {
-      const e = event as { strategy?: string; attempt?: number; maxAttempts?: number; delayMs?: number; reason?: string };
+      const e = event as { strategy?: string; attempt?: number; maxAttempts?: number; delayMs?: number; reason?: string; errorMessage?: string };
       const strategy = e.strategy === "compact_then_retry"
         ? "Compacting context and continuing"
         : "Recovering interrupted response";
       const delaySuffix = e.strategy === "retry" && typeof e.delayMs === "number"
         ? ` · ${Math.max(0, Math.round(e.delayMs / 1000))}s delay`
         : "";
-      const detail = `Attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}${delaySuffix}${e.reason ? ` — ${e.reason}` : ""}`;
+      const reasonOrError = e.errorMessage && e.errorMessage !== e.reason
+        ? (e.reason ? `${e.reason}` : truncateErrorDetail(e.errorMessage))
+        : (e.reason || null);
+      const detail = `Attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}${delaySuffix}${reasonOrError ? ` — ${reasonOrError}` : ""}`;
       options.emitter.status({
         ...base,
         type: "intent",

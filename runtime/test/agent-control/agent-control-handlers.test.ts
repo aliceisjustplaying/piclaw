@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { withChatContext } from "../../src/core/chat-context.js";
+import { listTrackedProcesses, registerProcess } from "../../src/utils/process-tracker.js";
 import { getTestWorkspace, setEnv } from "../helpers.js";
 import { DEFAULT_TEST_MODEL, TestAgentControlSession, cleanupRotatedSessionArtifacts, createTestModelRegistry, createTestSessionRuntime } from "./session-fixture.js";
 
@@ -72,11 +73,11 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanupRotatedSessionArtifacts(process.cwd());
+  restoreEnv?.();
+  restoreEnv = null;
   restoreIdentityState?.();
   restoreIdentityState = null;
   restoreConfig();
-  restoreEnv?.();
-  restoreEnv = null;
 });
 
 const registry = createTestModelRegistry([DEFAULT_TEST_MODEL]);
@@ -99,8 +100,8 @@ test("agent control info and mode commands", async () => {
   writeFileSync(session.sessionFile, '{"type":"session","id":"state","version":3}\n');
 
   const state = await applyControlCommand(runtime as any, registry, { type: "state", raw: "/state" });
-  expect(state.message).toContain("Model:");
-  expect(state.message).toContain("Session file size:");
+  expect(state.message).toContain("**Model**");
+  expect(state.message).toContain("**File size**");
 
   const db = await import("../../src/db.js");
   db.initDatabase();
@@ -124,13 +125,13 @@ test("agent control info and mode commands", async () => {
   const stats = await withChatContext("web:default", "web", () =>
     applyControlCommand(runtime as any, registry, { type: "stats", raw: "/stats" })
   );
-  expect(stats.message).toContain("Session stats:");
-  expect(stats.message).toContain("Tracked usage (persisted):");
-  expect(stats.message).toContain("Per provider:");
-  expect(stats.message).toContain("Per model:");
+  expect(stats.message).toContain("**Session stats**");
+  expect(stats.message).toContain("**Tracked usage (persisted)**");
+  expect(stats.message).toContain("**Per provider**");
+  expect(stats.message).toContain("**Per model**");
 
   const context = await applyControlCommand(runtime as any, registry, { type: "context", raw: "/context" });
-  expect(context.message).toContain("Context usage:");
+  expect(context.message).toContain("**Context usage**");
 
   const last = await applyControlCommand(runtime as any, registry, { type: "last", raw: "/last" });
   expect(last.message).toContain("last response");
@@ -170,8 +171,8 @@ test("agent control state shows oversized session warning", async () => {
   truncateSync(session.sessionFile, 101 * 1024 * 1024);
 
   const state = await applyControlCommand(runtime as any, registry, { type: "state", raw: "/state" });
-  expect(state.message).toContain("Session file warning:");
-  expect(state.message).toContain("Consider /session-rotate.");
+  expect(state.message).toContain("Session file exceeds threshold");
+  expect(state.message).toContain("Consider `/session-rotate`");
 });
 
 test("agent control session and tree commands", async () => {
@@ -288,9 +289,14 @@ test("agent control queue, compact, and abort commands", async () => {
   expect(autoRetry.message).toContain("on");
   expect(session.autoRetryEnabled).toBe(true);
 
+  registerProcess(999999);
+  expect(listTrackedProcesses()).toContain(999999);
+
   const abort = await applyControlCommand(runtime as any, registry, { type: "abort", raw: "/abort" });
   expect(abort.message).toContain("Aborted current response");
+  expect(abort.message).toContain("Killed 1 tracked tool process");
   expect(session.abortCalls).toBe(1);
+  expect(listTrackedProcesses()).not.toContain(999999);
 
   session.isCompacting = true;
   const abortCompaction = await applyControlCommand(runtime as any, registry, { type: "abort", raw: "/abort" });

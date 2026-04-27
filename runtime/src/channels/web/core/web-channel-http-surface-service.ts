@@ -49,6 +49,7 @@ type WebChannelHttpSurfaceControlPlane = Pick<
   | "handleAgentBranchRename"
   | "handleAgentRenameJid"
   | "handleAgentBranchPrune"
+  | "handleAgentBranchPurge"
   | "handleAgentBranchRestore"
 >;
 
@@ -121,8 +122,9 @@ export class WebChannelHttpSurfaceService {
     chatJid?: string,
     searchScope?: "current" | "root" | "all",
     rootChatJid?: string,
+    filters?: { images?: boolean; attachments?: boolean } | null,
   ): Response {
-    return this.channel.endpointFacade.handleSearch(query, limit, offset, chatJid, searchScope, rootChatJid);
+    return this.channel.endpointFacade.handleSearch(query, limit, offset, chatJid, searchScope, rootChatJid, filters);
   }
 
   handleThread(id: number | null, chatJid?: string): Response {
@@ -255,6 +257,10 @@ export class WebChannelHttpSurfaceService {
 
   async handleAgentBranchPrune(req: Request): Promise<Response> {
     return await this.channel.controlPlaneService.handleAgentBranchPrune(req);
+  }
+
+  async handleAgentBranchPurge(req: Request): Promise<Response> {
+    return await this.channel.controlPlaneService.handleAgentBranchPurge(req);
   }
 
   async handleAgentBranchRestore(req: Request): Promise<Response> {

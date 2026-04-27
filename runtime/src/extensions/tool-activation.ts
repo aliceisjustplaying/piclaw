@@ -44,7 +44,6 @@ export const TOOLSETS: ToolsetDefinition[] = [
     description: "Workspace search, document/diagram viewing, and image processing.",
     toolNames: [
       "search_workspace",
-      "open_drawio_editor",
       "open_office_viewer",
       "office_read",
       "office_write",
@@ -59,7 +58,7 @@ export const TOOLSETS: ToolsetDefinition[] = [
   {
     name: "remote",
     description: "Remote execution configuration and remote-capable infrastructure tools.",
-    toolNames: ["ssh", "proxmox", "portainer"],
+    toolNames: ["ssh"],
   },
   {
     name: "browser",
@@ -68,8 +67,8 @@ export const TOOLSETS: ToolsetDefinition[] = [
   },
   {
     name: "ui",
-    description: "PiClaw web UI posting tools.",
-    toolNames: ["send_adaptive_card", "send_dashboard_widget"],
+    description: "PiClaw web UI posting tools and cross-session relay.",
+    toolNames: ["send_adaptive_card", "send_dashboard_widget", "chat"],
   },
   {
     name: "experiments",
@@ -79,7 +78,7 @@ export const TOOLSETS: ToolsetDefinition[] = [
   {
     name: "lifecycle",
     description: "Managed process lifecycle control.",
-    toolNames: ["exit_process"],
+    toolNames: ["exit_process", "session_status"],
   },
 ];
 
@@ -96,6 +95,7 @@ const DEFAULT_ACTIVE_TOOL_NAMES = [
   "messages",
   "keychain",
   "exit_process",
+  "session_status",
 ] as const;
 
 const WINDOWS_DEFAULT_ACTIVE_TOOL_NAMES = [

@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
+import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { getMediaInfo, getMediaUrl, getThumbnailUrl, submitAdaptiveCardAction } from '../api.js';
 import { renderMarkdown, renderMermaidDiagrams, sanitizeUrl } from '../markdown.js';
 import { formatCount, formatFileSize, formatTime, formatTimestamp } from '../utils/format.js';
 import { buildPostMarkdownCopyPayload } from '../utils/post-copy-markdown.js';
 import { DEFAULT_AGENT_NAME, getAvatarInfo } from '../ui/agent-utils.js';
-import { getAttachmentPreviewKind } from '../ui/attachment-preview.js';
+import { getAttachmentPreviewKind, getAttachmentPreviewLabel } from '../ui/attachment-preview.js';
 import { extractCardBlocks, renderAdaptiveCard } from '../ui/adaptive-card-renderer.js';
 import { buildAdaptiveCardSubmissionFallbackText, describeAdaptiveCardSubmission, extractAdaptiveCardSubmissionBlocks } from '../ui/adaptive-card-submission.js';
 import { buildGeneratedWidgetPayload, canRenderGeneratedWidget } from '../ui/generated-widget.js';
@@ -32,7 +32,7 @@ function FileAttachment({ mediaId, onPreview }) {
     const size = info.metadata?.size;
     const sizeStr = size ? formatFileSize(size) : '';
     const previewKind = getAttachmentPreviewKind(info.content_type, info.filename);
-    const previewLabel = previewKind === 'unsupported' ? 'Details' : 'Preview';
+    const canPreview = previewKind !== 'unsupported';
 
     return html`
         <div class="file-attachment" onClick=${(e) => e.stopPropagation()}>
@@ -57,17 +57,19 @@ function FileAttachment({ mediaId, onPreview }) {
                     <line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
             </a>
-            <button
-                class="file-attachment-preview"
-                type="button"
-                onClick=${(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPreview?.({ mediaId, info });
-                }}
-            >
-                ${previewLabel}
-            </button>
+            ${canPreview && html`
+                <button
+                    class="file-attachment-preview"
+                    type="button"
+                    onClick=${(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onPreview?.({ mediaId, info });
+                    }}
+                >
+                    Preview
+                </button>
+            `}
         </div>
     `;
 }
@@ -80,6 +82,58 @@ export function extractRecoveryMarkerBlocks(contentBlocks) {
 export function extractTimeoutMarkerBlocks(contentBlocks) {
     if (!Array.isArray(contentBlocks)) return [];
     return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'timeout_marker' && (block.timed_out ?? true));
+}
+
+export function extractOutcomeMarkerBlocks(contentBlocks) {
+    if (!Array.isArray(contentBlocks)) return [];
+    return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'turn_outcome_marker');
+}
+
+export function extractPeerMessageBlocks(contentBlocks) {
+    if (!Array.isArray(contentBlocks)) return [];
+    return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'peer_message');
+}
+
+function fallbackPeerAgentHandle(chatJid) {
+    return String(chatJid || '')
+        .split(/[:/]/)
+        .filter(Boolean)
+        .pop() || 'agent';
+}
+
+export function getPeerMessageMeta(contentBlocks) {
+    const block = extractPeerMessageBlocks(contentBlocks)[0] || null;
+    if (!block) return null;
+    const sourceChatJid = typeof block.source_chat_jid === 'string' ? block.source_chat_jid.trim() : '';
+    const sourceAgentName = typeof block.source_agent_name === 'string' && block.source_agent_name.trim()
+        ? block.source_agent_name.trim()
+        : fallbackPeerAgentHandle(sourceChatJid);
+    const targetChatJid = typeof block.target_chat_jid === 'string' ? block.target_chat_jid.trim() : '';
+    const targetAgentName = typeof block.target_agent_name === 'string' ? block.target_agent_name.trim() : '';
+    const body = typeof block.body === 'string' ? block.body : '';
+    return {
+        block,
+        sourceChatJid,
+        sourceAgentName,
+        targetChatJid,
+        targetAgentName,
+        body,
+    };
+}
+
+export function getPeerMessageDisplayContent(content, contentBlocks) {
+    const peer = getPeerMessageMeta(contentBlocks);
+    const original = typeof content === 'string' ? content : '';
+    if (!peer) return original;
+    if (peer.body && peer.body.trim()) return peer.body;
+    const sourceAgentPattern = peer.sourceAgentName
+        ? peer.sourceAgentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        : '[^\\s>]+';
+    const sourceChatPattern = peer.sourceChatJid
+        ? peer.sourceChatJid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        : '[^>\\n]+';
+    const stripped = original.replace(new RegExp(`^from:\\s+@${sourceAgentPattern}\\s+<jid:${sourceChatPattern}>\\s*\\n\\n`, 'i'), '');
+    return stripped || original;
 }
 
 const RECOVERY_CLASSIFIER_LABELS = {
@@ -103,7 +157,52 @@ export function formatRecoveryChipTooltip(marker) {
 
 export function formatTimeoutChipTooltip(marker) {
     const action = typeof marker?.tool_action_summary === 'string' ? marker.tool_action_summary.trim() : '';
-    return action ? `Turn timed out — ${action}` : 'Turn timed out before the model finished responding';
+    const recoveredDraft = marker?.draft_recovered ? ' Showing recovered draft.' : '';
+    return action
+        ? `Turn timed out — ${action}${recoveredDraft}`
+        : `Turn timed out before the model finished responding${recoveredDraft}`;
+}
+
+export function formatOutcomeChipTooltip(marker) {
+    const title = typeof marker?.title === 'string' ? marker.title.trim() : '';
+    const detail = typeof marker?.detail === 'string' ? marker.detail.trim() : '';
+    const action = typeof marker?.tool_action_summary === 'string' ? marker.tool_action_summary.trim() : '';
+    const recoveredDraft = marker?.draft_recovered ? ' Showing recovered draft.' : '';
+    const parts = [title, detail];
+    if (action) parts.push(`Last action: ${action}`);
+    return parts.filter(Boolean).join(' — ') + recoveredDraft;
+}
+
+function OutcomePill({ marker }) {
+    const [expanded, setExpanded] = useState(false);
+    const toggle = useCallback((e) => { e.stopPropagation(); setExpanded(v => !v); }, []);
+
+    const title = typeof marker?.title === 'string' ? marker.title.trim() : '';
+    const detail = typeof marker?.detail === 'string' ? marker.detail.trim() : '';
+    const action = typeof marker?.tool_action_summary === 'string' ? marker.tool_action_summary.trim() : '';
+    const draftRecovered = marker?.draft_recovered;
+    const severity = String(marker?.severity || 'warning');
+    const label = action || title || String(marker?.label || marker?.kind || 'issue');
+
+    const hasDetail = Boolean(detail || (title && action));
+
+    return html`
+        <div class=${`post-outcome-pill post-outcome-pill-${severity}`}>
+            <div class="post-outcome-pill-header" onClick=${hasDetail ? toggle : undefined}>
+                ${hasDetail && html`
+                    <span class=${`post-outcome-pill-toggle${expanded ? ' expanded' : ''}`} aria-hidden="true">▶</span>
+                `}
+                <span class="post-outcome-pill-label">${label}</span>
+                ${draftRecovered && html`<span class="post-outcome-pill-badge">draft recovered</span>`}
+            </div>
+            ${expanded && hasDetail && html`
+                <div class="post-outcome-pill-detail">
+                    ${title && html`<div><strong>${title}</strong></div>`}
+                    ${detail && detail !== title && html`<div>${detail}</div>`}
+                </div>
+            `}
+        </div>
+    `;
 }
 
 function AttachmentPill({ attachment, onPreview }) {
@@ -121,7 +220,8 @@ function AttachmentPill({ attachment, onPreview }) {
     const filename = info?.filename || attachment.label || `attachment-${attachment.id}`;
     const downloadHref = Number.isFinite(mediaId) ? getMediaUrl(mediaId) : null;
     const previewKind = getAttachmentPreviewKind(info?.content_type, info?.filename || attachment?.label);
-    const previewLabel = previewKind === 'unsupported' ? 'Details' : 'Preview';
+    const previewLabel = getAttachmentPreviewLabel(previewKind);
+    const canPreview = previewKind !== 'unsupported';
 
     return html`
         <span class="attachment-pill" title=${filename}>
@@ -142,7 +242,7 @@ function AttachmentPill({ attachment, onPreview }) {
                         title=${filename}
                     />
                 `}
-            ${Number.isFinite(mediaId) && info && html`
+            ${Number.isFinite(mediaId) && info && canPreview && html`
                 <button
                     class="attachment-pill-preview"
                     type="button"
@@ -568,6 +668,12 @@ function enhanceCodeBlocks(container) {
     };
 }
 
+function normalizeFileRef(value) {
+    const trimmed = String(value || '').trim();
+    const codeWrapped = trimmed.match(/^`([^`]+)`$/);
+    return (codeWrapped ? codeWrapped[1] : trimmed).trim();
+}
+
 function extractFileRefs(content) {
     if (!content) return { content, fileRefs: [] };
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -585,7 +691,8 @@ function extractFileRefs(content) {
     for (; end < lines.length; end += 1) {
         const line = lines[end];
         if (/^\s*-\s+/.test(line)) {
-            refs.push(line.replace(/^\s*-\s+/, '').trim());
+            const normalizedRef = normalizeFileRef(line.replace(/^\s*-\s+/, '').trim());
+            if (normalizedRef) refs.push(normalizedRef);
         } else if (!line.trim()) {
             break;
         } else {
@@ -774,9 +881,12 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
 
     const blocks = data.content_blocks || [];
     const mediaIds = data.media_ids || [];
+    const peerMessageMeta = getPeerMessageMeta(blocks);
+    const showPeerAgentTag = Boolean(peerMessageMeta?.sourceAgentName);
 
     // Keep original message text even when link previews are available.
     let displayContent = getDisplayContent(data.content, data.link_previews);
+    displayContent = getPeerMessageDisplayContent(displayContent, blocks);
     const { content: cleanedContent, fileRefs } = extractFileRefs(displayContent);
     const { content: cleanedWithMsgRefs, messageRefs } = extractMessageRefs(cleanedContent);
     const { content: cleanedWithAttachments, attachments } = extractAttachmentRefs(cleanedWithMsgRefs);
@@ -787,6 +897,8 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
     const recoveryMarker = recoveryMarkerBlocks[0] || null;
     const timeoutMarkerBlocks = extractTimeoutMarkerBlocks(blocks);
     const timeoutMarker = timeoutMarkerBlocks[0] || null;
+    const outcomeMarkerBlocks = extractOutcomeMarkerBlocks(blocks);
+    const outcomeMarker = outcomeMarkerBlocks[0] || null;
     const singleCardFallback = directCardBlocks.length === 1 && typeof directCardBlocks[0]?.fallback_text === 'string'
         ? directCardBlocks[0].fallback_text.trim()
         : '';
@@ -1036,7 +1148,20 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 </div>
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
+                    ${showPeerAgentTag && html`
+                        <span
+                            class="post-chat-agent-tag"
+                            title=${`From ${peerMessageMeta?.sourceChatJid || ''}`.trim()}
+                        >
+                            @${peerMessageMeta?.sourceAgentName}
+                        </span>
+                    `}
                     ${showSearchChatAgentTag && html`<span class="post-chat-agent-tag" title=${`Chat: ${searchChatAgentName}`}>@${searchChatAgentName}</span>`}
+                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (onMessageRef) onMessageRef(post.id);
+                    }}>${formatTime(post.timestamp)}</a>
                     ${recoveryMarker && html`
                         <span
                             class="post-recovery-chip"
@@ -1053,12 +1178,18 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                             timeout
                         </span>
                     `}
-                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (onMessageRef) onMessageRef(post.id);
-                    }}>${formatTime(post.timestamp)}</a>
+                    ${outcomeMarker && html`
+                        <span
+                            class=${`post-recovery-chip post-outcome-chip post-outcome-chip-${String(outcomeMarker.severity || 'warning')}${outcomeMarker.kind === 'tool_budget' ? ' post-outcome-chip-tool-budget' : ''}`}
+                            title=${String(outcomeMarker.label || outcomeMarker.kind || 'issue')}
+                        >
+                            ${String(outcomeMarker.label || outcomeMarker.kind || 'issue')}
+                        </span>
+                    `}
                 </div>
+                ${outcomeMarker && html`
+                    <${OutcomePill} marker=${outcomeMarker} />
+                `}
                 ${isHardTruncated && truncatedInfo && html`
                     <div class="post-content truncated">
                         <div class="truncated-title">Message too large to display.</div>

@@ -35,10 +35,10 @@ console.log("ok");\n`;
   test("loads packaged skill and workspace script catalogs from the repo", async () => {
     const { loadScriptCatalogEntries } = await import("../../src/extensions/runtime-scripts.js");
     const entries = loadScriptCatalogEntries({ scope: "packaged", role: "all" });
-    expect(entries.length).toBeGreaterThan(10);
+    expect(entries.length).toBeGreaterThan(3);
     expect(entries.some((entry) => entry.displayPath.endsWith("runtime/skills/operator/token-chart/token-chart.ts"))).toBe(true);
+    expect(entries.some((entry) => entry.displayPath.endsWith("runtime/skills/builtin/remote-peer/peer.ts"))).toBe(true);
     expect(entries.some((entry) => entry.displayPath.includes("runtime/scripts/check-stale-dist.ts"))).toBe(false);
-    expect(entries.some((entry) => entry.displayPath.endsWith("render-proxmox-guest-compare.ts"))).toBe(true);
   });
 
   test("registers list_scripts and supports query + intent", async () => {
@@ -73,7 +73,7 @@ console.log("ok");\n`;
       const proc = Bun.spawnSync([
         "bun",
         "-e",
-        `import { runtimeScripts } from \"./runtime/src/extensions/runtime-scripts.ts\";
+        `import { runtimeScripts } from \"./src/extensions/runtime-scripts.ts\";
          const tools = new Map();
          const api = {
            on() {},
@@ -89,12 +89,12 @@ console.log("ok");\n`;
          const result = await tools.get(\"list_scripts\").execute(\"tool\", { scope: \"workspace\", include_metadata: true, role: \"all\" });
          console.log(JSON.stringify(result));`,
       ], {
-        cwd: "/workspace/piclaw",
-        env: { ...process.env, PICLAW_WORKSPACE: workspace.workspace, PICLAW_STORE: workspace.store, PICLAW_DATA: workspace.data },
+        cwd: path.resolve(import.meta.dir, "../.."),
+        env: { ...process.env, PICLAW_WORKSPACE: workspace.workspace, PICLAW_STORE: workspace.store, PICLAW_DATA: workspace.data, PICLAW_DB_IN_MEMORY: "1" },
         stdout: "pipe",
         stderr: "pipe",
       });
-      expect(proc.exitCode).toBe(0);
+      expect(proc.exitCode, `stderr: ${proc.stderr.toString()}`).toBe(0);
       const result = JSON.parse(proc.stdout.toString());
       expect(result.details.count).toBe(2);
       const entrypoint = result.details.scripts.find((entry: any) => entry.name === "demo-search");
@@ -123,7 +123,7 @@ console.log("ok");\n`;
       const proc = Bun.spawnSync([
         "bun",
         "-e",
-        `import { runtimeScripts } from \"./runtime/src/extensions/runtime-scripts.ts\";
+        `import { runtimeScripts } from \"./src/extensions/runtime-scripts.ts\";
          const tools = new Map();
          const api = {
            on() {},
@@ -139,8 +139,8 @@ console.log("ok");\n`;
          const result = await tools.get(\"list_scripts\").execute(\"tool\", { scope: \"workspace\", role: \"all\", intent: \"compare demo metrics\" });
          console.log(JSON.stringify(result));`,
       ], {
-        cwd: "/workspace/piclaw",
-        env: { ...process.env, PICLAW_WORKSPACE: workspace.workspace, PICLAW_STORE: workspace.store, PICLAW_DATA: workspace.data },
+        cwd: path.resolve(import.meta.dir, "../.."),
+        env: { ...process.env, PICLAW_WORKSPACE: workspace.workspace, PICLAW_STORE: workspace.store, PICLAW_DATA: workspace.data, PICLAW_DB_IN_MEMORY: "1" },
         stdout: "pipe",
         stderr: "pipe",
       });

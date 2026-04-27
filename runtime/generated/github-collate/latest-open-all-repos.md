@@ -1,31 +1,43 @@
 # GitHub issues + PR digest
 
-Generated: 2026-04-22T10:01:34.364Z
+Generated: 2026-04-27T10:00:02.074Z
+
+## Recently changed star counts
+
+No repository changed star count in this run.
 
 ## Summary
 
 - State filter: `open`
-- Repos scanned: **16**
+- Activity window: **last 24h** by created/updated time
+- Repos scanned: **18**
 - Included private repos: **yes**
 - Repos with items: **1**
 - Total items: **2**
-- Issues: **0**
-- Pull requests: **2**
+- Issues: **1**
+- Pull requests: **1**
+- Repos with star movement: **0**
+- Repos with new stars: **0**
 
 ## Repo summary
 
-| Repo | Issues | PRs | Total |
-|---|---:|---:|---:|
-| rcarmo/piclaw | 0 | 2 | 2 |
+| Repo | Stars | Issues | PRs | Total |
+|---|---:|---:|---:|---:|
+| rcarmo/piclaw | 592 | 1 | 1 | 2 |
 
 ## Collated items
 
 ### [rcarmo/piclaw](https://github.com/rcarmo/piclaw)
 
+#### Issues
+
+| Updated | # | Title | Author | Labels | URL |
+|---|---:|---|---|---|---|
+| 2026-04-27T08:15:29Z | 455 | Container fails to start with named Docker volume for /workspace: EACCES on mkdir /workspace/logs | pablopunk | — | [#455](https://github.com/rcarmo/piclaw/issues/455) |
+
 #### Pull requests
 
 | Updated | # | Title | Author | Labels | URL |
 |---|---:|---|---|---|---|
-| 2026-04-22T09:39:14Z | 140 | feat: cross-instance IPC — pairing, proposals, and remote execution | CelsoSantos | — | [#140](https://github.com/rcarmo/piclaw/pull/140) |
-| 2026-04-22T08:12:49Z | 145 | Add CodeMirror Rust and C++ highlighting | tidux | — | [#145](https://github.com/rcarmo/piclaw/pull/145) |
+| 2026-04-27T08:14:03Z | 456 | fix(entrypoint): ensure /workspace/logs exists and is writable by agent | pablopunk | — | [#456](https://github.com/rcarmo/piclaw/pull/456) |
 

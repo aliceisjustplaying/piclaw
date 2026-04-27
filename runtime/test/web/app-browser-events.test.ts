@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   watchDockToggleShortcut,
   watchPaneOpenEvents,
+  watchSettingsShortcut,
   watchZenModeShortcuts,
 } from '../../web/src/ui/app-browser-events.js';
 
@@ -38,6 +39,7 @@ test('watchPaneOpenEvents routes supported tab, edit-source, and popout custom e
     popOutPane: (path: string, label?: string) => events.push(`pop:${path}:${label || ''}`),
   }, { document: doc as any });
 
+  doc.dispatch('pane:open-tab', { detail: { path: '/widgets/system.widget', label: 'Widget' } });
   doc.dispatch('office-viewer:open-tab', { detail: { path: '/docs/report.docx', label: 'Report' } });
   doc.dispatch('html-viewer:open-tab', { detail: { path: '/site/index.html', label: 'Home' } });
   doc.dispatch('html-viewer:edit-source', { detail: { path: '/site/index.html', label: 'Home' } });
@@ -45,6 +47,7 @@ test('watchPaneOpenEvents routes supported tab, edit-source, and popout custom e
   doc.dispatch('kanban:open-tab', { detail: { path: '/boards/work.kanban.md', label: 'Board' } });
   doc.dispatch('pane:popout', { detail: { path: '/tabs/terminal', label: 'Terminal' } });
   expect(events).toEqual([
+    'tab:/widgets/system.widget:Widget',
     'tab:/docs/report.docx:Report',
     'tab:/site/index.html:Home',
     'edit:/site/index.html:Home',
@@ -54,6 +57,7 @@ test('watchPaneOpenEvents routes supported tab, edit-source, and popout custom e
   ]);
 
   dispose();
+  expect(doc.count('pane:open-tab')).toBe(0);
   expect(doc.count('office-viewer:open-tab')).toBe(0);
   expect(doc.count('html-viewer:open-tab')).toBe(0);
   expect(doc.count('html-viewer:edit-source')).toBe(0);
@@ -101,4 +105,38 @@ test('watchZenModeShortcuts toggles on Ctrl+Shift+Z and exits on Escape when act
 
   dispose();
   expect(doc.count('keydown')).toBe(0);
+});
+
+test('watchSettingsShortcut accepts Cmd/Ctrl+, and Alt+, fallback, but ignores editable targets and shift-modified chords', () => {
+  const doc = createEventTarget();
+  const events: string[] = [];
+  const originalWindow = (globalThis as any).window;
+  const customWindow = {
+    dispatchEvent(event: { type?: string }) {
+      events.push(String(event?.type || ''));
+      return true;
+    },
+  } as any;
+  (globalThis as any).window = customWindow;
+
+  const dispose = watchSettingsShortcut({ document: doc as any });
+
+  const primaryEvent = doc.dispatch('keydown', { ctrlKey: true, key: ',' });
+  const altEvent = doc.dispatch('keydown', { altKey: true, key: ',' });
+  const shiftedEvent = doc.dispatch('keydown', { altKey: true, shiftKey: true, key: ',' });
+  const editableEvent = doc.dispatch('keydown', {
+    altKey: true,
+    key: ',',
+    target: { closest: (selector: string) => selector.includes('input') ? ({} as Element) : null },
+  });
+
+  expect(primaryEvent.prevented).toBe(true);
+  expect(altEvent.prevented).toBe(true);
+  expect(shiftedEvent.prevented).toBeUndefined();
+  expect(editableEvent.prevented).toBeUndefined();
+  expect(events).toEqual(['piclaw:open-settings', 'piclaw:open-settings']);
+
+  dispose();
+  expect(doc.count('keydown')).toBe(0);
+  (globalThis as any).window = originalWindow;
 });

@@ -25,8 +25,11 @@ test("plain import covers config module init branches with isolated argv and env
       PICLAW_VNC_ALLOW_DIRECT: undefined,
       PICLAW_WEB_VNC_TARGETS: undefined,
       PICLAW_VNC_TARGETS: undefined,
+      PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB: undefined,
+      PICLAW_WEB_WORKSPACE_UPLOAD_LIMIT_MB: undefined,
       PICLAW_REMOTE_INTEROP_ENABLED: "1",
       PICLAW_REMOTE_INTEROP_ALLOW_HTTP: "0",
+      PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK: undefined,
       PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED: "1",
       PICLAW_REMOTE_INSTANCE_NAME: "remote-c",
       PICLAW_REMOTE_INTEROP_DECISION_MODEL: "decision-model-c",
@@ -34,6 +37,8 @@ test("plain import covers config module init branches with isolated argv and env
       PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS: "60000",
       PICLAW_AGENT_TIMEOUT: "120000",
       PICLAW_BACKGROUND_AGENT_TIMEOUT: "45000",
+      PICLAW_SESSION_MAX_SIZE_MB: undefined,
+      PICLAW_SESSION_AUTO_ROTATE: undefined,
       PUSHOVER_APP_TOKEN: "push-app",
       PUSHOVER_USER_KEY: "push-user",
       PUSHOVER_DEVICE: "push-device",
@@ -105,6 +110,8 @@ test("plain import covers config module init branches with isolated argv and env
           vncTargetsRaw: "",
           debugCardSubmissions: false,
           trustProxy: true,
+          composeUploadLimitMb: 32,
+          workspaceUploadLimitMb: 256,
         });
         expect(cfg.getWebRuntimeConfig()).toBe(cfg.WEB_RUNTIME_CONFIG);
         expect(cfg.SESSION_STORAGE_CONFIG).toEqual({
@@ -131,6 +138,7 @@ test("plain import covers config module init branches with isolated argv and env
         expect(cfg.REMOTE_INTEROP_CONFIG).toEqual({
           enabled: true,
           allowHttp: false,
+          allowPrivateNetwork: false,
           shortCircuitEnabled: true,
           instanceName: "remote-c",
           decisionModel: "decision-model-c",

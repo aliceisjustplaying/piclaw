@@ -16,6 +16,7 @@ export interface ContentEndpointsContext {
   defaultChatJid: string;
   json(payload: unknown, status?: number): Response;
   getBuffer(turnId: string, panel: "thought" | "draft"): WebAgentBufferEntry | undefined;
+  getIdentity?(): { assistantName?: string | null; assistantAvatarUrl?: string | null; userName?: string | null; userAvatarUrl?: string | null; userAvatarBackground?: string | null } | null;
 }
 
 /** Return the timeline response for the requested web chat (defaults to the main web chat). */
@@ -25,7 +26,15 @@ export function handleTimelineRequest(
   chatJid: string | undefined,
   ctx: ContentEndpointsContext
 ): Response {
-  const { result, durationMs } = measureSync(() => getTimelineResponse(chatJid || ctx.defaultChatJid, limit, before));
+  const identity = ctx.getIdentity?.();
+  const timelineIdentity = identity ? {
+    assistant_name: identity.assistantName ?? null,
+    assistant_avatar_url: identity.assistantAvatarUrl ?? null,
+    user_name: identity.userName ?? null,
+    user_avatar_url: identity.userAvatarUrl ?? null,
+    user_avatar_background: identity.userAvatarBackground ?? null,
+  } : null;
+  const { result, durationMs } = measureSync(() => getTimelineResponse(chatJid || ctx.defaultChatJid, limit, before, timelineIdentity));
   return appendServerTiming(ctx.json(result.body, result.status), {
     name: "timeline",
     durationMs,
@@ -55,10 +64,11 @@ export function handleSearchRequest(
   chatJid: string | undefined,
   searchScope: "current" | "root" | "all" | undefined,
   rootChatJid: string | undefined,
-  ctx: ContentEndpointsContext
+  ctx: ContentEndpointsContext,
+  filters?: { images?: boolean; attachments?: boolean } | null,
 ): Response {
   const normalizedScope = searchScope === "root" || searchScope === "all" ? searchScope : "current";
-  const { result, durationMs } = measureSync(() => getSearchResponse(chatJid || ctx.defaultChatJid, query, limit, offset, normalizedScope, rootChatJid || null));
+  const { result, durationMs } = measureSync(() => getSearchResponse(chatJid || ctx.defaultChatJid, query, limit, offset, normalizedScope, rootChatJid || null, filters));
   return appendServerTiming(ctx.json(result.body, result.status), {
     name: "search",
     durationMs,

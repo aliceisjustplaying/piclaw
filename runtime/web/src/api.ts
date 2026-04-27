@@ -123,11 +123,13 @@ export async function getPostsByHashtag(hashtag, limit = 50, offset = 0, chatJid
 /**
  * Search posts
  */
-export async function searchPosts(query, limit = 50, offset = 0, chatJid = null, scope = 'current', rootChatJid = null) {
+export async function searchPosts(query, limit = 50, offset = 0, chatJid = null, scope = 'current', rootChatJid = null, filters = null) {
     const chatQuery = chatJid ? `&chat_jid=${encodeURIComponent(chatJid)}` : '';
     const scopeQuery = scope ? `&scope=${encodeURIComponent(scope)}` : '';
     const rootQuery = rootChatJid ? `&root_chat_jid=${encodeURIComponent(rootChatJid)}` : '';
-    return request(`/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${chatQuery}${scopeQuery}${rootQuery}`);
+    const imagesQuery = filters?.images ? '&images=1' : '';
+    const attachmentsQuery = filters?.attachments ? '&attachments=1' : '';
+    return request(`/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${chatQuery}${scopeQuery}${rootQuery}${imagesQuery}${attachmentsQuery}`);
 }
 
 /**
@@ -188,6 +190,29 @@ export async function sendAgentMessage(agentId, content, threadId = null, mediaI
     });
 }
 
+export async function getAgentCommands(chatJid = 'web:default') {
+    const normalized = typeof chatJid === 'string' && chatJid.trim() ? chatJid.trim() : 'web:default';
+    return request(`/agent/commands?chat_jid=${encodeURIComponent(normalized)}`);
+}
+
+export async function getQuickActionsSettings() {
+    return request('/agent/settings/quick-actions');
+}
+
+export async function saveQuickActionsSettings(payload) {
+    return request('/agent/settings/quick-actions', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+    });
+}
+
+export async function saveWorkspaceSettings(payload) {
+    return request('/agent/settings/workspace', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+    });
+}
+
 /**
  * List currently active chat agents/branches known to the backend session pool.
  */
@@ -241,6 +266,16 @@ export async function renameChatBranch(chatJid, options = {}) {
  */
 export async function pruneChatBranch(chatJid) {
     return request('/agent/branch-prune', {
+        method: 'POST',
+        body: JSON.stringify({ chat_jid: chatJid }),
+    });
+}
+
+/**
+ * Permanently delete an already archived chat branch and its durable state.
+ */
+export async function purgeChatBranch(chatJid) {
+    return request('/agent/branch-purge', {
         method: 'POST',
         body: JSON.stringify({ chat_jid: chatJid }),
     });
@@ -680,9 +715,110 @@ export async function attachWorkspaceFile(path) {
     });
 }
 
-/** Upload a file to the workspace via multipart form data. */
-/** Maximum client-side upload size (256 MB). Larger files need chunked upload. */
-const MAX_UPLOAD_SIZE = 256 * 1024 * 1024;
+/** Upload a file to the workspace. Uses chunked upload by default. */
+const MAX_UPLOAD_SIZE = 1024 * 1024 * 1024;
+const WORKSPACE_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
+
+function buildWorkspaceUploadUrl(pathname, targetPath = '', options = {}) {
+    const params = new URLSearchParams();
+    if (targetPath) params.set('path', targetPath);
+    if (options.overwrite) params.set('overwrite', '1');
+    const query = params.toString();
+    return query ? `${pathname}?${query}` : pathname;
+}
+
+function createWorkspaceUploadId() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    return `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function uploadWorkspaceChunk(blob, url, headers, progressCallback) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_BASE + url);
+        for (const [key, value] of Object.entries(headers || {})) {
+            if (value !== undefined && value !== null) xhr.setRequestHeader(key, String(value));
+        }
+        xhr.upload.onprogress = (e) => {
+            if (typeof progressCallback === 'function') {
+                progressCallback({
+                    loaded: e.lengthComputable ? e.loaded : 0,
+                    total: e.lengthComputable ? e.total : blob.size,
+                    lengthComputable: e.lengthComputable,
+                });
+            }
+        };
+        xhr.onload = () => {
+            try {
+                const body = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(body);
+                } else {
+                    const err = new Error(body.error || `HTTP ${xhr.status}`);
+                    err.status = xhr.status;
+                    err.code = body.code;
+                    reject(err);
+                }
+            } catch {
+                const err = new Error(`HTTP ${xhr.status}`);
+                err.status = xhr.status;
+                reject(err);
+            }
+        };
+        xhr.onerror = () => reject(new Error('Upload failed (network error)'));
+        xhr.ontimeout = () => reject(new Error('Upload timed out'));
+        xhr.send(blob);
+    });
+}
+
+async function uploadWorkspaceFileChunked(file, targetPath = '', options = {}) {
+    const uploadId = createWorkspaceUploadId();
+    const url = buildWorkspaceUploadUrl('/workspace/upload-chunk', targetPath, options);
+    const chunkSize = Math.max(1, Math.min(MAX_UPLOAD_SIZE, Number(options.chunkSize) || WORKSPACE_UPLOAD_CHUNK_SIZE));
+    const totalSize = Math.max(0, Number(file?.size) || 0);
+    const chunkTotal = Math.max(1, Math.ceil(totalSize / chunkSize));
+    let completedBytes = 0;
+    let lastResult = null;
+
+    for (let chunkIndex = 0; chunkIndex < chunkTotal; chunkIndex += 1) {
+        const start = chunkIndex * chunkSize;
+        const end = Math.min(totalSize, start + chunkSize);
+        const blob = file.slice(start, end);
+        const chunkBytes = blob.size;
+        lastResult = await uploadWorkspaceChunk(blob, url, {
+            'X-Upload-Id': uploadId,
+            'X-Chunk-Index': chunkIndex,
+            'X-Chunk-Total': chunkTotal,
+            'X-File-Name': file?.name || 'upload.bin',
+            'X-File-Size': totalSize,
+        }, (progress) => {
+            if (typeof options.onProgress !== 'function') return;
+            const loaded = Math.min(totalSize, completedBytes + (progress?.loaded || 0));
+            const total = totalSize || 1;
+            options.onProgress({
+                loaded,
+                total,
+                percent: Math.round((loaded / total) * 100),
+                chunkIndex,
+                chunkTotal,
+            });
+        });
+        completedBytes += chunkBytes;
+        if (typeof options.onProgress === 'function') {
+            const total = totalSize || 1;
+            const loaded = totalSize ? completedBytes : total;
+            options.onProgress({
+                loaded,
+                total,
+                percent: Math.round((loaded / total) * 100),
+                chunkIndex: chunkIndex + 1,
+                chunkTotal,
+            });
+        }
+    }
+
+    return lastResult;
+}
 
 export async function uploadWorkspaceFile(file, targetPath = '', options = {}) {
     if (file?.size > MAX_UPLOAD_SIZE) {
@@ -693,58 +829,7 @@ export async function uploadWorkspaceFile(file, targetPath = '', options = {}) {
         throw err;
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
-    const params = new URLSearchParams();
-    if (targetPath) params.set('path', targetPath);
-    if (options.overwrite) params.set('overwrite', '1');
-    const query = params.toString();
-    const url = query ? `/workspace/upload?${query}` : '/workspace/upload';
-
-    if (typeof options.onProgress === 'function') {
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', API_BASE + url);
-            xhr.upload.onprogress = (e) => {
-                if (e.lengthComputable) {
-                    options.onProgress({ loaded: e.loaded, total: e.total, percent: Math.round((e.loaded / e.total) * 100) });
-                }
-            };
-            xhr.onload = () => {
-                try {
-                    const body = JSON.parse(xhr.responseText);
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        resolve(body);
-                    } else {
-                        const err = new Error(body.error || `HTTP ${xhr.status}`);
-                        err.status = xhr.status;
-                        err.code = body.code;
-                        reject(err);
-                    }
-                } catch {
-                    reject(new Error(`HTTP ${xhr.status}`));
-                }
-            };
-            xhr.onerror = () => reject(new Error('Upload failed (network error)'));
-            xhr.ontimeout = () => reject(new Error('Upload timed out'));
-            xhr.send(formData);
-        });
-    }
-
-    const response = await fetch(API_BASE + url, {
-        method: 'POST',
-        body: formData,
-    });
-
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-        const err = new Error(error.error || `HTTP ${response.status}`);
-        err.status = response.status;
-        err.code = error.code;
-        throw err;
-    }
-
-    return response.json();
+    return await uploadWorkspaceFileChunked(file, targetPath, options);
 }
 
 /** Create a new workspace file. */

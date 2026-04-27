@@ -4,6 +4,7 @@ import {
   closeRenameBranchForm,
   openRenameBranchForm,
   pruneCurrentBranch,
+  purgeArchivedBranch,
   renameCurrentBranch,
   restoreBranch,
   runBranchLoader,
@@ -96,17 +97,38 @@ test('renameCurrentBranch validates, renames, and updates shared locks', async (
   expect(formLock.cooldownUntil).toBe(1050);
 });
 
-test('pruneCurrentBranch rejects root branches and navigates on success', async () => {
+test('pruneCurrentBranch archives non-default root sessions, blocks the default root, and navigates on success', async () => {
   const toasts: Array<[string, string, string, number]> = [];
   const navigateCalls: string[] = [];
 
   const rejected = await pruneCurrentBranch({
     hasWindow: true,
-    currentChatJid: 'web:root',
-    currentBranchRecord: { chat_jid: 'web:root', root_chat_jid: 'web:root', agent_name: 'root' },
+    currentChatJid: 'web:default',
+    currentBranchRecord: { chat_jid: 'web:default', root_chat_jid: 'web:default', agent_name: 'default' },
     currentChatBranches: [],
     activeChatAgents: [],
     pruneChatBranch: async () => {},
+    refreshActiveChatAgents: async () => {},
+    refreshCurrentChatBranches: async () => {},
+    showIntentToast: (title: string, message: string, kind: string, timeout: number) => {
+      toasts.push([title, message, kind, timeout]);
+    },
+    baseHref: 'https://example.test/?chat_jid=web%3Adefault',
+    chatOnlyMode: true,
+    navigate: (url: string) => navigateCalls.push(url),
+    confirm: () => true,
+  });
+  expect(rejected).toBe(false);
+  expect(toasts[0]).toEqual(['Cannot archive session', 'The default chat session cannot be archived.', 'warning', 4000]);
+
+  toasts.length = 0;
+  const archivedRoot = await pruneCurrentBranch({
+    hasWindow: true,
+    currentChatJid: 'web:root',
+    currentBranchRecord: { chat_jid: 'web:root', root_chat_jid: 'web:root', agent_name: 'root' },
+    currentChatBranches: [{ chat_jid: 'web:root', root_chat_jid: 'web:root', agent_name: 'root' }],
+    activeChatAgents: [],
+    pruneChatBranch: async (chatJid: string) => { expect(chatJid).toBe('web:root'); },
     refreshActiveChatAgents: async () => {},
     refreshCurrentChatBranches: async () => {},
     showIntentToast: (title: string, message: string, kind: string, timeout: number) => {
@@ -117,8 +139,9 @@ test('pruneCurrentBranch rejects root branches and navigates on success', async 
     navigate: (url: string) => navigateCalls.push(url),
     confirm: () => true,
   });
-  expect(rejected).toBe(false);
-  expect(toasts[0]).toEqual(['Cannot prune branch', 'The root chat branch cannot be pruned.', 'warning', 4000]);
+  expect(archivedRoot).toBe(true);
+  expect(toasts).toContainEqual(['Session archived', '@root — web:root has been archived.', 'info', 3000]);
+  expect(navigateCalls[navigateCalls.length - 1]).toContain('chat_jid=web%3Adefault');
 
   toasts.length = 0;
   const pruned = await pruneCurrentBranch({
@@ -142,6 +165,81 @@ test('pruneCurrentBranch rejects root branches and navigates on success', async 
   expect(pruned).toBe(true);
   expect(toasts).toContainEqual(['Branch pruned', '@feature — web:branch has been archived.', 'info', 3000]);
   expect(navigateCalls[navigateCalls.length - 1]).toContain('chat_jid=web%3Aroot');
+});
+
+test('pruneCurrentBranch blocks archiving a root session while child branches still exist', async () => {
+  const toasts: Array<[string, string, string, number]> = [];
+
+  const result = await pruneCurrentBranch({
+    hasWindow: true,
+    currentChatJid: 'web:root',
+    currentBranchRecord: { chat_jid: 'web:root', root_chat_jid: 'web:root', agent_name: 'root' },
+    currentChatBranches: [
+      { chat_jid: 'web:root', root_chat_jid: 'web:root', agent_name: 'root' },
+      { chat_jid: 'web:root:branch:1', root_chat_jid: 'web:root', agent_name: 'child' },
+    ],
+    activeChatAgents: [],
+    pruneChatBranch: async () => {
+      throw new Error('should not prune');
+    },
+    refreshActiveChatAgents: async () => {},
+    refreshCurrentChatBranches: async () => {},
+    showIntentToast: (title: string, message: string, kind: string, timeout: number) => {
+      toasts.push([title, message, kind, timeout]);
+    },
+    baseHref: 'https://example.test/?chat_jid=web%3Aroot',
+    chatOnlyMode: true,
+    navigate: () => undefined,
+    confirm: () => true,
+  });
+
+  expect(result).toBe(false);
+  expect(toasts).toEqual([
+    ['Cannot archive session', 'Archive or delete the child branch sessions first.', 'warning', 4500],
+  ]);
+});
+
+test('purgeArchivedBranch requires archived state and uses irreversible confirmation copy', async () => {
+  const toasts: Array<[string, string, string, number]> = [];
+  const confirmations: string[] = [];
+
+  const rejected = await purgeArchivedBranch({
+    targetChatJid: 'web:active',
+    purgeChatBranch: async () => ({ branch: { chat_jid: 'web:active' } }),
+    currentChatBranches: [{ chat_jid: 'web:active', agent_name: 'active', archived_at: null }],
+    refreshActiveChatAgents: async () => {},
+    refreshCurrentChatBranches: async () => {},
+    showIntentToast: (title: string, message: string, kind: string, timeout: number) => {
+      toasts.push([title, message, kind, timeout]);
+    },
+    confirm: (message: string) => {
+      confirmations.push(message);
+      return true;
+    },
+  });
+  expect(rejected).toBe(false);
+  expect(toasts[0]).toEqual(['Could not delete branch', 'Only archived sessions can be permanently deleted.', 'warning', 4500]);
+
+  toasts.length = 0;
+  const deleted = await purgeArchivedBranch({
+    targetChatJid: 'web:archived',
+    purgeChatBranch: async () => ({ branch: { chat_jid: 'web:archived' } }),
+    currentChatBranches: [{ chat_jid: 'web:archived', agent_name: 'feature', archived_at: '2026-03-29T00:00:00Z' }],
+    refreshActiveChatAgents: async () => {},
+    refreshCurrentChatBranches: async () => {},
+    showIntentToast: (title: string, message: string, kind: string, timeout: number) => {
+      toasts.push([title, message, kind, timeout]);
+    },
+    confirm: (message: string) => {
+      confirmations.push(message);
+      return true;
+    },
+  });
+
+  expect(deleted).toBe(true);
+  expect(confirmations[0]).toContain('Permanently delete @feature?');
+  expect(confirmations[0]).toContain('It cannot be undone.');
+  expect(toasts[0]).toEqual(['Archived branch deleted', '@feature was permanently deleted.', 'info', 4000]);
 });
 
 test('restoreBranch shows collision-aware messaging and navigates to restored branch', async () => {

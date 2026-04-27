@@ -11,6 +11,7 @@ import {
   deleteMessageByRowId,
   deleteThreadByRowId,
   getChatBranchByChatJid,
+  getDb,
   getMessageByRowId,
   getMessagesByHashtag,
   getTimeline,
@@ -43,17 +44,30 @@ function filterHiddenQueuePlaceholders<T extends QueueFilterablePost>(items: T[]
   return items.filter((post) => !isHiddenQueuePlaceholder(post));
 }
 
+export interface TimelineIdentity {
+  assistant_name?: string | null;
+  assistant_avatar_url?: string | null;
+  user_name?: string | null;
+  user_avatar_url?: string | null;
+  user_avatar_background?: string | null;
+}
+
 /** Build paginated timeline data for GET /timeline. */
 export function getTimelineResponse(
   chatJid: string,
   limit: number,
-  before?: number
+  before?: number,
+  identity?: TimelineIdentity | null,
 ): { status: number; body: unknown } {
   const rawPosts = getTimeline(chatJid, limit, before ?? undefined);
   const posts = filterHiddenQueuePlaceholders(rawPosts);
   const oldestId = rawPosts.length > 0 ? rawPosts[0].id : null;
   const hasMore = oldestId !== null && rawPosts.length === limit && hasOlderMessages(chatJid, oldestId);
-  return { status: 200, body: { posts, limit, has_more: hasMore } };
+  const body: Record<string, unknown> = { posts, limit, has_more: hasMore };
+  if (identity) {
+    body.identity = identity;
+  }
+  return { status: 200, body };
 }
 
 /** Build timeline data filtered by hashtag. */
@@ -98,6 +112,8 @@ function resolveSearchRootChatJid(chatJid: string, requestedRootChatJid?: string
   return registryRoot || requestedRoot || chatJid;
 }
 
+export type SearchFilter = "images" | "attachments" | null;
+
 /** Build timeline data filtered by search query. */
 export function getSearchResponse(
   chatJid: string,
@@ -106,6 +122,7 @@ export function getSearchResponse(
   offset: number,
   scope: SearchScope = "current",
   rootChatJid?: string | null,
+  filters?: { images?: boolean; attachments?: boolean } | null,
 ): { status: number; body: unknown } {
   if (!query) return { status: 400, body: { error: "Missing 'q' parameter" } };
 
@@ -122,6 +139,24 @@ export function getSearchResponse(
     results = searchMessagesAcrossChats(scopedChatJids, query, limit, offset);
   } else {
     results = searchMessages(chatJid, query, limit, offset);
+  }
+
+  // Post-filter by media presence if requested
+  if (filters?.images || filters?.attachments) {
+    const db = getDb();
+    results = results.filter((row) => {
+      const mediaIds = Array.isArray(row.data?.media_ids) ? row.data.media_ids : [];
+      if (mediaIds.length === 0) return false;
+      if (filters.attachments && !filters.images) return true;
+      if (filters.images) {
+        const placeholders = mediaIds.map(() => "?").join(",");
+        const imageCount = db
+          .prepare(`SELECT COUNT(*) as cnt FROM media WHERE id IN (${placeholders}) AND content_type LIKE 'image/%'`)
+          .get(...mediaIds) as { cnt: number } | undefined;
+        return (imageCount?.cnt ?? 0) > 0;
+      }
+      return true;
+    });
   }
 
   return {

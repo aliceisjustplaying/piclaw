@@ -59,8 +59,8 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
   };
 
   const openTabEvents = [
+    'pane:open-tab',
     'office-viewer:open-tab',
-    'drawio:open-tab',
     'csv-viewer:open-tab',
     'pdf-viewer:open-tab',
     'image-viewer:open-tab',
@@ -159,4 +159,28 @@ export function watchChatSwitchShortcuts(callbacks: ChatSwitchShortcutCallbacks,
 
   doc.addEventListener('keydown', onKeyDown);
   return () => doc.removeEventListener('keydown', onKeyDown);
+}
+
+/** Register browser settings shortcuts.
+ *
+ * Cmd/Ctrl+, is the conventional app-settings shortcut, but some browsers
+ * reserve it for their own preferences UI before page code can act.
+ * Support Alt+, as a browser-safe fallback while keeping the canonical chord.
+ */
+export function watchSettingsShortcut(runtime: RuntimeLike = {}): () => void {
+  const doc = runtime.document ?? (typeof document !== 'undefined' ? document : null);
+  if (!doc) return () => {};
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (isEditableKeyboardTarget(event?.target)) return;
+    if (event.shiftKey) return;
+    const isPrimaryShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && event.key === ',';
+    const isAltFallback = event.altKey && !event.metaKey && !event.ctrlKey && event.key === ',';
+    if (!isPrimaryShortcut && !isAltFallback) return;
+    event.preventDefault();
+    window.dispatchEvent(new CustomEvent('piclaw:open-settings'));
+  };
+
+  doc.addEventListener('keydown', onKeyDown as EventListener);
+  return () => doc.removeEventListener('keydown', onKeyDown as EventListener);
 }

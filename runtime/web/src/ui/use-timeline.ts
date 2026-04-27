@@ -62,9 +62,11 @@ export function useTimeline({ preserveTimelineScroll, preserveTimelineScrollTop,
 
   useEffect(() => {
     chatTokenRef.current += 1;
-    // Preserve currently visible posts while the next chat loads so session
-    // switching feels instant and the compose box stays visually anchored.
-    // Stale fetches are ignored via chatTokenRef.
+    // Clear stale posts immediately when switching sessions so
+    // refreshTimeline (merge-based) never mixes posts from two
+    // different chat_jid timelines.
+    setPostsState(null);
+    postsRef.current = null;
     lastBeforeIdRef.current = null;
     loadingMoreRef.current = false;
     hasMoreRef.current = false;

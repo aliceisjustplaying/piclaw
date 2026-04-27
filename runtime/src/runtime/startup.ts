@@ -9,6 +9,7 @@ import { WebChannel } from "../channels/web.js";
 import { PushoverChannel } from "../channels/pushover.js";
 import { WhatsAppChannel } from "../channels/whatsapp.js";
 import { setMessagesPostFn } from "../extensions/messages-crud.js";
+import { setChatToolRelayFn } from "../extensions/chat-tool.js";
 import {
   DATA_DIR,
   STORE_DIR,
@@ -31,6 +32,8 @@ import { registerLazyViewerRoutes } from "../channels/web/http/lazy-viewer-route
 const log = createLogger("runtime.startup");
 const WORKSPACE_SKEL_DIR = resolve(import.meta.dir, "../../../skel");
 const STARTUP_MEMORY_SNAPSHOT_DIR = join(DATA_DIR, "startup-memory-snapshots");
+export const STARTUP_STATUS_CHAT_JID = "web:default";
+export const STARTUP_STATUS_TURN_ID = "startup:web:default";
 
 function parseStartupWarmupBoolean(value: string | undefined, fallback = false): boolean {
   const normalized = String(value || "").trim().toLowerCase();
@@ -47,6 +50,7 @@ function parseStartupWarmupLimit(value: string | undefined, fallback = 0): numbe
 }
 const WORKSPACE_BOOTSTRAP_ENTRIES = [
   "AGENTS.md",
+  ".mcp.json.example",
   ".pi/skills",
   ".pi/mcp.json.example",
   ".piclaw/README.md",
@@ -237,6 +241,67 @@ export function captureStartupMemorySnapshot(
   }
 }
 
+export function buildStartupAgentStatus(options: {
+  phase: string;
+  detail: string;
+  startedAt?: string;
+  title?: string;
+  blocking?: boolean;
+}): Record<string, unknown> {
+  const startedAt = typeof options.startedAt === "string" && options.startedAt.trim()
+    ? options.startedAt.trim()
+    : new Date().toISOString();
+  return {
+    type: "intent",
+    kind: "info",
+    intent_key: "startup",
+    source: "startup",
+    phase: options.phase,
+    title: options.title || "Starting up…",
+    detail: options.detail,
+    blocking: options.blocking ?? true,
+    started_at: startedAt,
+    last_event_at: new Date().toISOString(),
+    turn_id: STARTUP_STATUS_TURN_ID,
+  };
+}
+
+interface StartupRecoveryWebChannel {
+  updateAgentStatus(chatJid: string, status: Record<string, unknown>): void;
+  recoverInflightRuns(): void;
+  resumePendingChats(chatJid?: string): void;
+}
+
+export function runWebStartupRecoveryBootstrap(web: StartupRecoveryWebChannel): void {
+  const startedAt = new Date().toISOString();
+  web.updateAgentStatus(STARTUP_STATUS_CHAT_JID, buildStartupAgentStatus({
+    phase: "recovering_inflight",
+    detail: "Restoring runtime state and recovering interrupted chats.",
+    startedAt,
+  }));
+
+  try {
+    web.recoverInflightRuns();
+    web.updateAgentStatus(STARTUP_STATUS_CHAT_JID, buildStartupAgentStatus({
+      phase: "resuming_pending",
+      detail: "Resuming pending chats and queued follow-ups.",
+      startedAt,
+    }));
+    // Run an immediate pending-resume scan at startup so deferred queued
+    // follow-ups are picked up even before IPC workers process resume tasks.
+    // Queue dedupe keeps this safe when IPC-driven resume_pending runs too.
+    web.resumePendingChats();
+  } finally {
+    web.updateAgentStatus(STARTUP_STATUS_CHAT_JID, {
+      type: "done",
+      source: "startup",
+      turn_id: STARTUP_STATUS_TURN_ID,
+      title: "Startup ready",
+      detail: "Runtime recovery complete.",
+    });
+  }
+}
+
 /** Start web channel and run immediate crash-recovery bootstrap. */
 export async function startWebChannel(queue: AgentQueue, agentPool: AgentPool): Promise<WebChannel> {
   const web = new WebChannel({ queue, agentPool });
@@ -244,11 +309,7 @@ export async function startWebChannel(queue: AgentQueue, agentPool: AgentPool): 
   registerLazyViewerRoutes();
   captureStartupMemorySnapshot(agentPool, { label: "post-web-start" });
   queueStartupSessionWarmup(agentPool, resolveStartupSessionWarmupOptions());
-  web.recoverInflightRuns();
-  // Run an immediate pending-resume scan at startup so deferred queued
-  // follow-ups are picked up even before IPC workers process resume tasks.
-  // Queue dedupe keeps this safe when IPC-driven resume_pending runs too.
-  web.resumePendingChats();
+  runWebStartupRecoveryBootstrap(web);
 
   // Wire the messages tool post action to use the web channel for broadcast.
   setMessagesPostFn((chatJid, content, isBot, mediaIds, contentBlocks) => {
@@ -258,6 +319,34 @@ export async function startWebChannel(queue: AgentQueue, agentPool: AgentPool): 
     if (!interaction) return null;
     web.broadcastEvent(isBot ? "agent_response" : "new_post", interaction);
     return interaction.id;
+  });
+
+  // Wire the cross-session chat tool through the existing peer-message route so
+  // the target chat gets normal inbound-message semantics (queue/defer/steer).
+  setChatToolRelayFn(async (payload) => {
+    const req = new Request("http://internal/agent/peer-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const res = await web.handleRequest(req);
+    const body = await res.json().catch(() => ({} as Record<string, unknown>));
+    if (!res.ok) {
+      const message = typeof body.error === "string" ? body.error : `Cross-session chat relay failed (${res.status}).`;
+      throw new Error(message);
+    }
+    return body as {
+      status?: string;
+      relayed?: boolean;
+      source_chat_jid: string;
+      source_agent_name?: string;
+      target_chat_jid: string;
+      target_agent_name?: string;
+      row_id?: number | null;
+      queued?: string;
+      thread_id?: number | null;
+      created?: boolean;
+    };
   });
 
   return web;

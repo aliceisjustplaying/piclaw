@@ -1,16 +1,19 @@
 {
-  "generated_at": "2026-04-22T10:01:34.364Z",
+  "generated_at": "2026-04-27T10:00:02.074Z",
   "state": "open",
   "include_archived": false,
   "include_forks": false,
   "include_private": true,
   "owner_filters": [],
+  "recent_activity_hours": 24,
   "totals": {
-    "repos_scanned": 16,
+    "repos_scanned": 18,
     "repos_with_items": 1,
     "total_items": 2,
-    "total_issues": 0,
-    "total_pull_requests": 2
+    "total_issues": 1,
+    "total_pull_requests": 1,
+    "repos_with_star_changes": 0,
+    "repos_with_star_gains": 0
   },
   "repos": [
     {
@@ -20,8 +23,9 @@
       "archived": false,
       "fork": false,
       "default_branch": "main",
-      "issues": 0,
-      "pull_requests": 2,
+      "stars": 592,
+      "issues": 1,
+      "pull_requests": 1,
       "total": 2
     }
   ],
@@ -31,20 +35,18 @@
       "repo_url": "https://github.com/rcarmo/piclaw",
       "repo_private": false,
       "repo_archived": false,
-      "type": "pull_request",
-      "number": 140,
-      "title": "feat: cross-instance IPC — pairing, proposals, and remote execution",
+      "type": "issue",
+      "number": 455,
+      "title": "Container fails to start with named Docker volume for /workspace: EACCES on mkdir /workspace/logs",
       "state": "open",
       "draft": false,
-      "url": "https://github.com/rcarmo/piclaw/pull/140",
-      "author": "CelsoSantos",
-      "created_at": "2026-04-20T10:16:03Z",
-      "updated_at": "2026-04-22T09:39:14Z",
+      "url": "https://github.com/rcarmo/piclaw/issues/455",
+      "author": "pablopunk",
+      "created_at": "2026-04-27T07:47:10Z",
+      "updated_at": "2026-04-27T08:15:29Z",
       "labels": [],
       "assignees": [],
-      "body_preview": "## Summary Implements cross-instance IPC for piclaw, enabling paired agents to exchange signed prompts with cryptographic authentication, operator-mediated app…",
-      "head_ref": "ipc",
-      "base_ref": "main"
+      "body_preview": "## Summary When `/workspace` is a plain named Docker volume, the container fails to start because the `agent` user cannot create `/workspace/logs`. Named volum…"
     },
     {
       "repo": "rcarmo/piclaw",
@@ -52,18 +54,18 @@
       "repo_private": false,
       "repo_archived": false,
       "type": "pull_request",
-      "number": 145,
-      "title": "Add CodeMirror Rust and C++ highlighting",
+      "number": 456,
+      "title": "fix(entrypoint): ensure /workspace/logs exists and is writable by agent",
       "state": "open",
       "draft": false,
-      "url": "https://github.com/rcarmo/piclaw/pull/145",
-      "author": "tidux",
-      "created_at": "2026-04-22T08:12:49Z",
-      "updated_at": "2026-04-22T08:12:49Z",
+      "url": "https://github.com/rcarmo/piclaw/pull/456",
+      "author": "pablopunk",
+      "created_at": "2026-04-27T07:47:51Z",
+      "updated_at": "2026-04-27T08:14:03Z",
       "labels": [],
       "assignees": [],
-      "body_preview": "🦀",
-      "head_ref": "rust-highlight",
+      "body_preview": "Fixes #455 by creating `/workspace/logs` and chowning it to the `agent` usr before supervisord starts, matching the existing pattern for other workspace subdir…",
+      "head_ref": "fix/workspace-logs-permission",
       "base_ref": "main"
     }
   ]

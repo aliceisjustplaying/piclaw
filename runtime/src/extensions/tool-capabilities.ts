@@ -245,6 +245,16 @@ const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
       negativeTerms: ["notes", "workspace"],
     }),
   },
+  chat: {
+    kind: "mutating",
+    weight: "lightweight",
+    recommend: rec({
+      domains: ["messages", "chat", "sessions", "agents"],
+      verbs: ["send", "relay", "route", "message", "contact"],
+      nouns: ["session", "agent", "branch", "chat", "message"],
+      negativeTerms: ["timeline search", "history", "notes"],
+    }),
+  },
   introspect_sql: {
     kind: "read-only",
     weight: "standard",
@@ -282,15 +292,6 @@ const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
       domains: ["workspace", "indexing"],
       verbs: ["refresh", "rebuild", "reindex"],
       nouns: ["index", "workspace index", "fts"],
-    }),
-  },
-  open_drawio_editor: {
-    kind: "mutating",
-    weight: "standard",
-    recommend: rec({
-      domains: ["workspace", "diagrams"],
-      verbs: ["open", "edit"],
-      nouns: ["drawio", "diagram"],
     }),
   },
   open_office_viewer: {
@@ -385,24 +386,6 @@ const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
       domains: ["remote", "ssh"],
       verbs: ["connect", "inspect", "run"],
       nouns: ["ssh", "host", "remote", "server"],
-    }),
-  },
-  proxmox: {
-    kind: "mixed",
-    weight: "standard",
-    recommend: rec({
-      domains: ["infra", "virtualization"],
-      verbs: ["inspect", "manage", "start", "stop"],
-      nouns: ["proxmox", "vm", "lxc", "node", "storage"],
-    }),
-  },
-  portainer: {
-    kind: "mixed",
-    weight: "standard",
-    recommend: rec({
-      domains: ["infra", "containers"],
-      verbs: ["inspect", "manage", "upgrade", "restart"],
-      nouns: ["portainer", "container", "image", "stack", "docker"],
     }),
   },
   mcp: {
@@ -584,6 +567,15 @@ const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
       domains: ["lifecycle"],
       verbs: ["restart", "reload", "exit"],
       nouns: ["process", "service", "piclaw"],
+    }),
+  },
+  session_status: {
+    kind: "read-only",
+    weight: "lightweight",
+    recommend: rec({
+      domains: ["lifecycle", "sessions"],
+      verbs: ["check", "list", "inspect"],
+      nouns: ["session", "active", "running", "tool"],
     }),
   },
 
