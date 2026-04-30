@@ -411,6 +411,12 @@ async function runPromptAttempt(
     "list_tools",
     "list_scripts",
   ].includes(toolName);
+  const isTerminalSideEffectToolName = (toolName: unknown): boolean => typeof toolName === "string" && [
+    "send_adaptive_card",
+    "send_dashboard_widget",
+    "exit_process",
+  ].includes(toolName);
+  let sawTerminalSideEffectToolActivity = false;
   const wrappedOnEvent = (event: AgentSessionEvent) => {
     if (event.type === "message_update") {
       heartbeatTrackedPhase(chatJid, "streaming", { eventType: event.type });
@@ -512,6 +518,9 @@ async function runPromptAttempt(
         if (!failedToolName && typeof toolName === "string") {
           failedToolName = toolName;
         }
+      }
+      if (event.type === "tool_execution_end" && !(event as { isError?: unknown }).isError && isTerminalSideEffectToolName(toolName)) {
+        sawTerminalSideEffectToolActivity = true;
       }
       // If exit_process was called, do NOT abort immediately — let the LLM
       // finish its current text response so the agent's reply is captured and
@@ -693,17 +702,21 @@ async function runPromptAttempt(
             ...getRunObservabilityDetails(runOptions),
           });
         }
-        // When the provider stopped cleanly after tool use with no other failure
-        // signal, this is a tool-only completion — not an error worth alarming about.
+        // Some UI/process tools intentionally terminate the turn through their
+        // side effect (for example posting an Adaptive Card/dashboard widget or
+        // requesting process exit). If such a tool completed successfully, a
+        // missing closing assistant text is informational, not a failed turn.
+        // Read-only tool-only stops remain recoverable so we can retry and ask
+        // the provider for the final prose reply.
         const isToolOnlyCompletion = hadToolActivity
           && !hadPartialOutput
+          && !hadToolFailure
           && !isBlankTurnSessionDelta(blankTurnDelta)
-          && detail.includes("provider stopped after tool use");
+          && (sawTerminalSideEffectToolActivity || (!onlyReadOnlyToolActivity && detail.includes("provider stopped after tool use")));
         output = isToolOnlyCompletion
           ? {
             status: "tool_complete" as const,
             result: null,
-            error: `Prompt completed without emitting an assistant reply before finalization (${detail}).`,
           }
           : {
             status: "error",
@@ -929,6 +942,19 @@ export async function runAgentPrompt(
               recoveryDiagnostics,
             );
           }
+          return attempt.output;
+        }
+
+        if (attempt.output.status === "tool_complete") {
+          const duration = Date.now() - startTime;
+          writeAgentLog(options.logsDir, chatJid, duration, false, null, null, null);
+          options.onInfo?.("Agent run completed via terminal tool", {
+            operation: "run_agent.tool_complete",
+            chatJid,
+            model: modelLabel,
+            durationMs: duration,
+            ...getRunObservabilityDetails(runOptions),
+          });
           return attempt.output;
         }
 
