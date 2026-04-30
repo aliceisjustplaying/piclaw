@@ -515,14 +515,16 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
       const reason = (event as { reason?: string }).reason;
       const title = reason === "overflow"
         ? "Compacting context"
-        : reason === "threshold"
+        : reason === "threshold" || reason === "idle"
           ? "Smart compaction"
           : "Compacting context";
       const detail = reason === "overflow"
         ? "Recovering from context pressure so the turn can continue."
         : reason === "threshold"
           ? "Shrinking recent context before continuing the turn."
-          : undefined;
+          : reason === "idle"
+            ? "Tidying context a few seconds after the turn finished."
+            : undefined;
       options.emitter.status({
         ...base,
         type: "intent",

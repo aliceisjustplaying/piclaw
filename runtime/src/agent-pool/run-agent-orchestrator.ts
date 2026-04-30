@@ -34,12 +34,14 @@ import {
 } from "./prompt-utils.js";
 import {
   DEFAULT_FALLBACK_CONTEXT_WINDOW,
+  cancelScheduledIdleAutoCompaction,
   clearCompactionFailureBackoff,
   estimateContextTokensFromSession,
   getModelContextWindow,
   maybeAutoCompactSessionBeforePrompt,
   noteCompactionFailure,
   runCompactionWithTimeout,
+  scheduleIdleAutoCompaction,
 } from "./compaction.js";
 import {
   inspectBlankTurnSessionDelta,
@@ -772,6 +774,10 @@ export async function runAgentPrompt(
   let originalSetActiveToolsByName: ((names: string[]) => void) | null = null;
 
   try {
+    if (runOptions.scheduleIdleAutoCompaction) {
+      cancelScheduledIdleAutoCompaction(chatJid);
+    }
+
     const runtime = await options.getOrCreateRuntime(chatJid);
     let session = runtime.session;
     session = await maybeAutoRotateSession(session, runtime, chatJid, options);
@@ -869,7 +875,7 @@ export async function runAgentPrompt(
       return Math.max(0, Date.now() - anchor);
     };
 
-    return await withChatContext(chatJid, channel, async () => {
+    const runResult: AgentOutput = await withChatContext(chatJid, channel, async () => {
       while (true) {
         const attempt = await runPromptAttempt(
           prompt,
@@ -1107,6 +1113,12 @@ export async function runAgentPrompt(
         options.clearAttachments(chatJid);
       }
     });
+
+    if (runOptions.scheduleIdleAutoCompaction && runResult.status === "success") {
+      scheduleIdleAutoCompaction(session, chatJid, options, runOptions.onEvent);
+    }
+
+    return runResult;
   } catch (err) {
     options.clearAttachments(chatJid);
     const duration = Date.now() - startTime;

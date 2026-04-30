@@ -139,8 +139,9 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
 
     const handleClosePointerDown = useCallback((e) => {
         // Keep close-button pointer presses isolated from the parent tab so the
-        // tab never activates before the close click lands.
-        e.preventDefault();
+        // tab never activates before the close click lands. Do not prevent the
+        // default action here: on touch/pointer browsers that can suppress the
+        // synthetic click that actually closes the tab.
         e.stopPropagation();
     }, []);
 

@@ -53,7 +53,7 @@ import "../../../extensions/generic-tool-status-hints.js";
 import { createUuid } from "../../../utils/ids.js";
 import { createLogger } from "../../../utils/logger.js";
 import type { AttachmentInfo } from "../../../agent-pool/attachments.js";
-import { maybeAutoCompactSessionBeforePrompt } from "../../../agent-pool/compaction.js";
+import { cancelScheduledIdleAutoCompaction, maybeAutoCompactSessionBeforePrompt } from "../../../agent-pool/compaction.js";
 import { checkPendingShutdown } from "../../../runtime/shutdown-registry.js";
 import { DEFAULT_BASE_RETRY_MS, getRetryAtIso } from "../../../queue/retry-policy.js";
 import {
@@ -543,6 +543,8 @@ export async function handleAgentMessage(
   if (content.trim().length === 0 && !hasAttachments) {
     return channel.json({ error: "Missing 'content' field" }, 400);
   }
+
+  cancelScheduledIdleAutoCompaction(chatJid);
 
   const command = parseControlCommand(content, getRoutingConfig().triggerPattern);
   const trimmed = content.trim();
@@ -1641,6 +1643,7 @@ export async function processChat(
     ...(browserObservability?.sessionId ? { sessionId: browserObservability.sessionId } : {}),
     ...(browserObservability?.clientId ? { clientId: browserObservability.clientId } : {}),
     skipPrePromptCompaction: true,
+    scheduleIdleAutoCompaction: true,
     onEvent: trackedStreamingHandler,
     onTurnComplete: (turn: { text: string; attachments: unknown[] }) => {
       // Turn boundary: the first turn (index 0) is the original prompt's

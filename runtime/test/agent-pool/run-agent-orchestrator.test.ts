@@ -689,6 +689,156 @@ test("runAgentPrompt clears compaction backoff after a successful compaction", a
   }
 });
 
+test("runAgentPrompt schedules idle auto-compaction after a successful turn when enabled", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_IDLE_AUTO_COMPACTION_DELAY_MS: "5",
+  });
+  const chatJid = `web:idle-compact-${Date.now()}`;
+
+  class StubSession {
+    calls: string[] = [];
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = {
+      getLeafId: () => "leaf-idle",
+      buildSessionContext: () => ({ messages: [{ role: "user", content: "x".repeat(200) }] }),
+    };
+    settingsManager = {
+      getCompactionSettings: () => ({ ...DEFAULT_COMPACTION_SETTINGS, enabled: true, reserveTokens: 10 }),
+    };
+    model = { contextWindow: 20, provider: "test", id: "model" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.calls.push("prompt");
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "ok" } });
+      }
+    }
+    async compact() {
+      this.calls.push("compact");
+    }
+    async abort() {}
+  }
+
+  const session = new StubSession();
+  const events: Array<{ type: string; reason?: string }> = [];
+
+  try {
+    const result = await runAgentPrompt("test", chatJid, {
+      timeoutMs: 0,
+      skipPrePromptCompaction: true,
+      scheduleIdleAutoCompaction: true,
+      onEvent: (event) => {
+        if (event.type === "compaction_start" || event.type === "compaction_end") {
+          events.push({ type: String(event.type), reason: typeof (event as any).reason === "string" ? (event as any).reason : undefined });
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator: new AgentTurnCoordinator({ takeAttachments: () => [], touchSession: () => {}, recordMessageUsage: () => {} }),
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(session.calls).toEqual(["prompt"]);
+
+    await Bun.sleep(30);
+
+    expect(session.calls).toEqual(["prompt", "compact"]);
+    expect(events).toEqual([
+      { type: "compaction_start", reason: "idle" },
+      { type: "compaction_end", reason: "idle" },
+    ]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("runAgentPrompt cancels an older idle auto-compaction when a new turn starts", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_IDLE_AUTO_COMPACTION_DELAY_MS: "40",
+  });
+  const chatJid = `web:idle-cancel-${Date.now()}`;
+
+  class StubSession {
+    promptCalls = 0;
+    compactCalls = 0;
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = {
+      getLeafId: () => "leaf-idle-cancel",
+      buildSessionContext: () => ({ messages: [{ role: "user", content: "x".repeat(200) }] }),
+    };
+    settingsManager = {
+      getCompactionSettings: () => ({ ...DEFAULT_COMPACTION_SETTINGS, enabled: true, reserveTokens: 10 }),
+    };
+    model = { contextWindow: 20, provider: "test", id: "model" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: `ok-${this.promptCalls}` } });
+      }
+    }
+    async compact() {
+      this.compactCalls += 1;
+    }
+    async abort() {}
+  }
+
+  const session = new StubSession();
+  const options = {
+    getOrCreateRuntime: async () => createRuntime(session) as any,
+    turnCoordinator: new AgentTurnCoordinator({ takeAttachments: () => [], touchSession: () => {}, recordMessageUsage: () => {} }),
+    clearAttachments: () => {},
+    takeAttachments: () => [],
+    logsDir: createTestLogsDir(),
+    setActiveForkBaseLeaf: () => {},
+    clearActiveForkBaseLeaf: () => {},
+  };
+
+  try {
+    const first = await runAgentPrompt("test", chatJid, {
+      timeoutMs: 0,
+      skipPrePromptCompaction: true,
+      scheduleIdleAutoCompaction: true,
+    }, options);
+    const second = await runAgentPrompt("test", chatJid, {
+      timeoutMs: 0,
+      skipPrePromptCompaction: true,
+      scheduleIdleAutoCompaction: true,
+    }, options);
+
+    expect(first.status).toBe("success");
+    expect(second.status).toBe("success");
+
+    await Bun.sleep(80);
+
+    expect(session.promptCalls).toBe(2);
+    expect(session.compactCalls).toBe(1);
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("runAgentPrompt does not auto-recover generic failures after tool activity", async () => {
   const restoreEnv = setEnv({
     PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
