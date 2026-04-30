@@ -1261,6 +1261,19 @@
     font-size: 0.9em;
 }
 
+.settings-addon-name-link {
+    font-size: 0.9em;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.settings-addon-name-link:hover,
+.settings-addon-name-link:focus-visible {
+    color: var(--accent-color, #1d9bf0);
+    text-decoration: underline;
+}
+
 .settings-addon-card-body {
     font-size: 0.84em;
     color: var(--text-secondary);

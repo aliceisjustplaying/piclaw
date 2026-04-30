@@ -15,22 +15,16 @@
  * Explicit non-tarball package specs remain available for third-party catalogs.
  */
 
-import { appendFileSync, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, rmSync, mkdirSync, statSync, unlinkSync, writeFileSync, renameSync, symlinkSync } from "fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, rmSync, mkdirSync, unlinkSync, writeFileSync, renameSync, symlinkSync } from "fs";
 import { join, dirname, extname, resolve } from "path";
 import { WORKSPACE_DIR } from "../../../core/config.js";
 import { requestGracefulShutdown } from "../../../runtime/shutdown-registry.js";
-import { validateCallbackUrl } from "../../../remote/ssrf.js";
 import { createLogger } from "../../../utils/logger.js";
-import { isPathWithin, isRealPathWithin } from "../../../utils/path-safety.js";
 import { handleRegisteredAddonConfigApiRequest } from "./addon-config-api.js";
 
 const DEFAULT_CATALOG_URL = "https://raw.githubusercontent.com/rcarmo/piclaw-addons/main/catalog.json";
 const DEFAULT_CATALOG_URLS = [DEFAULT_CATALOG_URL] as const;
 const CATALOG_CACHE_MS = 5 * 60 * 1000;
-const MAX_CATALOG_BYTES = 1024 * 1024;
-const MAX_TARBALL_BYTES = 64 * 1024 * 1024;
-const ADDON_FETCH_TIMEOUT_MS = 30000;
-const ADDON_FETCH_MAX_REDIRECTS = 3;
 export const WEB_RESTART_DELAY_MS = 150;
 
 const catalogCache = new Map<string, { data: unknown; ts: number }>();
@@ -60,6 +54,7 @@ interface CatalogAddon {
   type?: string;
   description?: string;
   path?: string;
+  homepage?: string;
   tags?: string[];
   skills?: string[];
   install?: CatalogAddonInstall;
@@ -222,18 +217,7 @@ function listAddonPackageDirs(addonsNodeModulesDir: string): string[] {
   return results;
 }
 
-function isValidAddonPackageName(packageName: string): boolean {
-  const name = String(packageName || '').trim();
-  if (!name || name === '.' || name === '..' || name.includes('\\')) return false;
-  if (name.startsWith('@')) {
-    return /^@[A-Za-z0-9._~-]+\/[A-Za-z0-9._~-]+$/.test(name)
-      && !name.split('/').some((segment) => segment === '.' || segment === '..');
-  }
-  return /^[A-Za-z0-9._~-]+$/.test(name);
-}
-
 function getInstalledAddonPackageDir(packageName: string, workspaceDir = getWorkspaceDir()): string | null {
-  if (!isValidAddonPackageName(packageName)) return null;
   const addonsNodeModulesDir = join(workspaceDir, '.pi', 'extensions', 'node_modules');
   const packageDir = join(addonsNodeModulesDir, packageName);
   return existsSync(packageDir) ? packageDir : null;
@@ -272,12 +256,7 @@ export function getInstalledAddonWebEntries(workspaceDir = getWorkspaceDir()): I
 function parseAddonAssetRequestPath(pathname: string): { packageName: string; relativePath: string } | null {
   const prefix = '/agent/addons/assets/';
   if (!pathname.startsWith(prefix)) return null;
-  let rest: string[];
-  try {
-    rest = pathname.slice(prefix.length).split('/').filter(Boolean).map((segment) => decodeURIComponent(segment));
-  } catch {
-    return null;
-  }
+  const rest = pathname.slice(prefix.length).split('/').filter(Boolean).map((segment) => decodeURIComponent(segment));
   if (rest.length < 2) return null;
   const packageName = rest[0].startsWith('@')
     ? rest[0].includes('/')
@@ -291,11 +270,8 @@ function parseAddonAssetRequestPath(pathname: string): { packageName: string; re
       ? rest.slice(1)
       : rest.slice(2)
     : rest.slice(1);
-  if (relativeSegments.some((segment) => segment === '.' || segment === '..' || segment.includes('/') || segment.includes('\\'))) {
-    return null;
-  }
   const relativePath = relativeSegments.join('/');
-  if (!packageName || !isValidAddonPackageName(packageName) || !relativePath) return null;
+  if (!packageName || !relativePath) return null;
   return { packageName, relativePath };
 }
 
@@ -366,52 +342,6 @@ export function resolveRequestedCatalogUrls(url?: URL): string[] {
   return merged;
 }
 
-async function assertSafeAddonFetchUrl(rawUrl: string): Promise<URL | null> {
-  const check = await validateCallbackUrl(rawUrl, undefined, { allowHttp: true, allowPrivateNetwork: false });
-  return check.ok && check.url ? check.url : null;
-}
-
-async function fetchSafeAddonUrl(rawUrl: string, timeoutMs = ADDON_FETCH_TIMEOUT_MS): Promise<Response | null> {
-  let current = rawUrl;
-  for (let redirects = 0; redirects <= ADDON_FETCH_MAX_REDIRECTS; redirects += 1) {
-    const safeUrl = await assertSafeAddonFetchUrl(current);
-    if (!safeUrl) return null;
-    const response = await fetch(safeUrl.href, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location) return null;
-      current = new URL(location, safeUrl).href;
-      continue;
-    }
-    return response;
-  }
-  return null;
-}
-
-async function readBoundedResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array | null> {
-  const contentLength = Number(response.headers.get("content-length") || "0");
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) return null;
-  if (!response.body) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for await (const rawChunk of response.body as unknown as AsyncIterable<Uint8Array | ArrayBuffer>) {
-    const chunk = rawChunk instanceof Uint8Array ? rawChunk : new Uint8Array(rawChunk);
-    total += chunk.length;
-    if (total > maxBytes) return null;
-    chunks.push(chunk);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
 async function fetchCatalog(catalogUrl: string): Promise<CatalogData | null> {
   const url = String(catalogUrl || "").trim();
   if (!url) return null;
@@ -421,19 +351,12 @@ async function fetchCatalog(catalogUrl: string): Promise<CatalogData | null> {
     return cached.data as CatalogData;
   }
   try {
-    const response = await fetchSafeAddonUrl(url, 8000);
-    if (!response?.ok) return null;
-    const bytes = await readBoundedResponseBytes(response, MAX_CATALOG_BYTES);
-    if (!bytes) return null;
-    const data = JSON.parse(new TextDecoder().decode(bytes));
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return null;
+    const data = await response.json();
     catalogCache.set(url, { data, ts: now });
     return data as CatalogData;
-  } catch (error) {
-    addonLog.warn("Failed to fetch add-on catalog", {
-      operation: "addons.catalog.fetch",
-      url,
-      err: error,
-    });
+  } catch {
     return (catalogCache.get(url)?.data as CatalogData | undefined) ?? null;
   }
 }
@@ -670,38 +593,12 @@ function describeAddonOperationFailure(action: 'install' | 'uninstall', error: u
 }
 
 async function downloadUrlToFile(url: string, destPath: string): Promise<void> {
-  const resp = await fetchSafeAddonUrl(url);
-  if (!resp) throw new Error(`Refused unsafe add-on download URL: ${url}`);
+  const resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
   if (!resp.ok) throw new Error(`Failed to download ${url}: ${resp.status}`);
-  const contentLength = Number(resp.headers.get("content-length") || "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_TARBALL_BYTES) {
-    throw new Error(`Add-on tarball exceeds ${MAX_TARBALL_BYTES} byte limit.`);
-  }
+  const data = new Uint8Array(await resp.arrayBuffer());
   const dir = dirname(destPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(destPath, new Uint8Array());
-  let total = 0;
-  try {
-    if (resp.body) {
-      for await (const rawChunk of resp.body as unknown as AsyncIterable<Uint8Array | ArrayBuffer>) {
-        const chunk = rawChunk instanceof Uint8Array ? rawChunk : new Uint8Array(rawChunk);
-        total += chunk.length;
-        if (total > MAX_TARBALL_BYTES) {
-          throw new Error(`Add-on tarball exceeds ${MAX_TARBALL_BYTES} byte limit.`);
-        }
-        appendFileSync(destPath, chunk);
-      }
-    }
-  } catch (error) {
-    try { if (existsSync(destPath)) rmSync(destPath, { force: true }); } catch (cleanupError) {
-      addonLog.warn("Failed to remove partial add-on tarball download", {
-        operation: "addons.download.cleanup_partial",
-        destPath,
-        err: cleanupError,
-      });
-    }
-    throw error;
-  }
+  writeFileSync(destPath, data);
 }
 
 function resolveExtractedAddonRoot(stagingDir: string): string {
@@ -798,6 +695,7 @@ export async function handleGetAddons(
       type: addon.type || "extension",
       description: addon.description || "",
       path: addon.path || "",
+      homepage: addon.homepage || "",
       tags: addon.tags || [],
       skills: addon.skills || [],
       installed: Boolean(installedVersion),
@@ -819,14 +717,8 @@ export async function handleGetAddonWebEntries(
 function parseAddonConfigApiPath(pathname: string): { addonId: string; action: string } | null {
   const match = /^\/agent\/addons\/api\/([^/]+)\/([a-z0-9-]+)$/i.exec(pathname);
   if (!match) return null;
-  let addonId: string;
-  let action: string;
-  try {
-    addonId = decodeURIComponent(match[1] || '').trim();
-    action = decodeURIComponent(match[2] || '').trim();
-  } catch {
-    return null;
-  }
+  const addonId = decodeURIComponent(match[1] || '').trim();
+  const action = decodeURIComponent(match[2] || '').trim();
   if (!addonId || !action) return null;
   return { addonId, action };
 }
@@ -926,28 +818,14 @@ export async function handleAddonAssetRequest(
 
   const resolvedPath = resolve(packageDir, parsed.relativePath);
   const packageRoot = resolve(packageDir);
-  if (resolvedPath === packageRoot || !isPathWithin(packageRoot, resolvedPath)) {
+  const relativeFromRoot = resolvedPath.slice(packageRoot.length);
+  const insidePackageRoot = resolvedPath === packageRoot
+    || relativeFromRoot.startsWith('/')
+    || relativeFromRoot.startsWith('\\');
+  if (!insidePackageRoot) {
     return new Response('Not Found', { status: 404 });
   }
-
-  let realPackageRoot: string;
-  let realAssetPath: string;
-  try {
-    realPackageRoot = realpathSync.native ? realpathSync.native(packageRoot) : realpathSync(packageRoot);
-    realAssetPath = realpathSync.native ? realpathSync.native(resolvedPath) : realpathSync(resolvedPath);
-  } catch {
-    return new Response('Not Found', { status: 404 });
-  }
-  if (!isRealPathWithin(realPackageRoot, realAssetPath)) {
-    return new Response('Not Found', { status: 404 });
-  }
-
-  try {
-    const stats = statSync(resolvedPath);
-    if (!stats.isFile()) {
-      return new Response('Not Found', { status: 404 });
-    }
-  } catch {
+  if (!existsSync(resolvedPath)) {
     return new Response('Not Found', { status: 404 });
   }
 

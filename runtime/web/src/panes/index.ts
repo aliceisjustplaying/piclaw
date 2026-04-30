@@ -19,6 +19,5 @@ export { imageViewerPaneExtension } from './image-viewer-pane.js';
 export { htmlViewerPaneExtension } from './html-viewer-pane.js';
 export { videoViewerPaneExtension } from './video-viewer-pane.js';
 export { mindmapPaneExtension } from './mindmap-pane.js';
-export { kanbanPaneExtension } from './kanban-pane.js';
 export type { TabState, TabViewState } from './tab-store.js';
 export { tabStore } from './tab-store.js';

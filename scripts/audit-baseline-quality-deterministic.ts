@@ -442,8 +442,6 @@ const groupDefinitions: GroupDefinition[] = [
           "floating-widget-styles.test.ts",
           "generated-widget-host-bridge.test.ts",
           "generated-widget.test.ts",
-          "kanban-board-ops.test.ts",
-          "kanban-editor-source.test.ts",
           "markdown-live-preview-gating.test.ts",
           "markdown-preview-storage.test.ts",
           "markdown-rendering.test.ts",

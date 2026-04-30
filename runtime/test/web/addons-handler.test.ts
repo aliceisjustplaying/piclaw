@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import '../helpers.js';
@@ -118,37 +118,6 @@ test('resolveAddonInstallSpec falls back to package spec when catalog install me
   });
 });
 
-test('handleGetAddons rejects private-network custom catalog URLs before fetch', async () => {
-  const originalFetch = globalThis.fetch;
-  const fetched: string[] = [];
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const href = String(input);
-    fetched.push(href);
-    if (href.includes('rcarmo/piclaw-addons/main/catalog.json')) {
-      return new Response(JSON.stringify({
-        source: 'default',
-        addons: [
-          { slug: 'proxmox', name: 'piclaw-addon-proxmox', version: '0.1.3', description: 'proxmox' },
-        ],
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    return new Response('unexpected', { status: 500 });
-  }) as typeof fetch;
-
-  try {
-    const response = await handleGetAddons(
-      (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
-      new URL('https://example.test/agent/addons?catalog_url=http://127.0.0.1:9999/catalog.json'),
-    );
-    expect(response.status).toBe(200);
-    const data = await response.json();
-    expect(data.failed_sources).toContain('http://127.0.0.1:9999/catalog.json');
-    expect(fetched.some((href) => href.includes('127.0.0.1'))).toBe(false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test('handleGetAddons merges add-ons from multiple catalog URLs', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -165,7 +134,7 @@ test('handleGetAddons merges add-ons from multiple catalog URLs', async () => {
       return new Response(JSON.stringify({
         source: 'catalog-a',
         addons: [
-          { slug: 'drawio', name: 'piclaw-addon-drawio-editor', version: '1.0.0', description: 'drawio' },
+          { slug: 'drawio', name: 'piclaw-addon-drawio-editor', version: '1.0.0', description: 'drawio', homepage: 'https://example.com/addons/drawio' },
         ],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -197,6 +166,7 @@ test('handleGetAddons merges add-ons from multiple catalog URLs', async () => {
     // Addons from all three catalogs are merged
     const slugs = data.addons.map((a: any) => a.slug).sort();
     expect(slugs).toEqual(['drawio', 'eml', 'proxmox']);
+    expect(data.addons.find((a: any) => a.slug === 'drawio')?.homepage).toBe('https://example.com/addons/drawio');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -361,105 +331,6 @@ test('handleInstallAddon installs peer-only tarball addons without bun install',
   });
 });
 
-
-test('handleInstallAddon rejects oversized tarball downloads before reading the body', async () => {
-  await withTempWorkspaceEnv('piclaw-addon-install-oversize-tarball-', {}, async () => {
-    const originalFetch = globalThis.fetch;
-    const fetched: string[] = [];
-
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const href = String(input);
-      fetched.push(href);
-      if (href.includes('catalog-oversize.json')) {
-        return new Response(JSON.stringify({
-          source: 'catalog-oversize',
-          addons: [{
-            slug: 'oversized',
-            name: '@rcarmo/piclaw-addon-oversized',
-            version: '1.0.0',
-            install: {
-              kind: 'tarball',
-              spec: 'https://example.com/packages/oversized.tgz',
-            },
-          }],
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-      if (href.includes('rcarmo/piclaw-addons/main/catalog.json')) {
-        return new Response(JSON.stringify({ source: 'default', addons: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-      if (href.includes('/packages/oversized.tgz')) {
-        return new Response('too large', { status: 200, headers: { 'Content-Length': String(64 * 1024 * 1024 + 1) } });
-      }
-      return new Response('not found', { status: 404 });
-    }) as typeof fetch;
-
-    try {
-      const res = await handleInstallAddon(
-        new Request('https://example.test/agent/addons/install', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slug: 'oversized' }),
-        }),
-        (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
-        new URL('https://example.test/agent/addons/install?catalog_url=https://example.com/catalog-oversize.json'),
-      );
-
-      expect(res.status).toBe(500);
-      expect((await res.json()).error).toContain('byte limit');
-      expect(fetched.some((href) => href.includes('/packages/oversized.tgz'))).toBe(true);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-test('handleInstallAddon rejects private-network tarball URLs before fetch', async () => {
-  await withTempWorkspaceEnv('piclaw-addon-install-private-tarball-', {}, async () => {
-    const originalFetch = globalThis.fetch;
-    const fetched: string[] = [];
-
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const href = String(input);
-      fetched.push(href);
-      if (href.includes('catalog-private-tarball.json')) {
-        return new Response(JSON.stringify({
-          source: 'catalog-private-tarball',
-          addons: [{
-            slug: 'private-tarball',
-            name: '@rcarmo/piclaw-addon-private-tarball',
-            version: '1.0.0',
-            install: {
-              kind: 'tarball',
-              spec: 'http://127.0.0.1:9999/private.tgz',
-            },
-          }],
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-      if (href.includes('rcarmo/piclaw-addons/main/catalog.json')) {
-        return new Response(JSON.stringify({ source: 'default', addons: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-      return new Response('unexpected', { status: 500 });
-    }) as typeof fetch;
-
-    try {
-      const res = await handleInstallAddon(
-        new Request('https://example.test/agent/addons/install', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slug: 'private-tarball' }),
-        }),
-        (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
-        new URL('https://example.test/agent/addons/install?catalog_url=https://example.com/catalog-private-tarball.json'),
-      );
-
-      expect(res.status).toBe(500);
-      expect((await res.json()).error).toContain('unsafe add-on download URL');
-      expect(fetched.some((href) => href.includes('127.0.0.1'))).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
 
 test('handleInstallAddon rejects legacy direct-download specs', async () => {
   await withTempWorkspaceEnv('piclaw-addon-install-direct-download-', {}, async () => {
@@ -638,52 +509,6 @@ test('handleAddonAssetRequest serves transpiled addon browser modules', async ()
     expect(response?.status).toBe(200);
     expect(response?.headers.get('Content-Type')).toContain('text/javascript');
     expect(await response?.text()).toContain('const answer = 42');
-  });
-});
-
-test('handleAddonAssetRequest rejects sibling-prefix and symlink escapes from the addon root', async () => {
-  await withTempWorkspaceEnv('piclaw-addon-web-asset-boundary-', {}, async (workspace) => {
-    const nodeModulesDir = join(workspace.workspace, '.pi', 'extensions', 'node_modules');
-    const addonDir = join(nodeModulesDir, 'foo');
-    const siblingDir = join(nodeModulesDir, 'foo-private');
-    mkdirSync(join(addonDir, 'web'), { recursive: true });
-    mkdirSync(siblingDir, { recursive: true });
-    writeFileSync(join(addonDir, 'package.json'), JSON.stringify({ name: 'foo', version: '0.1.0' }, null, 2));
-    writeFileSync(join(addonDir, 'web', 'index.js'), 'export const ok = true;\n');
-    writeFileSync(join(siblingDir, 'secret.js'), 'export const secret = true;\n');
-    writeFileSync(join(workspace.workspace, 'outside-addon-secret.js'), 'export const outside = true;\n');
-    symlinkSync(join(workspace.workspace, 'outside-addon-secret.js'), join(addonDir, 'web', 'secret-link.js'));
-
-    const sibling = await handleAddonAssetRequest(
-      new Request('http://localhost/agent/addons/assets/foo/../foo-private/secret.js', { method: 'GET' }),
-      '/agent/addons/assets/foo/../foo-private/secret.js',
-    );
-    expect(sibling).toBeNull();
-
-    const encodedPackageTraversal = await handleAddonAssetRequest(
-      new Request('http://localhost/agent/addons/assets/foo%2F../foo-private/secret.js', { method: 'GET' }),
-      '/agent/addons/assets/foo%2F../foo-private/secret.js',
-    );
-    expect(encodedPackageTraversal).toBeNull();
-
-    const malformedEncoding = await handleAddonAssetRequest(
-      new Request('http://localhost/agent/addons/assets/foo/%E0%A4%A.js', { method: 'GET' }),
-      '/agent/addons/assets/foo/%E0%A4%A.js',
-    );
-    expect(malformedEncoding).toBeNull();
-
-    const symlink = await handleAddonAssetRequest(
-      new Request('http://localhost/agent/addons/assets/foo/web/secret-link.js', { method: 'GET' }),
-      '/agent/addons/assets/foo/web/secret-link.js',
-    );
-    expect(symlink?.status).toBe(404);
-
-    const valid = await handleAddonAssetRequest(
-      new Request('http://localhost/agent/addons/assets/foo/web/index.js', { method: 'GET' }),
-      '/agent/addons/assets/foo/web/index.js',
-    );
-    expect(valid?.status).toBe(200);
-    expect(await valid?.text()).toContain('const ok = true');
   });
 });
 

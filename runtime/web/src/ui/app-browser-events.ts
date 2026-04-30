@@ -70,7 +70,6 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
     'video-viewer:open-tab',
     'html-viewer:open-tab',
     'mindmap:open-tab',
-    'kanban:open-tab',
     'vnc:open-tab',
   ];
 

@@ -176,10 +176,13 @@ export function AddonsSection({ setStatus, filter = '' }) {
                     const isExtension = a.type === 'extension';
                     const typeLabel = hasSkills && isExtension ? 'extension + skill' : hasSkills ? 'skill' : 'extension';
                     const typeCls = hasSkills && !isExtension ? 'settings-tag-skill' : '';
+                    const homepage = typeof a.homepage === 'string' && a.homepage.trim() ? a.homepage.trim() : '';
                     return html`
                     <div class=${`settings-addon-card${a.installed ? ' installed' : ''}`}>
                         <div class="settings-addon-card-header">
-                            <strong>${a.slug}</strong>
+                            ${homepage
+                                ? html`<a class="settings-addon-name-link" href=${homepage} target="_blank" rel="noopener noreferrer">${a.slug}</a>`
+                                : html`<strong>${a.slug}</strong>`}
                             <span class=${`settings-tag settings-tag-type ${typeCls}`}>${typeLabel}</span>
                             <span class="settings-addon-version">${a.installed ? (a.installedVersion || '?') : (a.version || '')}</span>
                             ${a.installKind && html`<span class="settings-tag">${a.installKind}</span>`}

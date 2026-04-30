@@ -66,7 +66,6 @@ const BUILTIN_SECTION_LOADERS: Record<BuiltinSectionId, () => Promise<SettingsSe
 // Extension pane loaders — each loads ONE module on demand, not all at once.
 const EXTENSION_SETTINGS_PANE_LOADERS_MAP: Record<string, () => Promise<void>> = {
     'editor-settings': () => import('./settings/editor-settings.js').then(() => {}),
-    'kanban-settings': () => import('./settings/kanban-settings.js').then(() => {}),
     'mindmap-settings': () => import('./settings/mindmap-settings.js').then(() => {}),
     'developer': () => import('./settings/developer-settings.js').then(() => {}),
 };
