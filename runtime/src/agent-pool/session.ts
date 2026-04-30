@@ -99,7 +99,7 @@ type AgentSessionCreateOptions = {
  * node_modules so that jiti's fallback resolution finds packages like
  * @mariozechner/pi-ai/dist/providers/*.
  */
-const EXTENSIONS_DIR = resolve(__dirname, "../../extensions");
+const EXTENSIONS_DIR = resolve(process.env.PICLAW_RUNTIME_ROOT || resolve(__dirname, "../.."), "extensions");
 const log = createLogger("agent-pool.session");
 
 type OptionalBundledExtension = {

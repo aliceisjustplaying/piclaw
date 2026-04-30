@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { closeDbQuietly, createTempWorkspace, importFresh, setEnv } from "../helpers.js";
 import {
   STARTUP_STATUS_CHAT_JID,
   STARTUP_STATUS_TURN_ID,
@@ -9,7 +10,6 @@ import {
   resolveStartupSessionWarmupOptions,
   runWebStartupRecoveryBootstrap,
 } from "../../src/runtime/startup.js";
-import { closeDbQuietly, createTempWorkspace, importFresh, setEnv } from "../helpers.js";
 
 const TEST_SHELL = process.env.SHELL || "bash";
 const RUNTIME_DIR = join(import.meta.dir, "../..");
@@ -45,6 +45,38 @@ describe("runtime startup helpers", () => {
       expect(existsSync(join(ws.workspace, "notes", "index.md"))).toBe(true);
       expect(existsSync(join(ws.workspace, "notes", "memory", "README.md"))).toBe(true);
       expect(existsSync(join(ws.workspace, ".pi", "skills"))).toBe(true);
+    } finally {
+      ws.cleanup();
+    }
+  });
+
+  test("initializeRuntimeEnvironment can seed workspace files from a packaged skel directory", () => {
+    const ws = createTempWorkspace("piclaw-startup-");
+    const skelDir = join(ws.base, "packaged-skel");
+    mkdirSync(skelDir, { recursive: true });
+    writeFileSync(join(skelDir, "AGENTS.md"), "# Packaged desktop instructions\n");
+
+    try {
+      const run = Bun.spawnSync({
+        cmd: [
+          TEST_SHELL,
+          "-lc",
+          "bun -e \"import { initializeRuntimeEnvironment } from './src/runtime/startup.js'; initializeRuntimeEnvironment({ loadTimestamps() {}, loadChats() {} });\"",
+        ],
+        cwd: RUNTIME_DIR,
+        env: {
+          ...process.env,
+          PICLAW_WORKSPACE: ws.workspace,
+          PICLAW_STORE: ws.store,
+          PICLAW_DATA: ws.data,
+          PICLAW_SKEL_DIR: skelDir,
+          PICLAW_DB_IN_MEMORY: "1",
+          PICLAW_DISABLE_BACKGROUND_WORKSPACE_INDEX: "1",
+        },
+      });
+      expect(run.exitCode, run.stderr.toString() || run.stdout.toString()).toBe(0);
+
+      expect(readFileSync(join(ws.workspace, "AGENTS.md"), "utf8")).toBe("# Packaged desktop instructions\n");
     } finally {
       ws.cleanup();
     }

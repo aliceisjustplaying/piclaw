@@ -46,7 +46,9 @@ import { getRouteFlags } from "./http/route-flags.js";
 import { withSecurityHeaders } from "./http/security.js";
 import { appendServerTiming, measureAsync } from "./http/server-timing.js";
 
-const STATIC_DIR = resolve(import.meta.dir, "..", "..", "..", "..", "web", "static");
+const STATIC_DIR = resolve(
+  process.env.PICLAW_WEB_STATIC_DIR || resolve(import.meta.dir, "..", "..", "..", "..", "web", "static")
+);
 const STATIC_MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",

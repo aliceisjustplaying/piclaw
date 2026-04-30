@@ -103,7 +103,7 @@ export async function handleShellRoutes(
 
   if (req.method === "GET" && (pathname === "/export/timeline" || pathname === "/internal/export/timeline")) {
     const { handleExportTimeline } = await import("../export/export-timeline-endpoint.js");
-    const runtimeDir = new URL("../../../../", import.meta.url).pathname.replace(/\/$/, "");
+    const runtimeDir = process.env.PICLAW_RUNTIME_ROOT || new URL("../../../../", import.meta.url).pathname.replace(/\/$/, "");
     return handleExportTimeline(req, { runtimeDir });
   }
 
