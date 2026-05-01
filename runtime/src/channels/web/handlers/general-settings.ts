@@ -18,6 +18,8 @@ import {
   setAssistantName,
   setSessionStorageConfig,
   setToolUseMessageBudget,
+  getToolOutputStoreThreshold,
+  setToolOutputStoreThreshold,
   setSearchMatchMode,
   setUiThemeConfig,
   setUserAvatar,
@@ -44,6 +46,8 @@ export interface GeneralSettingsData {
   composeUploadLimitMb: number;
   workspaceUploadLimitMb: number;
   toolUseBudget: number;
+  toolOutputStoreThreshold: number;
+  sessionMaxCompactions: number;
   instanceTotp: {
     configured: boolean;
     issuer: string;
@@ -70,6 +74,8 @@ export interface GeneralSettingsInput {
   composeUploadLimitMb?: unknown;
   workspaceUploadLimitMb?: unknown;
   toolUseBudget?: unknown;
+  toolOutputStoreThreshold?: unknown;
+  sessionMaxCompactions?: unknown;
   sessionIsolation?: unknown;
   searchMatchMode?: unknown;
   uiTheme?: unknown;
@@ -139,6 +145,8 @@ export function getGeneralSettingsData(): GeneralSettingsData {
     composeUploadLimitMb: web.composeUploadLimitMb,
     workspaceUploadLimitMb: web.workspaceUploadLimitMb,
     toolUseBudget: getToolUseMessageBudget(),
+    toolOutputStoreThreshold: getToolOutputStoreThreshold(),
+    sessionMaxCompactions: session.maxCompactionsBeforeRotation,
     instanceTotp: buildTotpSettingsData(),
     sessionIsolation: getSessionIsolationLevel(),
     searchMatchMode: getSearchMatchMode(),
@@ -178,7 +186,7 @@ export async function saveGeneralSettings(input: GeneralSettingsInput): Promise<
     }
   }
 
-  const sessionPatch: { maxSizeMb?: number; maxLines?: number; autoRotate?: boolean } = {};
+  const sessionPatch: { maxSizeMb?: number; maxLines?: number; maxCompactionsBeforeRotation?: number; autoRotate?: boolean } = {};
   const nextSessionMaxSizeMb = normalizeOptionalInt(input.sessionMaxSizeMb, 1, 256);
   if (nextSessionMaxSizeMb !== undefined) {
     sessionPatch.maxSizeMb = nextSessionMaxSizeMb;
@@ -213,6 +221,16 @@ export async function saveGeneralSettings(input: GeneralSettingsInput): Promise<
   const nextToolUseBudget = normalizeOptionalInt(input.toolUseBudget, 8, 512);
   if (nextToolUseBudget !== undefined) {
     setToolUseMessageBudget(nextToolUseBudget);
+  }
+
+  const nextToolOutputThreshold = normalizeOptionalInt(input.toolOutputStoreThreshold, 500, 100000);
+  if (nextToolOutputThreshold !== undefined) {
+    setToolOutputStoreThreshold(nextToolOutputThreshold);
+  }
+
+  const nextMaxCompactions = normalizeOptionalInt(input.sessionMaxCompactions, 1, 20);
+  if (nextMaxCompactions !== undefined) {
+    sessionPatch.maxCompactionsBeforeRotation = nextMaxCompactions;
   }
 
   const nextSessionIsolation = typeof input.sessionIsolation === "string" ? input.sessionIsolation.trim().toLowerCase() : undefined;

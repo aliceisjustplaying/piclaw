@@ -870,6 +870,7 @@ export interface SessionStorageConfig {
   maxSizeMb: number;
   maxSizeBytes: number;
   maxLines: number;
+  maxCompactionsBeforeRotation: number;
   autoRotate: boolean;
 }
 
@@ -900,6 +901,7 @@ export let SESSION_STORAGE_CONFIG = Object.freeze<SessionStorageConfig>({
   maxSizeMb: sessionMaxSizeMb,
   maxSizeBytes: sessionMaxSizeMb * 1024 * 1024,
   maxLines: sessionMaxLines,
+  maxCompactionsBeforeRotation: 3,
   autoRotate:
     pickBoolean({ PICLAW_SESSION_AUTO_ROTATE: process.env.PICLAW_SESSION_AUTO_ROTATE ?? envConfig.PICLAW_SESSION_AUTO_ROTATE }, [
       "PICLAW_SESSION_AUTO_ROTATE",
@@ -912,7 +914,7 @@ export function getSessionStorageConfig(): Readonly<SessionStorageConfig> {
 }
 
 /** Persist and apply session storage settings so new turns use them immediately. */
-export function setSessionStorageConfig(patch: { maxSizeMb?: number; maxLines?: number; autoRotate?: boolean }): Readonly<SessionStorageConfig> {
+export function setSessionStorageConfig(patch: { maxSizeMb?: number; maxLines?: number; maxCompactionsBeforeRotation?: number; autoRotate?: boolean }): Readonly<SessionStorageConfig> {
   const nextMaxSizeMb = Number.isFinite(patch.maxSizeMb)
     ? Math.min(256, Math.max(1, Math.round(Number(patch.maxSizeMb))))
     : SESSION_STORAGE_CONFIG.maxSizeMb;
@@ -922,6 +924,9 @@ export function setSessionStorageConfig(patch: { maxSizeMb?: number; maxLines?: 
   const nextMaxLines = Number.isFinite(patch.maxLines)
     ? Math.min(50000, Math.max(100, Math.round(Number(patch.maxLines))))
     : SESSION_STORAGE_CONFIG.maxLines;
+  const nextMaxCompactions = Number.isFinite(patch.maxCompactionsBeforeRotation)
+    ? Math.min(20, Math.max(1, Math.round(Number(patch.maxCompactionsBeforeRotation))))
+    : SESSION_STORAGE_CONFIG.maxCompactionsBeforeRotation;
 
   const config = readJsonConfig(getConfigPath());
   const clearRootKeys = [
@@ -938,6 +943,7 @@ export function setSessionStorageConfig(patch: { maxSizeMb?: number; maxLines?: 
   config.sessionMaxSizeMb = nextMaxSizeMb;
   config.sessionAutoRotate = nextAutoRotate;
   config.sessionMaxLines = nextMaxLines;
+  config.sessionMaxCompactions = nextMaxCompactions;
   writeJsonConfig(getConfigPath(), config);
 
   process.env.PICLAW_SESSION_MAX_SIZE_MB = String(nextMaxSizeMb);
@@ -949,6 +955,7 @@ export function setSessionStorageConfig(patch: { maxSizeMb?: number; maxLines?: 
     maxSizeMb: nextMaxSizeMb,
     maxSizeBytes: nextMaxSizeMb * 1024 * 1024,
     maxLines: nextMaxLines,
+    maxCompactionsBeforeRotation: nextMaxCompactions,
     autoRotate: nextAutoRotate,
   });
   return SESSION_STORAGE_CONFIG;
@@ -962,6 +969,23 @@ export let TOOL_USE_MESSAGE_BUDGET =
   }, ["PICLAW_TURN_MAX_TOOL_USE_MESSAGES"]) ?? configTurnMaxToolUseMessages ?? 64;
 
 /** Return the current tool-use budget for a single turn. */
+/** Max tool result chars before auto-externalization. Default 5000. */
+export let TOOL_OUTPUT_STORE_THRESHOLD =
+  pickNumber({ PICLAW_TOOL_OUTPUT_STORE_BYTES: process.env.PICLAW_TOOL_OUTPUT_STORE_BYTES }, [
+    "PICLAW_TOOL_OUTPUT_STORE_BYTES",
+  ]) ?? 5000;
+
+export function getToolOutputStoreThreshold(): number {
+  return TOOL_OUTPUT_STORE_THRESHOLD;
+}
+
+export function setToolOutputStoreThreshold(value: number): number {
+  const next = Math.min(100000, Math.max(500, Math.round(value)));
+  TOOL_OUTPUT_STORE_THRESHOLD = next;
+  process.env.PICLAW_TOOL_OUTPUT_STORE_BYTES = String(next);
+  return next;
+}
+
 export function getToolUseMessageBudget(): number {
   return TOOL_USE_MESSAGE_BUDGET;
 }

@@ -10,6 +10,7 @@ function normalizeSessionSettings(data = {}) {
         sessionAutoRotate: data.sessionAutoRotate !== false,
         sessionMaxSizeMb: data.sessionMaxSizeMb ?? 16,
         sessionMaxLines: data.sessionMaxLines ?? 4000,
+        sessionMaxCompactions: data.sessionMaxCompactions ?? 3,
         sessionIsolation: data.sessionIsolation || 'none',
         toolUseBudget: data.toolUseBudget ?? 64,
     };
@@ -19,6 +20,7 @@ export function SessionsSection({ settingsData, setStatus, mergeSettingsData }) 
     const [sessionAutoRotate, setSessionAutoRotate] = useState(true);
     const [sessionMaxSizeMb, setSessionMaxSizeMb] = useState(16);
     const [sessionMaxLines, setSessionMaxLines] = useState(4000);
+    const [sessionMaxCompactions, setSessionMaxCompactions] = useState(3);
     const [toolUseBudget, setToolUseBudget] = useState(64);
     const [sessionIsolation, setSessionIsolation] = useState('none');
     const [appliedHint, setAppliedHint] = useState(false);
@@ -36,6 +38,7 @@ export function SessionsSection({ settingsData, setStatus, mergeSettingsData }) 
         setSessionAutoRotate(next.sessionAutoRotate);
         setSessionMaxSizeMb(next.sessionMaxSizeMb);
         setSessionMaxLines(next.sessionMaxLines);
+        setSessionMaxCompactions(next.sessionMaxCompactions);
         setToolUseBudget(next.toolUseBudget);
         setSessionIsolation(next.sessionIsolation);
         savedSnapshotRef.current = JSON.stringify(next);
@@ -46,8 +49,8 @@ export function SessionsSection({ settingsData, setStatus, mergeSettingsData }) 
     }, [settingsData, applyIncoming]);
 
     const currentSnapshot = useMemo(() => JSON.stringify(normalizeSessionSettings({
-        sessionAutoRotate, sessionMaxSizeMb, sessionMaxLines, toolUseBudget, sessionIsolation,
-    })), [sessionAutoRotate, sessionMaxSizeMb, sessionMaxLines, toolUseBudget, sessionIsolation]);
+        sessionAutoRotate, sessionMaxSizeMb, sessionMaxLines, sessionMaxCompactions, toolUseBudget, sessionIsolation,
+    })), [sessionAutoRotate, sessionMaxSizeMb, sessionMaxLines, sessionMaxCompactions, toolUseBudget, sessionIsolation]);
 
     useEffect(() => {
         if (currentSnapshot === savedSnapshotRef.current) return;

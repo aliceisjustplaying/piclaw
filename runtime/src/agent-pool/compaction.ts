@@ -73,6 +73,17 @@ export function estimateContextTokensFromSession(session: AgentSession): number 
 
 /** Fallback context window when the model does not report one.
  *  Conservative enough to trigger compaction before most models overflow. */
+// ── Per-session compaction counter for auto-rotation ──
+const compactionSuccessCounters = new Map<string, number>();
+
+export function getCompactionSuccessCount(chatJid: string): number {
+  return compactionSuccessCounters.get(chatJid) ?? 0;
+}
+
+export function resetCompactionSuccessCount(chatJid: string): void {
+  compactionSuccessCounters.delete(chatJid);
+}
+
 export const DEFAULT_FALLBACK_CONTEXT_WINDOW = 128_000;
 const DEFAULT_COMPACTION_TIMEOUT_MS = 180_000;
 
@@ -368,6 +379,14 @@ async function maybeAutoCompactSession(
       throw new Error(compactionResult.errorMessage);
     }
     clearCompactionFailureBackoff(chatJid);
+    // Increment per-session compaction success counter
+    const prevCount = compactionSuccessCounters.get(chatJid) ?? 0;
+    compactionSuccessCounters.set(chatJid, prevCount + 1);
+    options.onInfo?.("Compaction success count incremented", {
+      operation: reason === "idle" ? "schedule_idle_auto_compaction.counter" : "maybe_auto_compact_session_before_prompt.counter",
+      chatJid,
+      compactionCount: prevCount + 1,
+    });
     onEvent?.({
       type: "compaction_end",
       reason,

@@ -26,6 +26,7 @@ import { pruneOrphanToolResults } from "./orphan-tool-results.js";
 import { writeAgentLog } from "./logging.js";
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
 import { getSessionFileLineCount, getSessionFileSize, rotateSession } from "../session-rotation.js";
+import { getCompactionSuccessCount, resetCompactionSuccessCount } from "./compaction.js";
 import { withChatContext } from "../core/chat-context.js";
 import {
   formatTimeoutDuration,
@@ -202,7 +203,7 @@ async function maybeAutoRotateSession(
   const exceedsLines = sessionStorageConfig.maxLines > 0
     && sessionFileLines !== null
     && sessionFileLines >= sessionStorageConfig.maxLines;
-  if (!exceedsSize && !exceedsLines) return session;
+  if (!exceedsSize && !exceedsLines && !exceedsCompactions) return session;
 
   if (session.isStreaming || session.isCompacting || session.isRetrying) {
     const idleMaxWaitMs = resolveSessionIdleMaxWaitMs(session);
@@ -227,6 +228,7 @@ async function maybeAutoRotateSession(
 
   const result = await rotateSession(session, runtime, { reason: "automatic" });
   if (result.status === "success") {
+    resetCompactionSuccessCount(chatJid);
     options.onInfo?.("Auto-rotated oversized session", {
       operation: "maybe_auto_rotate_session",
       chatJid,
