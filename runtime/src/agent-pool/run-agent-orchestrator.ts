@@ -51,6 +51,7 @@ import {
 } from "./blank-turn-detection.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
+import { runCodexAcpPrompt, shouldUseCodexAcpBackend } from "./acp-backend.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -775,6 +776,10 @@ export async function runAgentPrompt(
   runOptions: RunAgentOptions,
   options: RunAgentOrchestratorOptions,
 ): Promise<AgentOutput> {
+  if (shouldUseCodexAcpBackend()) {
+    return runCodexAcpPrompt(prompt, chatJid, runOptions);
+  }
+
   const startTime = Date.now();
   options.clearAttachments(chatJid);
   updateSessionStreaming(chatJid, true);
