@@ -50,6 +50,15 @@ export function persistContextUsage(chatJid: string, payload: unknown): void {
   }
 }
 
+export function clearPersistedContextUsage(chatJid: string): void {
+  if (!chatJid || typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.removeItem(CONTEXT_STORAGE_PREFIX + chatJid);
+  } catch {
+    return;
+  }
+}
+
 export function restoreContextUsage(chatJid: string): Record<string, unknown> | null {
   if (!chatJid) return null;
   return getLocalStorageJSON<Record<string, unknown>>(CONTEXT_STORAGE_PREFIX + chatJid);
@@ -143,6 +152,9 @@ export async function refreshContextUsageForChat(options: RefreshContextUsageFor
     if (contextPayload && contextPayload.percent != null) {
       setContextUsage((prev: unknown) => haveSameContextUsage(prev, contextPayload) ? prev : contextPayload);
       persistContextUsage(targetChatJid, contextPayload);
+    } else {
+      setContextUsage(null);
+      clearPersistedContextUsage(targetChatJid);
     }
   } catch (error) {
     if (activeChatJidRef.current !== targetChatJid) return;

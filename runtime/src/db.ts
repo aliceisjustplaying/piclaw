@@ -39,6 +39,7 @@ export {
   searchMessagesAcrossChats,
   getNewMessages,
   getMessagesSince,
+  getRecentMessagesForPrompt,
   updateMessageLinkPreviews,
   replaceMessageContent,
 } from "./db/messages.js";

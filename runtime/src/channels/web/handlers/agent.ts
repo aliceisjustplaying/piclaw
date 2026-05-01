@@ -10,6 +10,7 @@
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import {
+  getAgentBackendConfig,
   getAgentRuntimeConfig,
   getIdentityConfig,
   getRoutingConfig,
@@ -35,6 +36,7 @@ import {
   getInflightMessageId,
   getMessageRowIdById,
   getMessagesSince,
+  getRecentMessagesForPrompt,
   getDb,
   promoteChatPreflightToInflight,
   rollbackChatRunWithError,
@@ -760,7 +762,7 @@ export async function handleAgentMessage(
   // Model/thinking commands: execute without writing to the timeline,
   // EXCEPT for bare /model (list) and bare /thinking (query) which should
   // surface their table/output as a timeline message like /theme does.
-  const MODEL_COMMAND_TYPES = new Set(["model", "thinking", "cycle_model", "cycle_thinking"]);
+  const MODEL_COMMAND_TYPES = new Set(["model", "thinking", "cycle_model", "cycle_thinking", "fast"]);
   if (command && MODEL_COMMAND_TYPES.has(command.type)) {
     const result = await channel.agentPool.applyControlCommand(chatJid, command);
 
@@ -768,12 +770,14 @@ export async function handleAgentMessage(
     let nextModel = result.model_label ?? null;
     let thinkingLevel = result.thinking_level ?? null;
     let thinkingLevelLabel = result.thinking_level_label ?? null;
+    let fastMode = result.fast_mode ?? null;
     let supportsThinking: boolean | undefined = undefined;
     try {
       const modelState = await channel.agentPool.getAvailableModels(chatJid);
       if (!nextModel) nextModel = modelState.current ?? null;
       if (thinkingLevel == null) thinkingLevel = modelState.thinking_level ?? null;
       if (!thinkingLevelLabel) thinkingLevelLabel = modelState.thinking_level_label ?? thinkingLevel;
+      if (fastMode == null) fastMode = modelState.fast_mode ?? null;
       supportsThinking = modelState.supports_thinking;
     } catch {
       if (typeof channel.agentPool.getCurrentModelLabel === "function") {
@@ -787,6 +791,7 @@ export async function handleAgentMessage(
         model: nextModel ?? null,
         thinking_level: thinkingLevel ?? null,
         thinking_level_label: thinkingLevelLabel ?? thinkingLevel ?? null,
+        fast_mode: fastMode,
         supports_thinking: supportsThinking,
       });
       if (command.type === "model" || command.type === "cycle_model") {
@@ -817,7 +822,7 @@ export async function handleAgentMessage(
     return channel.json(
       {
         thread_id: null,
-        command: { ...result, model_label: nextModel, thinking_level: thinkingLevel, thinking_level_label: thinkingLevelLabel ?? thinkingLevel, supports_thinking: supportsThinking },
+        command: { ...result, model_label: nextModel, thinking_level: thinkingLevel, thinking_level_label: thinkingLevelLabel ?? thinkingLevel, fast_mode: fastMode, supports_thinking: supportsThinking },
         ui_only: true,
       },
       200,
@@ -1041,11 +1046,12 @@ export async function handleAgentMessage(
     }
 
     // Broadcast model changes so the UI hint updates immediately
-    const modelCommands = ["model", "thinking", "cycle_model", "cycle_thinking"];
+    const modelCommands = ["model", "thinking", "cycle_model", "cycle_thinking", "fast"];
     if (result.status === "success" && modelCommands.includes(command.type)) {
       let nextModel = result.model_label ?? null;
       let thinkingLevel = result.thinking_level ?? null;
       let thinkingLevelLabel = result.thinking_level_label ?? null;
+      let fastMode = result.fast_mode ?? null;
       let supportsThinking: boolean | undefined = undefined;
 
       try {
@@ -1053,6 +1059,7 @@ export async function handleAgentMessage(
         if (!nextModel) nextModel = modelState.current ?? null;
         if (thinkingLevel == null) thinkingLevel = modelState.thinking_level ?? null;
         if (!thinkingLevelLabel) thinkingLevelLabel = modelState.thinking_level_label ?? thinkingLevel;
+        if (fastMode == null) fastMode = modelState.fast_mode ?? null;
         supportsThinking = modelState.supports_thinking;
       } catch {
         if (typeof channel.agentPool.getCurrentModelLabel === "function") {
@@ -1065,6 +1072,7 @@ export async function handleAgentMessage(
         model: nextModel ?? null,
         thinking_level: thinkingLevel ?? null,
         thinking_level_label: thinkingLevelLabel ?? thinkingLevel ?? null,
+        fast_mode: fastMode,
         supports_thinking: supportsThinking,
       });
     }
@@ -1330,7 +1338,10 @@ export async function processChat(
   });
 
   const channelName = detectChannel(chatJid);
-  const prompt = formatMessages([currentMessage], channelName);
+  const promptMessages = getAgentBackendConfig().backend === "codex-app-server"
+    ? [...getRecentMessagesForPrompt(chatJid, currentMessage.timestamp, 16), currentMessage]
+    : [currentMessage];
+  const prompt = formatMessages(promptMessages, channelName);
   const lastMessage = currentMessage;
   const runStartedAt = new Date().toISOString();
   const threadId = lastMessage.timestamp;
@@ -1641,6 +1652,7 @@ export async function processChat(
   const output = await channel.agentPool.runAgent(prompt, chatJid, {
     timeoutMs,
     turnId,
+    inputMediaIds: Array.isArray(currentMessage.media_ids) ? currentMessage.media_ids : [],
     ...(browserObservability?.userId ? { userId: browserObservability.userId } : {}),
     ...(browserObservability?.sessionId ? { sessionId: browserObservability.sessionId } : {}),
     ...(browserObservability?.clientId ? { clientId: browserObservability.clientId } : {}),

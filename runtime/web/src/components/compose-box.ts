@@ -167,6 +167,8 @@ export function resolveUiOnlyCommandNotice(commandText, response) {
     const slashName = parts[0]?.toLowerCase() || '';
     const hasArgs = parts.length > 1;
 
+    if (slashName === '/fast') return message;
+
     if (!hasArgs && (slashName === '/model' || slashName === '/thinking' || slashName === '/effort')) {
         return message;
     }
@@ -277,7 +279,7 @@ export function resolveComposeExtensionWorkingDisplay(workingState, frameIndex =
  * Tiny SVG pie chart showing context window usage.
  * Green when <75%, amber 75–90%, red >90%. Tooltip shows exact numbers.
  */
-function ContextPie({ usage, onCompact, compactionLabel = '', compactionTitle = '' }) {
+function ContextPie({ usage, onCompact, compactionLabel = '', compactionTitle = '', compactDisabled = false, compactDisabledTitle = '' }) {
     const pct = Math.min(100, Math.max(0, usage.percent || 0));
     const tokens = usage.tokens;
     const window = usage.contextWindow;
@@ -289,6 +291,8 @@ function ContextPie({ usage, onCompact, compactionLabel = '', compactionTitle = 
     const activeCompactionTitle = typeof compactionTitle === 'string' ? compactionTitle.trim() : '';
     const title = activeCompactionLabel
         ? `${label} — ${activeCompactionTitle || 'Smart compaction'} · ${activeCompactionLabel}`
+        : compactDisabled
+            ? `${label} — ${compactDisabledTitle || 'Manual compaction unavailable'}`
         : `${label} — ${compactLabel}`;
 
     // Pie arc: SVG circle with stroke-dasharray trick.
@@ -306,10 +310,12 @@ function ContextPie({ usage, onCompact, compactionLabel = '', compactionTitle = 
             class=${`compose-context-pie icon-btn${activeCompactionLabel ? ' is-compacting' : ''}`}
             type="button"
             title=${title}
-            aria-label=${activeCompactionLabel ? `Smart compaction ${activeCompactionLabel}` : 'Compact context'}
+            aria-label=${activeCompactionLabel ? `Smart compaction ${activeCompactionLabel}` : compactDisabled ? 'Manual compaction unavailable' : 'Compact context'}
+            disabled=${compactDisabled}
             onClick=${(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                if (compactDisabled) return;
                 onCompact?.();
             }}
         >
@@ -379,8 +385,13 @@ export function formatModelPickerContextWindow(contextWindow) {
     return `${formatK(value)} ctx`;
 }
 
+export function stripCodexModelPrefix(label) {
+    const value = typeof label === 'string' ? label.trim() : '';
+    return value.toLowerCase().startsWith('codex/') ? value.slice('codex/'.length) : value;
+}
+
 export function formatModelPickerDisplayLabel(label, contextWindow) {
-    const primaryLabel = typeof label === 'string' ? label.trim() : '';
+    const primaryLabel = stripCodexModelPrefix(label);
     const contextLabel = formatModelPickerContextWindow(contextWindow);
     if (!primaryLabel) return contextLabel;
     if (!contextLabel) return primaryLabel;
@@ -444,6 +455,7 @@ export function normalizeModelPickerOptions(payload) {
 export function getModelPickerOptionSearchLabel(option) {
     if (!option || typeof option !== 'object') return '';
     return [
+        stripCodexModelPrefix(option.label),
         option.label,
         option.provider,
         option.id,
@@ -457,7 +469,7 @@ export function resolveComposeModelPickerState(activeModel, agentModelsPayload) 
     if (modelLabel) {
         return {
             showPicker: true,
-            label: modelLabel,
+            label: stripCodexModelPrefix(modelLabel),
             hasAvailableModels: true,
         };
     }
@@ -1096,20 +1108,24 @@ export function ComposeBox({
     const modelPickerState = resolveComposeModelPickerState(activeModel, agentModelsPayload);
     const showModelPickerHint = modelPickerState.showPicker;
     const modelHintLabel = modelPickerState.label;
+    const fastMode = typeof agentModelsPayload?.fast_mode === 'boolean' ? agentModelsPayload.fast_mode : null;
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
+    const modelFastLabel = fastMode === null ? null : `Fast ${fastMode ? 'on' : 'off'}`;
     const modelUsageLabel = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
     const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
         ? modelUsage.extra_usage.reset_description.trim()
         : '';
     const modelUsageSectionLabel = [
         modelThinkingLabel || null,
+        modelFastLabel,
         modelUsageLabel || null,
     ].filter(Boolean).join(' • ');
     const modelUsageTitleParts = [
         activeModel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
         modelUsage?.plan ? `Plan: ${modelUsage.plan}` : null,
         modelUsageLabel || null,
+        modelFastLabel,
         modelUsage?.primary?.reset_description || null,
         modelUsage?.secondary?.reset_description || null,
         modelExtraUsageResetLabel || null,
@@ -1129,6 +1145,7 @@ export function ComposeBox({
                 model: modelLabel ?? null,
                 thinking_level: payload.thinking_level ?? null,
                 thinking_level_label: payload.thinking_level_label ?? null,
+                fast_mode: payload.fast_mode ?? null,
                 supports_thinking: payload.supports_thinking,
                 provider_usage: payload.provider_usage ?? null,
             });
@@ -1568,6 +1585,7 @@ export function ComposeBox({
                 model: nextModel ?? activeModel ?? null,
                 thinking_level: response?.command?.thinking_level,
                 thinking_level_label: response?.command?.thinking_level_label,
+                fast_mode: response?.command?.fast_mode,
                 supports_thinking: response?.command?.supports_thinking,
             });
             await refreshAgentModelStateBestEffort(getAgentModels, currentChatJid, emitModelState);
@@ -1785,6 +1803,7 @@ export function ComposeBox({
                         model: response.command.model_label ?? activeModel ?? null,
                         thinking_level: response.command.thinking_level,
                         thinking_level_label: response.command.thinking_level_label,
+                        fast_mode: response.command.fast_mode,
                         supports_thinking: response.command.supports_thinking,
                     });
                     await refreshAgentModelStateBestEffort(getAgentModels, currentChatJid, emitModelState);
@@ -2621,8 +2640,10 @@ export function ComposeBox({
                                 `}
                                 ${!loadingModels && modelOptions.map((modelOption, index) => {
                                     const modelLabel = typeof modelOption?.label === 'string' ? modelOption.label : '';
+                                    const modelUiLabel = stripCodexModelPrefix(modelLabel);
                                     const contextWindowLabel = formatModelPickerContextWindow(modelOption?.contextWindow);
-                                    const modelDisplayName = modelOption?.name || null;
+                                    const modelName = typeof modelOption?.name === 'string' ? modelOption.name.trim() : '';
+                                    const modelDisplayName = modelName && modelName !== modelUiLabel ? modelName : null;
                                     const contextLimit = getModelPickerContextLimit(modelOption, contextUsage);
                                     return html`
                                         <button
@@ -2632,7 +2653,7 @@ export function ComposeBox({
                                             class=${`compose-model-popup-item compose-model-popup-model-item${modelPopupIndex === index ? ' active' : ''}${activeModel === modelLabel ? ' current-model' : ''}${contextLimit.blocked ? ' context-blocked' : ''}`}
                                             onClick=${() => { void handleSelectModel(modelOption); }}
                                             disabled=${switchingModel || contextLimit.blocked}
-                                            title=${[modelLabel, modelDisplayName, contextWindowLabel, contextLimit.title].filter(Boolean).join(' • ')}
+                                            title=${[modelUiLabel, modelDisplayName, contextWindowLabel, contextLimit.title].filter(Boolean).join(' • ')}
                                         >
                                             <span class="compose-model-popup-model-stack">
                                                 <span class="compose-model-popup-model-label">${formatModelPickerDisplayLabel(modelLabel, modelOption?.contextWindow)}${modelDisplayName ? html` <span class="compose-model-popup-model-subtitle">${modelDisplayName}</span>` : ''}</span>

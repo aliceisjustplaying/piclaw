@@ -44,6 +44,8 @@ export interface NewMessage {
   is_bot_message?: boolean;
   /** Rich content blocks (images, attachments) from the web channel. */
   content_blocks?: unknown[];
+  /** Media row IDs attached to this message in the web channel. */
+  media_ids?: number[];
   /** OpenGraph / URL preview metadata attached to the message. */
   link_previews?: unknown[];
   /** Thread id for threaded replies in the web channel. */
