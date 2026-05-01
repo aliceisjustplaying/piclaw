@@ -344,6 +344,7 @@ export function createWebChannelConstructorFactory(
       deps.getDb().prepare("UPDATE messages SET thread_id = ? WHERE rowid = ?").run(messageId, messageId);
     },
     broadcastAgentResponse: (interaction) => interactionBroadcaster.broadcastAgentResponse(interaction),
+    broadcastNewPost: (interaction) => channel.broadcastEvent("new_post", interaction),
     broadcastInteractionUpdated: (interaction) => interactionBroadcaster.broadcastInteractionUpdated(interaction),
     enqueueFollowupPlaceholder: (chatJid, rowId, queuedContent, threadId, queuedAt) =>
       channel.queuedFollowupLifecycle.enqueuePlaceholder(chatJid, rowId, queuedContent, threadId, queuedAt),

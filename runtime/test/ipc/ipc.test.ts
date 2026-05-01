@@ -16,7 +16,7 @@ let ipc: typeof import("../../src/ipc.js");
 let config: typeof import("../../src/core/config.js");
 let deps: import("../../src/ipc.js").IpcDeps;
 
-const sentMessages: Array<{ jid: string; text: string; options?: { mediaIds?: number[]; contentBlocks?: Array<Record<string, unknown>> } }> = [];
+const sentMessages: Array<{ jid: string; text: string; options?: { asUser?: boolean; mediaIds?: number[]; contentBlocks?: Array<Record<string, unknown>> } }> = [];
 const sentNudges: string[] = [];
 const resumedChats: Array<Record<string, any>> = [];
 const resumePendingCalls: Array<Record<string, any> | undefined> = [];
@@ -103,6 +103,25 @@ test("IPC message sends to web chat", async () => {
   const msg = sentMessages[sentMessages.length - 1];
   expect(msg.jid).toBe("web:default");
   expect(msg.text).toBe("hello");
+});
+
+test("IPC message can be promoted to agent input and wake the chat", async () => {
+  const startMessages = sentMessages.length;
+  const startResumes = resumedChats.length;
+  await ipc.processMessageCommand({
+    type: "message",
+    chatJid: "web:default",
+    text: "[Untrusted email notification]\nMessage Ref: test-ref",
+    agentInput: true,
+    runAgent: true,
+    noNudge: true,
+  }, deps);
+  await waitFor(() => sentMessages.length > startMessages && resumedChats.length > startResumes);
+
+  const msg = sentMessages[sentMessages.length - 1];
+  expect(msg.jid).toBe("web:default");
+  expect(msg.options?.asUser).toBe(true);
+  expect(resumedChats[resumedChats.length - 1]).toEqual({ chatJid: "web:default" });
 });
 
 test("IPC message falls back to PICLAW_CHAT_JID when chatJid is omitted", async () => {

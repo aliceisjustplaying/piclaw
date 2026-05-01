@@ -35,6 +35,7 @@ export interface WebMessageWriteServiceDeps {
   ): InteractionRow | null;
   setMessageThreadToSelf(messageId: number): void;
   broadcastAgentResponse(interaction: InteractionRow): void;
+  broadcastNewPost(interaction: InteractionRow): void;
   broadcastInteractionUpdated(interaction: InteractionRow): void;
   enqueueFollowupPlaceholder(
     chatJid: string,
@@ -59,6 +60,7 @@ export function createMessageWriteContext(deps: WebMessageWriteServiceDeps): Mes
     },
     broadcaster: {
       broadcastAgentResponse: (interaction) => deps.broadcastAgentResponse(interaction),
+      broadcastNewPost: (interaction) => deps.broadcastNewPost(interaction),
       broadcastInteractionUpdated: (interaction) => deps.broadcastInteractionUpdated(interaction),
     },
     followups: {
