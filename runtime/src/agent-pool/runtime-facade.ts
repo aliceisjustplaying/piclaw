@@ -15,6 +15,7 @@ import { SESSIONS_DIR } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { executeSlashCommand } from "./slash-command.js";
 import { peekProviderUsage, warmProviderUsage } from "./provider-usage.js";
+import { getCodexAppServerContextUsage } from "./codex-app-server-backend.js";
 import { resolveModelLabel } from "../utils/model-utils.js";
 import { createLogger } from "../utils/logger.js";
 import { withChatContext } from "../core/chat-context.js";
@@ -451,6 +452,7 @@ export interface AvailableModelsResult {
   model_options: AvailableModelOption[];
   thinking_level: string | null;
   thinking_level_label: string | null;
+  fast_mode?: boolean | null;
   supports_thinking: boolean;
   available_thinking_levels: string[];
   provider_usage: Awaited<ReturnType<typeof warmProviderUsage>>;
@@ -552,6 +554,8 @@ export class AgentRuntimeFacade {
     contextWindow: number;
     percent: number | null;
   } | null {
+    const codexUsage = getCodexAppServerContextUsage(chatJid);
+    if (codexUsage) return codexUsage;
     const entry = this.options.pool.get(chatJid);
     if (!entry) return null;
     return entry.runtime.session.getContextUsage() ?? null;

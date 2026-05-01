@@ -11,7 +11,7 @@ import {
   haveSameContextUsage,
   normalizeContextUsage,
   persistContextUsage,
-  restoreContextUsage,
+  clearPersistedContextUsage,
 } from './app-status-refresh-orchestration.js';
 import { refreshModelAndQueueState as refreshModelAndQueueStateBundle } from './app-status-refresh-orchestration.js';
 import { applyStoredSidebarWidth } from './app-boot-load-orchestration.js';
@@ -252,6 +252,9 @@ export function useChatRefreshLifecycle(options: UseChatRefreshLifecycleOptions)
           if (contextPayload && contextPayload.percent != null) {
             setContextUsage((prev) => haveSameContextUsage(prev, contextPayload) ? prev : contextPayload);
             persistContextUsage(targetChatJid, contextPayload);
+          } else {
+            setContextUsage(null);
+            clearPersistedContextUsage(targetChatJid);
           }
         } catch {
           if (activeChatJidRef.current && activeChatJidRef.current !== targetChatJid) return null;
@@ -285,14 +288,7 @@ export function useChatRefreshLifecycle(options: UseChatRefreshLifecycleOptions)
     setAgentModelsPayload(null);
     setExtensionWorkingState({ message: null, indicator: null, visible: true });
 
-    // Restore the last known context usage for this chat from localStorage
-    // so the context indicator shows immediately without waiting for the API.
-    const stored = restoreContextUsage(currentChatJid);
-    if (stored) {
-      setContextUsage(stored);
-    } else {
-      setContextUsage(null);
-    }
+    setContextUsage(null);
     void refreshModelState();
   }, [currentChatJid, refreshModelState, setActiveModel, setActiveModelUsage, setActiveThinkingLevel, setAgentModelsPayload, setContextUsage, setExtensionWorkingState, setHasLoadedAgentModels, setSupportsThinking]);
 

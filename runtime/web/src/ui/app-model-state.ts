@@ -8,6 +8,8 @@ export interface ModelStateUpdate {
   supportsThinking: boolean;
   hasProviderUsage: boolean;
   providerUsage: unknown;
+  hasFastMode: boolean;
+  fastMode: boolean | null;
 }
 
 const EMPTY_MODEL_STATE_UPDATE: ModelStateUpdate = {
@@ -20,6 +22,8 @@ const EMPTY_MODEL_STATE_UPDATE: ModelStateUpdate = {
   supportsThinking: false,
   hasProviderUsage: false,
   providerUsage: null,
+  hasFastMode: false,
+  fastMode: null,
 };
 
 export function resolveModelStateUpdate(payload: Record<string, unknown> | null | undefined): ModelStateUpdate {
@@ -39,5 +43,7 @@ export function resolveModelStateUpdate(payload: Record<string, unknown> | null 
     supportsThinking: Boolean(payload.supports_thinking),
     hasProviderUsage: payload.provider_usage !== undefined,
     providerUsage: payload.provider_usage ?? null,
+    hasFastMode: payload.fast_mode !== undefined,
+    fastMode: typeof payload.fast_mode === 'boolean' ? payload.fast_mode : null,
   };
 }

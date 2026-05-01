@@ -86,6 +86,23 @@ export function parseThinking(args: string, raw: string): AgentControlCommand {
   };
 }
 
+/** Parse /fast arguments: on/off/toggle/query. */
+export function parseFast(args: string, raw: string): AgentControlCommand {
+  const value = args.split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  const action = value === "toggle" || !value ? "toggle" : value === "status" ? "status" : undefined;
+  const enabled = value === "on" || value === "true" || value === "1" || value === "yes"
+    ? true
+    : value === "off" || value === "false" || value === "0" || value === "no"
+      ? false
+      : undefined;
+  return {
+    type: "fast",
+    enabled,
+    action,
+    raw,
+  };
+}
+
 /** Parse /shell arguments: optional command string. */
 export function parseShell(args: string, raw: string): AgentControlCommand {
   return {
@@ -504,6 +521,7 @@ export const COMMAND_PARSERS: Record<string, CommandParser> = {
   "/model": parseModel,
   "/thinking": parseThinking,
   "/effort": parseThinking,
+  "/fast": parseFast,
   "/commands": simple("commands"),
   "/restart": simple("restart"),
   "/exit": simple("exit"),
