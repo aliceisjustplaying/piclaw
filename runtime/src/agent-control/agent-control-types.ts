@@ -25,6 +25,12 @@ export type AgentControlCommand =
       raw: string;
     }
   | {
+      type: "fast";
+      enabled?: boolean;
+      action?: "status" | "toggle";
+      raw: string;
+    }
+  | {
       type: "commands";
       raw: string;
     }
@@ -275,6 +281,9 @@ export interface AgentControlResult {
   thinking_level_label?: string | null;
   rolled_up_to?: string;
   source_chat_jid?: string;
+  fast_mode?: boolean | null;
+  supports_thinking?: boolean;
+  available_thinking_levels?: string[];
   /** Optional media attachment ids to include with the response message. */
   mediaIds?: number[];
   /** Optional adaptive card content blocks to include with the response message. */

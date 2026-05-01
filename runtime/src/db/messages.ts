@@ -528,7 +528,7 @@ export function getMessagesSince(
 ): NewMessage[] {
   const db = getDb();
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp, thread_id
+    SELECT rowid, id, chat_jid, sender, sender_name, content, content_blocks, timestamp, thread_id
     FROM messages
     WHERE chat_jid = ? AND timestamp > ?
       AND is_bot_message = 0 AND content NOT LIKE ?
@@ -536,5 +536,35 @@ export function getMessagesSince(
       AND COALESCE(is_steering_message, 0) = 0
     ORDER BY timestamp
   `;
-  return db.prepare(sql).all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+  const rows = db.prepare(sql).all(chatJid, sinceTimestamp, `${botPrefix}:%`) as Array<NewMessage & { rowid: number; content_blocks?: string | null }>;
+  return rows.map((row) => ({
+    ...row,
+    content_blocks: parseJsonArray(row.content_blocks),
+    media_ids: getMediaIdsForMessage(row.rowid),
+  }));
+}
+
+export function getRecentMessagesForPrompt(
+  chatJid: string,
+  beforeTimestamp: string,
+  limit = 12
+): NewMessage[] {
+  const db = getDb();
+  const sql = `
+    SELECT rowid, id, chat_jid, sender, sender_name, content, content_blocks, timestamp, thread_id, is_bot_message
+    FROM messages
+    WHERE chat_jid = ? AND timestamp < ?
+      AND LTRIM(content) NOT LIKE '/%'
+      AND COALESCE(is_steering_message, 0) = 0
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `;
+  const rows = db.prepare(sql).all(chatJid, beforeTimestamp, Math.max(1, Math.min(50, limit))) as Array<NewMessage & { rowid: number; content_blocks?: string | null; is_bot_message?: number }>;
+  return rows.reverse().map((row) => ({
+    ...row,
+    sender_name: row.is_bot_message ? "Pix" : row.sender_name,
+    sender: row.is_bot_message ? "assistant" : row.sender,
+    content_blocks: parseJsonArray(row.content_blocks),
+    media_ids: getMediaIdsForMessage(row.rowid),
+  }));
 }

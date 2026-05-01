@@ -302,6 +302,7 @@ test('model picker helpers expose searchable names, formatted context windows, a
   expect(formatModelPickerContextWindow(200000)).toBe('200K ctx');
   expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4', 200000)).toBe('anthropic/claude-sonnet-4 • 200K ctx');
   expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4', null)).toBe('anthropic/claude-sonnet-4');
+  expect(formatModelPickerDisplayLabel('codex/gpt-5.5', 400000)).toBe('gpt-5.5 • 400K ctx');
   expect(getModelPickerOptionSearchLabel(option)).toContain('anthropic/claude-sonnet-4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('Claude Sonnet 4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('200K ctx');
@@ -366,6 +367,15 @@ test('resolveComposeModelPickerState keeps the model picker visible for cold cha
   })).toEqual({
     showPicker: true,
     label: 'openai/gpt-5',
+    hasAvailableModels: true,
+  });
+
+  expect(resolveComposeModelPickerState('codex/gpt-5.5', {
+    current: null,
+    model_options: [{ label: 'codex/gpt-5.5', provider: 'codex', id: 'gpt-5.5' }],
+  })).toEqual({
+    showPicker: true,
+    label: 'gpt-5.5',
     hasAvailableModels: true,
   });
 

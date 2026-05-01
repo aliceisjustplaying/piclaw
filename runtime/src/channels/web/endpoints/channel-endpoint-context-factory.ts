@@ -3,6 +3,7 @@
  */
 
 import { getDb, replaceMessageContent } from "../../../db.js";
+import { getAgentBackendConfig } from "../../../core/config.js";
 import { resolveAvatarUrl } from "../media/avatar-service.js";
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import type { AuthEndpointsContext } from "../auth/auth-endpoints.js";
@@ -20,6 +21,8 @@ import type { ContentEndpointsContext } from "./content-endpoints.js";
 import type { AgentsEndpointContext, AvatarEndpointContext } from "./identity-endpoints.js";
 import type { PostMutationsContext } from "../post-mutations.js";
 import type { UiEndpointsContext } from "./ui-endpoints.js";
+
+type ContextUsageSnapshot = { tokens: number | null; contextWindow: number; percent: number | null };
 
 /** Live identity/avatar snapshot consumed by endpoint facade/context builders. */
 export interface WebChannelIdentitySnapshot {
@@ -79,6 +82,19 @@ export function createWebChannelEndpointContexts(
   let uiContext: UiEndpointsContext | null = null;
   let authContext: AuthEndpointsContext | null = null;
 
+  const normalizeContextUsageSnapshot = (usage: Record<string, unknown> | null): ContextUsageSnapshot | null => {
+    if (!usage) return null;
+    const tokens = usage.tokens == null ? null : Number(usage.tokens);
+    const contextWindow = Number(usage.contextWindow);
+    const percent = usage.percent == null ? null : Number(usage.percent);
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+    return {
+      tokens: tokens == null || Number.isFinite(tokens) ? tokens : null,
+      contextWindow,
+      percent: percent == null || Number.isFinite(percent) ? percent : null,
+    };
+  };
+
   return {
     postMutations: () => createPostMutationsContext({
       defaultChatJid: options.defaultChatJid,
@@ -106,7 +122,11 @@ export function createWebChannelEndpointContexts(
           getAgentStatus: (chatJid) => channel.getAgentStatus(chatJid),
           recoverStaleInflightRun: (chatJid, recoveryOptions) => channel.recoverStaleInflightRun(chatJid, recoveryOptions),
           getBuffer: (turnId, panel) => channel.getBuffer(turnId, panel),
-          getContextUsageForChat: (chatJid) => channel.agentPool.getContextUsageForChat(chatJid) ?? channel.getContextUsage(chatJid),
+          getContextUsageForChat: async (chatJid) => {
+            const liveUsage = await channel.agentPool.getContextUsageForChat(chatJid);
+            if (getAgentBackendConfig().backend === "codex-app-server") return liveUsage;
+            return liveUsage ?? normalizeContextUsageSnapshot(channel.getContextUsage(chatJid));
+          },
           getAvailableModels: (chatJid) => channel.agentPool.getAvailableModels(chatJid),
           getProviderReadyCompletedForInstance: () => isProviderReadyOobeCompletedForInstance(),
         });

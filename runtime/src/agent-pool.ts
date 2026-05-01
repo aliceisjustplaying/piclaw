@@ -33,7 +33,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { type AgentControlCommand, type AgentControlResult } from "./agent-control/index.js";
-import { SESSIONS_DIR, WORKSPACE_DIR } from "./core/config.js";
+import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig } from "./core/config.js";
 import { getChatChannel, getChatJid } from "./core/chat-context.js";
 import { createTrackedBashOperations } from "./tools/tracked-bash.js";
 import { type ActiveChatAgent } from "./agent-pool/branch-manager.js";
@@ -46,6 +46,21 @@ import {
 } from "./agent-pool/contracts.js";
 import { runSidePrompt as runSidePromptInternal } from "./agent-pool/side-prompt-runner.js";
 import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
+import {
+  compactCodexAppServerChat,
+  cycleCodexAppServerThinkingLevel,
+  getCodexAppServerContextUsage,
+  getCodexAppServerFastMode,
+  getCodexAppServerDisplayModelLabel,
+  getCodexAppServerModelLabel,
+  getCodexAppServerThinkingLevel,
+  listCodexAppServerModels,
+  peekCodexAppServerProviderUsage,
+  setCodexAppServerFastMode,
+  setCodexAppServerModel,
+  setCodexAppServerThinkingLevel,
+  warmCodexAppServerProviderUsage,
+} from "./agent-pool/codex-app-server-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
@@ -356,10 +371,117 @@ export class AgentPool {
       }
     }
 
+    if (getAgentBackendConfig().backend === "codex-app-server") {
+      const getDisplayModel = async () => getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
+      if (command.type === "model") {
+        if (!command.modelId && !command.provider) {
+          const models = await listCodexAppServerModels();
+          const current = getCodexAppServerDisplayModelLabel(chatJid, models);
+          const rows = models.map((model) => `| ${model.label} | ${model.label === current ? "current" : ""} |`);
+          const thinking = getCodexAppServerThinkingLevel(chatJid);
+          return {
+            status: "success",
+            message: ["**Available Codex models**", "", "| Model | Status |", "|---|---|", ...rows, "", "Use `/model codex/<model>` to switch."].join("\n"),
+            model_label: current,
+            thinking_level: thinking,
+            thinking_level_label: thinking,
+            fast_mode: getCodexAppServerFastMode(chatJid),
+            supports_thinking: true,
+          };
+        }
+        const requested = command.provider ? `${command.provider}/${command.modelId || "default"}` : command.modelId;
+        try {
+          const modelLabel = await setCodexAppServerModel(chatJid, requested);
+          const thinking = getCodexAppServerThinkingLevel(chatJid);
+          return {
+            status: "success",
+            message: `Model set to ${modelLabel}. Thinking level: ${thinking}.`,
+            model_label: modelLabel,
+            thinking_level: thinking,
+            thinking_level_label: thinking,
+            fast_mode: getCodexAppServerFastMode(chatJid),
+            supports_thinking: true,
+          };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return { status: "error", message };
+        }
+      }
+      if (command.type === "thinking") {
+        if (!command.level) {
+          const thinking = getCodexAppServerThinkingLevel(chatJid);
+          return {
+            status: "success",
+            message: `Current model: ${await getDisplayModel()}.\nCurrent thinking level: ${thinking}.\nAvailable levels: off, minimal, low, medium, high, xhigh.`,
+            model_label: await getDisplayModel(),
+            thinking_level: thinking,
+            thinking_level_label: thinking,
+            fast_mode: getCodexAppServerFastMode(chatJid),
+            supports_thinking: true,
+            available_thinking_levels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+          };
+        }
+        const thinking = setCodexAppServerThinkingLevel(chatJid, command.level);
+        if (!thinking) return { status: "error", message: "Unknown thinking level. Available: off, minimal, low, medium, high, xhigh." };
+        return {
+          status: "success",
+          message: `Thinking level set to ${thinking}.`,
+          model_label: await getDisplayModel(),
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          fast_mode: getCodexAppServerFastMode(chatJid),
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "cycle_thinking") {
+        const thinking = cycleCodexAppServerThinkingLevel(chatJid);
+        return {
+          status: "success",
+          message: `Thinking level set to ${thinking}.`,
+          model_label: await getDisplayModel(),
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          fast_mode: getCodexAppServerFastMode(chatJid),
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "fast") {
+        const current = getCodexAppServerFastMode(chatJid);
+        const next = command.action === "status" && command.enabled === undefined
+          ? current
+          : command.enabled ?? !current;
+        if (!(command.action === "status" && command.enabled === undefined)) {
+          setCodexAppServerFastMode(chatJid, next);
+        }
+        const thinking = getCodexAppServerThinkingLevel(chatJid);
+        return {
+          status: "success",
+          message: `Codex Fast mode ${next ? "on" : "off"} for ${await getDisplayModel()}. Thinking level: ${thinking}.`,
+          model_label: await getDisplayModel(),
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          fast_mode: next,
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "compact") {
+        await compactCodexAppServerChat(chatJid);
+        return { status: "success", message: "Codex app-server compaction complete. Context usage will update after the next token-usage event." };
+      }
+      if (command.type === "context") {
+        const usage = await this.getContextUsageForChat(chatJid);
+        if (!usage) return { status: "error", message: "Context usage unavailable for Codex app-server until the first token-usage update." };
+        const used = usage.tokens == null ? "?" : Math.round(usage.tokens).toLocaleString();
+        const total = Math.round(usage.contextWindow).toLocaleString();
+        const percent = usage.percent == null ? "?" : `${usage.percent.toFixed(1)}%`;
+        return { status: "success", message: `**Context usage**\n\n| Metric | Value |\n|---|---:|\n| Used | ${used} / ${total} tokens |\n| Percent | ${percent} |` };
+      }
+    }
     return this.runtimeFacade.applyControlCommand(chatJid, command);
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
+    if (getAgentBackendConfig().backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
     return this.runtimeFacade.getCurrentModelLabel(chatJid);
   }
 
@@ -376,6 +498,31 @@ export class AgentPool {
 
   /** Return available model labels and current model for a chat session. */
   async getAvailableModels(chatJid: string): Promise<AvailableModelsResult> {
+    if (getAgentBackendConfig().backend === "codex-app-server") {
+      const models = await listCodexAppServerModels();
+      const current = getCodexAppServerDisplayModelLabel(chatJid, models);
+      const thinking = getCodexAppServerThinkingLevel(chatJid);
+      const providerUsage = peekCodexAppServerProviderUsage();
+      void warmCodexAppServerProviderUsage();
+      return {
+        current,
+        models: models.map((model) => model.label),
+        model_options: models.map((model) => ({
+          label: model.label,
+          provider: "codex",
+          id: model.id,
+          name: model.name,
+          context_window: model.contextWindow ?? getCodexAppServerContextUsage(chatJid)?.contextWindow ?? null,
+          reasoning: true,
+        })),
+        thinking_level: thinking,
+        thinking_level_label: thinking,
+        fast_mode: getCodexAppServerFastMode(chatJid),
+        supports_thinking: true,
+        available_thinking_levels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+        provider_usage: providerUsage,
+      };
+    }
     return this.runtimeFacade.getAvailableModels(chatJid);
   }
 

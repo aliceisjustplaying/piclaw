@@ -23,6 +23,7 @@ export const CONTROL_COMMAND_DEFINITIONS: ControlCommandDefinition[] = [
   { name: "/cycle-model", description: "Cycle to the next available model" },
   { name: "/thinking", description: "Show or set thinking/effort level (alias /effort)", aliases: ["/effort"] },
   { name: "/cycle-thinking", description: "Cycle thinking level" },
+  { name: "/fast", description: "Toggle or show Codex Fast mode" },
   { name: "/state", description: "Show current session state" },
   { name: "/stats", description: "Show session token and cost stats" },
   { name: "/context", description: "Show context window usage", aliases: ["/ctx"] },
