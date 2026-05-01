@@ -20,7 +20,7 @@ import {
   type RecoveryClassifier,
   type RecoveryStrategy,
 } from "./automatic-recovery.js";
-import { getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
+import { getAgentBackendConfig, getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
 import { writeAgentLog } from "./logging.js";
@@ -51,6 +51,7 @@ import {
 } from "./blank-turn-detection.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
+import { runCodexAcpPrompt, shouldUseCodexAcpBackend } from "./acp-backend.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -775,6 +776,29 @@ export async function runAgentPrompt(
   runOptions: RunAgentOptions,
   options: RunAgentOrchestratorOptions,
 ): Promise<AgentOutput> {
+  const backendConfig = getAgentBackendConfig();
+  if (backendConfig.backend === "claude-acp") {
+    log.warn("Claude ACP backend selected but not implemented", {
+      operation: "run_agent_prompt.claude_acp_backend_unimplemented",
+      chatJid,
+    });
+    return {
+      status: "error",
+      result: null,
+      error: "PICLAW_AGENT_BACKEND=claude-acp is recognized, but the Claude ACP runner is not implemented yet.",
+    };
+  }
+
+  if (shouldUseCodexAcpBackend()) {
+    log.info("Using experimental Codex ACP backend", {
+      operation: "run_agent_prompt.acp_backend_selected",
+      chatJid,
+      backend: backendConfig.backend,
+      replayMessages: backendConfig.replayMessages,
+    });
+    return runCodexAcpPrompt(prompt, chatJid, runOptions);
+  }
+
   const startTime = Date.now();
   options.clearAttachments(chatJid);
   updateSessionStreaming(chatJid, true);
