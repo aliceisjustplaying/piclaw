@@ -20,6 +20,7 @@ import {
   resolvePanePopoutTransfer,
 } from './app-branch-pane-orchestration.js';
 import {
+  createRootSessionFromCompose,
   createSessionFromCompose,
   popOutChat,
   popOutPane,
@@ -276,6 +277,18 @@ export interface CreateSessionFromComposeActionOptions {
   baseHref?: string;
 }
 
+export interface CreateRootSessionFromComposeActionOptions {
+  rootName: string;
+  chatOnlyMode?: boolean;
+  createRootChatSession: (agentName: string) => Promise<any>;
+  refreshActiveChatAgents: () => void;
+  refreshCurrentChatBranches: () => void;
+  showIntentToast: (title: string, detail?: string | null, kind?: string, durationMs?: number) => void;
+  navigate: (url: string) => void;
+  hasWindow?: boolean;
+  baseHref?: string;
+}
+
 export async function createSessionFromComposeAction(options: CreateSessionFromComposeActionOptions): Promise<void> {
   const {
     hasWindow = typeof window !== 'undefined',
@@ -284,6 +297,19 @@ export async function createSessionFromComposeAction(options: CreateSessionFromC
   } = options;
 
   await createSessionFromCompose({
+    baseHref,
+    ...rest,
+  });
+}
+
+export async function createRootSessionFromComposeAction(options: CreateRootSessionFromComposeActionOptions): Promise<void> {
+  const {
+    hasWindow = typeof window !== 'undefined',
+    baseHref = hasWindow ? window.location.href : 'http://localhost/',
+    ...rest
+  } = options;
+
+  await createRootSessionFromCompose({
     baseHref,
     ...rest,
   });
@@ -538,6 +564,7 @@ export interface UseBranchPaneLifecycleOptions {
   branchLoaderMode: boolean;
   branchLoaderSourceChatJid: string;
   forkChatBranch: (chatJid: string) => Promise<any>;
+  createRootChatSession: (agentName: string) => Promise<any>;
   setBranchLoaderState: StateSetter<any>;
 
   currentRootChatJid: string;
@@ -594,6 +621,7 @@ export function useBranchPaneLifecycle(options: UseBranchPaneLifecycleOptions) {
     branchLoaderMode,
     branchLoaderSourceChatJid,
     forkChatBranch,
+    createRootChatSession,
     setBranchLoaderState,
     currentRootChatJid,
     isWebAppMode,
@@ -732,6 +760,18 @@ export function useBranchPaneLifecycle(options: UseBranchPaneLifecycleOptions) {
     });
   }, [chatOnlyMode, currentChatJid, forkChatBranch, navigate, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
 
+  const handleCreateRootSessionFromCompose = useCallback(async (rootName: string) => {
+    await createRootSessionFromComposeAction({
+      rootName,
+      chatOnlyMode,
+      createRootChatSession,
+      refreshActiveChatAgents,
+      refreshCurrentChatBranches,
+      showIntentToast,
+      navigate,
+    });
+  }, [chatOnlyMode, createRootChatSession, navigate, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
+
   const handlePopOutPane = useCallback(async (path: string, label?: string | null) => {
     return await popOutPaneAction({
       isWebAppMode,
@@ -796,6 +836,7 @@ export function useBranchPaneLifecycle(options: UseBranchPaneLifecycleOptions) {
     handlePurgeArchivedBranch,
     handleRestoreBranch,
     handleCreateSessionFromCompose,
+    handleCreateRootSessionFromCompose,
     handlePopOutPane,
     handlePopOutChat,
   };

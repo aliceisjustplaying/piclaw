@@ -172,6 +172,7 @@ export interface WebChannelLike
   handleAgentActiveChats(req: Request): Promise<Response>;
   handleAgentBranches(req: Request): Promise<Response>;
   handleAgentBranchFork(req: Request): Promise<Response>;
+  handleAgentRootSessionCreate(req: Request): Promise<Response>;
   handleAgentBranchRename(req: Request): Promise<Response>;
   handleAgentRenameJid(req: Request): Promise<Response>;
   handleAgentBranchMergeParent(req: Request): Promise<Response>;

@@ -1,0 +1,19 @@
+{
+  "name": "piclaw-e2e",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:compose": "playwright test features/compose/",
+    "test:timeline": "playwright test features/timeline/",
+    "test:sessions": "playwright test features/sessions/",
+    "test:settings": "playwright test features/settings/",
+    "test:editor": "playwright test features/editor/",
+    "test:mobile": "playwright test --project=ipad --project=iphone",
+    "report": "playwright show-report reports"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@cucumber/cucumber": "^11.0.0",
+    "playwright-bdd": "^7.0.0"
+  }
+}

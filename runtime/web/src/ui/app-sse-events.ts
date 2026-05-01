@@ -345,7 +345,7 @@ export function handleAppSseEvent(
       clearAgentRunState();
       dismissedQueueRowIdsRef.current.clear();
       void refreshActiveChatAgents();
-      void refreshQueueState();
+      refreshModelAndQueueState();
       setAgentDraft({ text: '', totalLines: 0 });
       setAgentPlan('');
       setAgentThought({ text: '', totalLines: 0 });

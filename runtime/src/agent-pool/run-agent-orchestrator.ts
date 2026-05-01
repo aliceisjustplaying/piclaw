@@ -444,6 +444,20 @@ async function runPromptAttempt(
       toolExecutionWatchdogHeartbeat.handleEvent(event as ToolExecutionWatchdogEvent);
     }
 
+    if (event.type === "thinking_level_changed") {
+      const level = typeof (event as { level?: unknown }).level === "string"
+        ? (event as { level: string }).level
+        : session.thinkingLevel ?? null;
+      updateSessionModel(chatJid, modelLabel, level);
+      options.onInfo?.("Thinking level changed", {
+        operation: "model.thinking_level_changed",
+        chatJid,
+        model: modelLabel,
+        thinkingLevel: level,
+        ...getRunObservabilityDetails(runOptions),
+      });
+    }
+
     // Track session activity for cross-session visibility
     if (event.type === "tool_execution_start") {
       const e = event as { toolCallId?: string; toolName?: string; args?: unknown };

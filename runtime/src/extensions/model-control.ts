@@ -10,6 +10,8 @@ import { supportsXhigh } from "@mariozechner/pi-ai";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { Type } from "typebox";
 import { findModel, parseModelInput } from "../utils/model-utils.js";
+import { getChatContext } from "../core/chat-context.js";
+import { updateSessionModel } from "./session-status.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,6 +56,18 @@ function clamp(value: number | undefined, fallback: number, min: number, max: nu
 
 /** Extension factory that registers model control tools (get/list/switch). */
 export const modelControl: ExtensionFactory = (pi: ExtensionAPI) => {
+  pi.on("model_select", (event) => {
+    const chat = getChatContext();
+    if (!chat) return;
+    updateSessionModel(chat.chatJid, modelLabel(event.model), pi.getThinkingLevel());
+  });
+
+  pi.on("thinking_level_select", (event, ctx) => {
+    const chat = getChatContext();
+    if (!chat) return;
+    updateSessionModel(chat.chatJid, modelLabel(ctx.model), event.level);
+  });
+
   // Inject tool-usage hint into system prompt
   pi.on("before_agent_start", async (event) => {
     return { systemPrompt: `${event.systemPrompt}\n\n${TOOL_HINT}` };

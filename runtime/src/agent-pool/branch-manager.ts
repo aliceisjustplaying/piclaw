@@ -90,6 +90,13 @@ function buildBranchVisualPrefix(sourceBranch: ChatBranchRecord, branches: ChatB
   const rootPrefix = rootChatJid.startsWith("web:") ? rootChatJid : `web:${rootChatJid}`;
   if (sourceBranch.chat_jid === rootChatJid) return rootPrefix;
 
+  // Preserve already-readable JID paths. Renaming a session updates only
+  // metadata, so descendants should append to the stable existing path rather
+  // than rebuilding ancestor path segments from renamed handles.
+  if (sourceBranch.chat_jid.startsWith(`${rootPrefix}:`) && !sourceBranch.chat_jid.includes(":branch:")) {
+    return sourceBranch.chat_jid;
+  }
+
   const byId = new Map(branches.map((branch) => [branch.branch_id, branch]));
   const segments: string[] = [];
   let cursor: ChatBranchRecord | null = sourceBranch;
@@ -308,6 +315,33 @@ export class AgentBranchManager {
     } catch (e) { debugSuppressedError(log, "best-effort child branch directory rename failed", e, { old, next }); }
 
     return result;
+  }
+
+  async createRootChatSession(agentName: string): Promise<ChatBranchRecord> {
+    const normalized = normalizeAgentHandlePart(agentName || "");
+    if (!normalized) throw new Error("Root session handle must contain at least one letter or number.");
+    if (normalized === "branch") throw new Error("Root session handle cannot be 'branch'.");
+
+    const chatJid = `web:${normalized}`;
+    const existingByJid = getChatBranchByChatJid(chatJid);
+    if (existingByJid) {
+      throw new Error(`Root session already exists: ${chatJid}`);
+    }
+
+    const existingByHandle = getChatBranchByAgentName(normalized);
+    if (existingByHandle && !existingByHandle.archived_at) {
+      throw new Error(`Session handle already exists: @${normalized}`);
+    }
+
+    storeChatMetadata(chatJid, new Date().toISOString(), normalized);
+    const branch = ensureChatBranch({
+      chat_jid: chatJid,
+      root_chat_jid: chatJid,
+      parent_branch_id: null,
+      agent_name: normalized,
+    });
+    this.options.scheduleSessionWarmup?.(chatJid);
+    return branch;
   }
 
   async mergeChatBranchIntoParent(

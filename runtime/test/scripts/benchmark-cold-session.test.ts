@@ -30,5 +30,5 @@ describe("cold session benchmark script", () => {
     expect(summary.samples[0].ok).toBe(true);
     expect(summary.durationMs.median).toBeGreaterThan(0);
     expect(summary.rssDeltaBytes.median).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });

@@ -256,6 +256,16 @@ export async function forkChatBranch(sourceChatJid, options = {}) {
 }
 
 /**
+ * Create a clean root chat session family.
+ */
+export async function createRootChatSession(agentName) {
+    return request('/agent/root-session', {
+        method: 'POST',
+        body: JSON.stringify({ agent_name: agentName }),
+    });
+}
+
+/**
  * Rename a registry-backed chat branch / agent identity.
  */
 export async function renameChatBranch(chatJid, options = {}) {

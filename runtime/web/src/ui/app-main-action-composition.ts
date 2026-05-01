@@ -150,6 +150,7 @@ interface ComposeBranchPaneActionOptionsInput {
   branchLoaderMode: boolean;
   branchLoaderSourceChatJid: string;
   forkChatBranch: (chatJid: string) => Promise<any>;
+  createRootChatSession: (agentName: string) => Promise<any>;
   setBranchLoaderState: StateSetter<any>;
   currentRootChatJid: string;
   isWebAppMode: boolean;
@@ -203,6 +204,7 @@ export function composeBranchPaneActionOptions(input: ComposeBranchPaneActionOpt
     branchLoaderMode: input.branchLoaderMode,
     branchLoaderSourceChatJid: input.branchLoaderSourceChatJid,
     forkChatBranch: input.forkChatBranch,
+    createRootChatSession: input.createRootChatSession,
     setBranchLoaderState: input.setBranchLoaderState,
     currentRootChatJid: input.currentRootChatJid,
     isWebAppMode: input.isWebAppMode,

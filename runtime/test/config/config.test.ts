@@ -269,6 +269,7 @@ test("config and env fallback chains handle booleans and session settings", () =
       maxSizeMb: 8,
       maxSizeBytes: 8 * 1024 * 1024,
       maxLines: 8000,
+      maxCompactionsBeforeRotation: 3,
       autoRotate: false,
     });
   } finally {
@@ -443,7 +444,13 @@ test("session storage config getter groups size and auto-rotate settings", () =>
     });
     expect(snapshot["same:getSessionStorageConfig:SESSION_STORAGE_CONFIG"]).toBe(true);
     expect(snapshot["frozen:SESSION_STORAGE_CONFIG"]).toBe(true);
-    expect(snapshot.SESSION_STORAGE_CONFIG).toEqual({ maxSizeMb: 64, maxSizeBytes: 64 * 1024 * 1024, maxLines: 8000, autoRotate: true });
+    expect(snapshot.SESSION_STORAGE_CONFIG).toEqual({
+      maxSizeMb: 64,
+      maxSizeBytes: 64 * 1024 * 1024,
+      maxLines: 8000,
+      maxCompactionsBeforeRotation: 3,
+      autoRotate: true,
+    });
     expect(snapshot["call:getSessionStorageConfig"]).toEqual(snapshot.SESSION_STORAGE_CONFIG);
   } finally {
     ws.cleanup();
@@ -474,7 +481,13 @@ test("session storage config defaults to 32 MB with auto-rotate enabled", () => 
   const ws = createTempWorkspace("piclaw-config-");
   try {
     const snapshot = loadConfigInSubprocess(ws, ["SESSION_STORAGE_CONFIG", "call:getSessionStorageConfig"]);
-    expect(snapshot.SESSION_STORAGE_CONFIG).toEqual({ maxSizeMb: 32, maxSizeBytes: 32 * 1024 * 1024, maxLines: 8000, autoRotate: true });
+    expect(snapshot.SESSION_STORAGE_CONFIG).toEqual({
+      maxSizeMb: 32,
+      maxSizeBytes: 32 * 1024 * 1024,
+      maxLines: 8000,
+      maxCompactionsBeforeRotation: 3,
+      autoRotate: true,
+    });
     expect(snapshot["call:getSessionStorageConfig"]).toEqual(snapshot.SESSION_STORAGE_CONFIG);
   } finally {
     ws.cleanup();
@@ -793,6 +806,7 @@ test("in-process module init handles deprecated env warnings, argv parsing, and 
       maxSizeMb: 64,
       maxSizeBytes: 64 * 1024 * 1024,
       maxLines: 8000,
+      maxCompactionsBeforeRotation: 3,
       autoRotate: true,
     });
     expect(snapshot["same:getSessionStorageConfig:SESSION_STORAGE_CONFIG"]).toBe(true);

@@ -245,6 +245,75 @@ test("AgentBranchManager builds readable hierarchical JIDs from branch handles",
   ws.cleanup();
 });
 
+test("AgentBranchManager creates independent root sessions", async () => {
+  const ws = createTempWorkspace("piclaw-root-session-create-");
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+
+  const scheduled: string[] = [];
+  const fixture = createManager({
+    scheduleSessionWarmup: (chatJid) => scheduled.push(chatJid),
+  });
+
+  const root = await fixture.manager.createRootChatSession("Ops Room");
+
+  expect(root.chat_jid).toBe("web:ops-room");
+  expect(root.root_chat_jid).toBe("web:ops-room");
+  expect(root.parent_branch_id).toBeNull();
+  expect(root.agent_name).toBe("ops-room");
+  expect(scheduled).toEqual(["web:ops-room"]);
+  expect(db.getChatBranchByChatJid("web:ops-room")?.root_chat_jid).toBe("web:ops-room");
+
+  ws.cleanup();
+});
+
+test("AgentBranchManager appends new child paths to the stable source JID after rename", async () => {
+  const ws = createTempWorkspace("piclaw-renamed-stable-child-jid-");
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Default");
+  const root = db.getChatBranchByChatJid("web:default");
+  db.storeChatMetadata("web:default:research", new Date().toISOString(), "Research");
+  const parent = db.ensureChatBranch({
+    chat_jid: "web:default:research",
+    root_chat_jid: "web:default",
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "research",
+  });
+  db.renameChatBranchIdentity({ chat_jid: parent.chat_jid, agent_name: "renamed-parent" });
+
+  const sourceManager = SessionManager.create(ws.workspace, join(ws.workspace, "renamed-parent-session"));
+  sourceManager.appendSessionInfo("Renamed Parent");
+  sourceManager.appendModelChange("openai", "gpt-test");
+
+  const fixture = createManager();
+  fixture.pool.set(parent.chat_jid, {
+    runtime: createRuntime({
+      sessionManager: sourceManager,
+      sessionFile: sourceManager.getSessionFile(),
+      sessionName: "Renamed Parent",
+      model: { provider: "openai", id: "gpt-test" },
+      isStreaming: false,
+      isCompacting: false,
+      isRetrying: false,
+      isBashRunning: false,
+    }),
+    lastUsed: Date.now(),
+  });
+
+  const child = await fixture.manager.createForkedChatBranch(parent.chat_jid, { agentName: "Child Work" });
+
+  expect(child.chat_jid).toBe("web:default:research:child-work");
+  expect(child.parent_branch_id).toBe(parent.branch_id);
+  expect(child.agent_name).toBe("child-work");
+
+  ws.cleanup();
+});
+
 test("AgentBranchManager prunes inactive branches and disposes cached sessions", async () => {
   const ws = createTempWorkspace("piclaw-branch-prune-");
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });

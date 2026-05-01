@@ -462,6 +462,7 @@ function createSchema(database: Database): void {
       cost_cache_write REAL DEFAULT 0,
       cost_total REAL DEFAULT 0,
       model TEXT,
+      response_model TEXT,
       provider TEXT,
       api TEXT,
       turns INTEGER DEFAULT 0
@@ -610,6 +611,19 @@ function ensureKeychainNoteColumns(database: Database): void {
   };
   ensureColumn("user_note");
   ensureColumn("agent_note");
+}
+
+function ensureTokenUsageColumns(database: Database): void {
+  const columns = database.prepare("PRAGMA table_info(token_usage)").all() as Array<{ name: string }>;
+  const existing = new Set(columns.map((col) => col.name));
+  if (existing.has("response_model")) return;
+  try {
+    database.exec("ALTER TABLE token_usage ADD COLUMN response_model TEXT");
+  } catch (err) {
+    debugSuppressedError(log, "Token-usage response_model migration raced an already-updated schema state.", err, {
+      operation: "db.ensure_token_usage_columns.add_response_model",
+    });
+  }
 }
 
 function ensureScheduledTaskColumns(database: Database): void {
@@ -851,6 +865,7 @@ export function initDatabase(): void {
   ensureChatBranchConstraints(db);
   ensureMessageColumns(db);
   ensureKeychainNoteColumns(db);
+  ensureTokenUsageColumns(db);
   ensureScheduledTaskColumns(db);
   ensureWebSessionColumns(db);
   ensureFts(db);

@@ -27,7 +27,7 @@ import {
   getEnvironmentSettingsData,
   setEnvironmentOverride,
 } from "../../../environment-overrides.js";
-import { PROVIDER_DEFS } from "../../../agent-control/provider-defs.js";
+import { getProviderDefs } from "../../../agent-control/provider-defs.js";
 import {
   listKeychainEntriesForUi,
   getKeychainEntry,
@@ -162,6 +162,11 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   },
   {
     method: "POST",
+    path: "/agent/root-session",
+    handle: (channel, req) => channel.handleAgentRootSessionCreate(req),
+  },
+  {
+    method: "POST",
     path: "/agent/branch-rename",
     handle: (channel, req) => channel.handleAgentBranchRename(req),
   },
@@ -284,7 +289,7 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         }
       } catch (e) { /* context usage non-critical — best effort */ void e; }
 
-      const providers = PROVIDER_DEFS.map((p) => {
+      const providers = getProviderDefs().map((p) => {
         const auth = authProviders[p.id] as Record<string, unknown> | undefined;
         const authTypeFromAuth = typeof auth?.type === "string" ? auth.type : null;
         const hasCustomConfig = Boolean(p.isCustom && modelProviders[p.id]);

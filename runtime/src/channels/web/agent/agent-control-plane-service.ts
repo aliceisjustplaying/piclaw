@@ -41,6 +41,7 @@ type ControlPlaneAgentPool = AgentPool & {
   isStreaming?: (chatJid: string) => boolean;
   queueStreamingMessage?: (chatJid: string, content: string, mode: "steer") => Promise<{ queued: boolean }>;
   createForkedChatBranch?: (chatJid: string, options?: { agentName?: string | null }) => Promise<unknown>;
+  createRootChatSession?: (agentName: string) => Promise<unknown>;
   renameChatBranch?: (chatJid: string, options?: { agentName?: string | null }) => Promise<unknown>;
   renameChatJid?: (oldJid: string, newJid: string) => Promise<unknown>;
   mergeChatBranchIntoParent?: (chatJid: string) => Promise<unknown>;
@@ -389,6 +390,28 @@ export class WebAgentControlPlaneService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to fork branch.");
       return this.options.json({ error: message || "Failed to fork branch." }, 400);
+    }
+  }
+
+  async handleAgentRootSessionCreate(req: Request): Promise<Response> {
+    const parsed = await parseJsonObjectRequest(req);
+    if (!parsed.ok) return this.options.json({ error: parsed.error }, 400);
+
+    const payload = parsed.payload as { agent_name?: string; root_name?: string };
+    const agentName = typeof payload.agent_name === "string"
+      ? payload.agent_name.trim()
+      : (typeof payload.root_name === "string" ? payload.root_name.trim() : "");
+    if (!agentName) return this.options.json({ error: "Missing agent_name" }, 400);
+
+    try {
+      const branch = await this.options.agentPool.createRootChatSession?.(agentName);
+      if (!branch) {
+        return this.options.json({ error: "Root session creation is not available." }, 501);
+      }
+      return this.options.json({ status: "ok", branch }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || "Failed to create root session.");
+      return this.options.json({ error: message || "Failed to create root session." }, 400);
     }
   }
 

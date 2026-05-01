@@ -135,6 +135,7 @@ export {
   getTokenUsageTotals,
   getTokenUsageByProvider,
   getTokenUsageByModel,
+  getLatestTokenUsageModel,
 } from "./db/token-usage.js";
 export {
   createWebauthnEnrollment,

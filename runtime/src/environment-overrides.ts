@@ -27,6 +27,7 @@ export interface EnvironmentSettingsData {
 }
 
 const inheritedProcessEnv: Record<string, string> = { ...(process.env as Record<string, string>) };
+const preOverrideProcessEnv = new Map<string, string | undefined>();
 
 function isValidEnvName(name: string): boolean {
   return ENV_NAME_REGEX.test(name);
@@ -72,6 +73,24 @@ function persistEnvironmentOverrides(overrides: EnvironmentOverrideMap): Environ
   return sanitized;
 }
 
+function restoreProcessEnvValue(name: string): void {
+  if (preOverrideProcessEnv.has(name)) {
+    const value = preOverrideProcessEnv.get(name);
+    preOverrideProcessEnv.delete(name);
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(inheritedProcessEnv, name)) {
+    process.env[name] = inheritedProcessEnv[name];
+  } else {
+    delete process.env[name];
+  }
+}
+
 export function applyEnvironmentOverrides(overrides: EnvironmentOverrideMap = loadEnvironmentOverrides()): EnvironmentOverrideMap {
   const keychainEnvNames = getKeychainEnvNameSet();
   const sanitized = sanitizeOverrides(overrides, keychainEnvNames);
@@ -79,11 +98,7 @@ export function applyEnvironmentOverrides(overrides: EnvironmentOverrideMap = lo
 
   for (const name of Object.keys(loadEnvironmentOverrides())) {
     if (nextOverrideNames.has(name)) continue;
-    if (Object.prototype.hasOwnProperty.call(inheritedProcessEnv, name)) {
-      process.env[name] = inheritedProcessEnv[name];
-    } else {
-      delete process.env[name];
-    }
+    restoreProcessEnvValue(name);
   }
 
   for (const [name, value] of Object.entries(sanitized)) {
@@ -133,6 +148,9 @@ export function setEnvironmentOverride(nameValue: unknown, value: unknown): Envi
   if (!isValidEnvName(name)) throw new Error("Invalid environment variable name.");
   if (getKeychainEnvNameSet().has(name)) throw new Error("Keychain-injected environment variables cannot be overridden here.");
   const current = loadEnvironmentOverrides();
+  if (!Object.prototype.hasOwnProperty.call(current, name) && !preOverrideProcessEnv.has(name)) {
+    preOverrideProcessEnv.set(name, process.env[name]);
+  }
   const next = persistEnvironmentOverrides({ ...current, [name]: typeof value === "string" ? value : String(value ?? "") });
   applyEnvironmentOverrides(next);
   return getEnvironmentSettingsData();
@@ -146,11 +164,7 @@ export function clearEnvironmentOverride(nameValue: unknown): EnvironmentSetting
   const next = { ...current };
   delete next[name];
   const persisted = persistEnvironmentOverrides(next);
-  if (Object.prototype.hasOwnProperty.call(inheritedProcessEnv, name)) {
-    process.env[name] = inheritedProcessEnv[name];
-  } else {
-    delete process.env[name];
-  }
+  restoreProcessEnvValue(name);
   applyEnvironmentOverrides(persisted);
   return getEnvironmentSettingsData();
 }

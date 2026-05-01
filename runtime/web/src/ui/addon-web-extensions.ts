@@ -38,8 +38,9 @@ function resolveCurrentChatJid(runtimeWindow: (Window & typeof globalThis) | nul
     const href = runtimeWindow?.location?.href || 'http://localhost/';
     const fromUrl = new URL(href).searchParams.get('chat_jid')?.trim() || '';
     if (fromUrl) return fromUrl;
-  } catch {
+  } catch (e) {
     // ignore and fall back
+    void e;
   }
   return 'web:default';
 }

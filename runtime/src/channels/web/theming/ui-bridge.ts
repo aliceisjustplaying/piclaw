@@ -270,6 +270,7 @@ export class UiBridge {
         return typeof result === "string" ? result : undefined;
       },
       setEditorComponent: () => {},
+      getEditorComponent: () => undefined,
       get theme() {
         return fallbackTheme;
       },
