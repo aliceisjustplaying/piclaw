@@ -95,6 +95,7 @@ const {
     getTimeline,
     sendAgentMessage,
     forkChatBranch,
+    createRootChatSession,
 } = appApi;
 
 function MainApp({ locationParams, navigate }) {
@@ -107,6 +108,12 @@ function MainApp({ locationParams, navigate }) {
         branchLoaderMode,
         branchLoaderSourceChatJid,
     } = useMemo(() => readAppLocationModes(locationParams), [locationParams]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.__piclawCurrentChatJid = currentChatJid;
+        window.dispatchEvent?.(new CustomEvent('piclaw:current-chat-changed', { detail: { chatJid: currentChatJid } }));
+    }, [currentChatJid]);
 
     const surface = useMainAppSurfaceState({
         currentChatJid,
@@ -506,6 +513,7 @@ function MainApp({ locationParams, navigate }) {
             purgeChatBranch,
             restoreChatBranch,
             forkChatBranch,
+            createRootChatSession,
             steerAgentQueueItem,
             removeAgentQueueItem,
             getAgentThought,
