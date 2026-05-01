@@ -59,6 +59,7 @@ describe("provider usage", () => {
       expect(usage?.credits_remaining).toBe(123);
       expect(usage?.hint_short).toContain("5h 62%");
       expect(usage?.hint_short).toContain("wk 41%");
+      expect(usage?.hint_short).not.toContain("credits");
     } finally {
       globalThis.fetch = previousFetch;
     }
