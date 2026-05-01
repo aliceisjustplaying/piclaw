@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   buildMainAppOrchestrationResult,
+  composeMainAppActionCompositionOptions,
   composeMainAppLifecycleCompositionOptions,
   isComposeBoxAgentActiveState,
 } from '../../web/src/ui/app-main-orchestration-composition.js';
@@ -192,4 +193,142 @@ test('composeMainAppLifecycleCompositionOptions forwards model bootstrap setters
 
   expect(result.setAgentModelsPayload).toBe(setAgentModelsPayload);
   expect(result.setHasLoadedAgentModels).toBe(setHasLoadedAgentModels);
+});
+
+test('composeMainAppActionCompositionOptions forwards extension panel setters into sidepanel actions', () => {
+  const noop = () => {};
+  const setExtensionStatusPanels = () => {};
+  const result = composeMainAppActionCompositionOptions({
+    routeState: {
+      currentChatJid: 'chat-1',
+      currentRootChatJid: 'root-1',
+      chatOnlyMode: false,
+      navigate: noop,
+      branchLoaderMode: false,
+      branchLoaderSourceChatJid: 'chat-1',
+      isWebAppMode: true,
+    },
+    searchState: {
+      currentHashtag: null,
+      setCurrentHashtag: noop,
+      searchQuery: null,
+      setSearchQuery: noop,
+      searchOpen: false,
+      setSearchOpen: noop,
+      searchScope: 'current',
+      setSearchScope: noop,
+    },
+    shellState: {
+      activeChatAgents: [],
+      currentChatBranches: [],
+      currentBranchRecord: null,
+      contextUsage: null,
+      activeModel: 'gpt-5.4',
+      activeThinkingLevel: 'high',
+      supportsThinking: true,
+      activeModelUsage: null,
+      connectionStatus: 'connected',
+      notificationsEnabled: false,
+      notificationPermission: 'default',
+      workspaceOpen: false,
+      setWorkspaceOpen: noop,
+      userProfile: null,
+      agents: {},
+      removingPostIds: new Set(),
+      btwSession: null,
+    },
+    timeline: {
+      rawPosts: [],
+    },
+    interaction: {
+      clearQueuedSteerStateIfStale: noop,
+    },
+    paneRuntime: {
+      editorInstanceRef: { current: null },
+      dockInstanceRef: { current: null },
+      buildPaneDetachTransfer: () => null,
+      registerDetachedPaneWindow: noop,
+      dockVisible: true,
+      setDockVisible: noop,
+      hasDockPanes: true,
+      toggleDock: noop,
+      toggleZenMode: noop,
+      exitZenMode: noop,
+      zenMode: false,
+    },
+    refs: {
+      followupQueueItemsRef: { current: [] },
+      dismissedQueueRowIdsRef: { current: new Set() },
+      btwAbortRef: { current: null },
+      dismissedLiveWidgetKeysRef: { current: new Set() },
+      renameBranchInFlightRef: { current: false },
+      renameBranchLockUntilRef: { current: 0 },
+      appShellRef: { current: null },
+      editorWidthRef: { current: 0 },
+      dockHeightRef: { current: 0 },
+      sidebarWidthRef: { current: 0 },
+    },
+    setters: {
+      setFollowupQueueItems: noop,
+      setExtensionStatusPanels,
+      setPendingExtensionPanelActions: noop,
+      setBtwSession: noop,
+      setFloatingWidget: noop,
+      setRenameBranchNameDraft: noop,
+      setIsRenameBranchFormOpen: noop,
+      setIsRenamingBranch: noop,
+      setBranchLoaderState: noop,
+      setActiveChatAgents: noop,
+      setCurrentChatBranches: noop,
+    },
+    services: {
+      steerAgentQueueItem: async () => null,
+      removeAgentQueueItem: async () => null,
+      stopAutoresearch: async () => null,
+      dismissAutoresearch: async () => null,
+      streamSidePrompt: async () => null,
+      sendAgentMessage: async () => null,
+      getAgentStatus: async () => null,
+      getAgentContext: async () => null,
+      getAgentQueueState: async () => [],
+      getAgentModels: async () => null,
+      getActiveChatAgents: async () => [],
+      getChatBranches: async () => [],
+      getTimeline: async () => [],
+      renameChatBranch: async () => null,
+      pruneChatBranch: async () => null,
+      restoreChatBranch: async () => null,
+      forkChatBranch: async () => null,
+      openEditor: noop,
+      tabStripActiveId: '/terminal',
+      terminalTabPath: '/terminal',
+      tabPaneOverrides: null,
+      resolveTab: () => null,
+      closeTab: noop,
+      editorOpen: true,
+      isAgentTurnActive: false,
+    },
+    helpers: {
+      getFormLock: () => 0,
+      readStoredNumber: () => 320,
+    },
+  } as any, {
+    showIntentToast: noop,
+    agentStatusLifecycleBundle: {
+      agentStatusLifecycle: {
+        refreshQueueState: async () => {},
+        refreshContextUsage: async () => {},
+        refreshAutoresearchStatus: async () => {},
+      },
+      chatRefreshLifecycle: {
+        refreshActiveChatAgents: async () => {},
+        refreshCurrentChatBranches: async () => {},
+      },
+    },
+    isComposeBoxAgentActive: true,
+  });
+
+  expect(result.setExtensionStatusPanels).toBe(setExtensionStatusPanels);
+  expect(result.currentRootChatJid).toBe('root-1');
+  expect(result.isComposeBoxAgentActive).toBe(true);
 });

@@ -121,6 +121,69 @@ test('runExtensionStatusPanelAction executes supported autoresearch panel action
   expect(calls).toEqual(['copy:tmux attach -t auto', 'stop:web:chat:true', 'dismiss:web:chat']);
 });
 
+test('runExtensionStatusPanelAction posts codex panel actions and returns the dismiss key', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: Array<{ url: string; init: RequestInit | undefined }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchCalls.push({ url: String(url), init });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const stopResult = await runExtensionStatusPanelAction({
+      panel: { key: 'codex:job-1' },
+      action: { key: 'stop', action_type: 'codex.stop.task-123' },
+      currentChatJid: 'web:chat',
+      stopAutoresearch: async () => undefined,
+      dismissAutoresearch: async () => undefined,
+      writeClipboard: async () => undefined,
+    });
+    expect(stopResult).toEqual({
+      refreshAutoresearchStatus: false,
+      dismissPanelKey: 'codex:job-1',
+    });
+
+    const dismissResult = await runExtensionStatusPanelAction({
+      panel: { key: 'codex:job-2' },
+      action: { key: 'dismiss', action_type: 'codex.dismiss.task-456' },
+      currentChatJid: 'web:chat',
+      stopAutoresearch: async () => undefined,
+      dismissAutoresearch: async () => undefined,
+      writeClipboard: async () => undefined,
+    });
+    expect(dismissResult).toEqual({
+      refreshAutoresearchStatus: false,
+      dismissPanelKey: 'codex:job-2',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  expect(fetchCalls).toEqual([
+    {
+      url: '/agent/codex/stop',
+      init: {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'codex.stop.task-123', chat_jid: 'web:chat' }),
+      },
+    },
+    {
+      url: '/agent/codex/dismiss',
+      init: {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'codex.dismiss.task-456', chat_jid: 'web:chat' }),
+      },
+    },
+  ]);
+});
+
 test('runExtensionStatusPanelAction rejects unsupported or incomplete actions', async () => {
   await expect(runExtensionStatusPanelAction({
     panel: {},
