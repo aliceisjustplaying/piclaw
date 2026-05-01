@@ -16,6 +16,7 @@ import {
   PROTOCOL_VERSION,
   ndJsonStream,
   type Client,
+  type ContentBlock,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
@@ -25,12 +26,16 @@ import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { getTimeline } from "../db.js";
-import { WORKSPACE_DIR } from "../core/config.js";
+import { WORKSPACE_DIR, getAgentBackendConfig } from "../core/config.js";
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
 
 const log = createLogger("agent-pool.acp-backend");
 const require = createRequire(import.meta.url);
-const DEFAULT_REPLAY_MESSAGES = 20;
+const STABLE_ACP_PROMPT = [
+  "You are running as Piclaw's ACP backend.",
+  "Use your native ACP harness for repository inspection, shell commands, file edits, and reasoning.",
+  "Piclaw is providing recent chat transcript context separately from the current user message.",
+].join("\n");
 
 type AcpToolState = {
   title: string;
@@ -38,18 +43,27 @@ type AcpToolState = {
   args?: unknown;
 };
 
-function parseReplayMessageLimit(): number {
-  const raw = process.env.PICLAW_ACP_REPLAY_MESSAGES;
-  const parsed = Number.parseInt(String(raw || ""), 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 200) : DEFAULT_REPLAY_MESSAGES;
-}
+type AcpPromptParts = {
+  prompt: ContentBlock[];
+  replayCount: number;
+  transcriptChars: number;
+  promptChars: number;
+};
+
+type AcpClientDiagnostics = {
+  agentMessageChunks: number;
+  thoughtChunks: number;
+  toolCallUpdates: number;
+  permissionRequests: number;
+  selectedPermissionRequests: number;
+};
 
 function getWorkspaceDir(): string {
   return process.env.PICLAW_WORKSPACE || WORKSPACE_DIR;
 }
 
 function resolveCodexAcpCommand(): { command: string; args: string[] } {
-  const override = process.env.PICLAW_CODEX_ACP_COMMAND?.trim();
+  const override = getAgentBackendConfig().codexAcpCommand;
   if (override) return { command: override, args: [] };
 
   const packageJsonPath = require.resolve("@agentclientprotocol/codex-acp/package.json");
@@ -64,9 +78,13 @@ function normalizeContent(value: unknown): string {
   return String(value ?? "").replace(/\r\n/g, "\n").trim();
 }
 
-function buildReplayPrompt(chatJid: string, prompt: string): string {
-  const replayLimit = parseReplayMessageLimit();
-  if (replayLimit <= 0) return prompt;
+function buildReplayPrompt(chatJid: string, prompt: string): AcpPromptParts {
+  const replayLimit = getAgentBackendConfig().replayMessages;
+  const blocks: ContentBlock[] = [{ type: "text", text: STABLE_ACP_PROMPT }];
+  if (replayLimit <= 0) {
+    blocks.push({ type: "text", text: `Current user message:\n${prompt}` });
+    return { prompt: blocks, replayCount: 0, transcriptChars: 0, promptChars: prompt.length };
+  }
 
   const rows = getTimeline(chatJid, replayLimit + 1);
   const normalizedPrompt = normalizeContent(prompt);
@@ -76,20 +94,24 @@ function buildReplayPrompt(chatJid: string, prompt: string): string {
     return content && !isLatestDuplicate;
   }).slice(-replayLimit);
 
-  if (priorRows.length === 0) return prompt;
+  if (priorRows.length === 0) {
+    blocks.push({ type: "text", text: `Current user message:\n${prompt}` });
+    return { prompt: blocks, replayCount: 0, transcriptChars: 0, promptChars: prompt.length };
+  }
 
   const transcript = priorRows.map((row) => {
     const role = row.data?.type === "agent_response" ? "assistant" : "user";
     return `${role}: ${normalizeContent(row.data?.content)}`;
   }).join("\n\n");
 
-  return [
-    "Previous Piclaw transcript, oldest to newest:",
-    transcript,
-    "",
-    "Current user message:",
-    prompt,
-  ].join("\n");
+  blocks.push({ type: "text", text: `Previous Piclaw transcript, oldest to newest:\n${transcript}` });
+  blocks.push({ type: "text", text: `Current user message:\n${prompt}` });
+  return {
+    prompt: blocks,
+    replayCount: priorRows.length,
+    transcriptChars: transcript.length,
+    promptChars: prompt.length,
+  };
 }
 
 function textMessageUpdate(delta: string, phase: "start" | "delta" | "end"): AgentSessionEvent {
@@ -165,6 +187,13 @@ class PiclawAcpClient implements Client {
   private finalText = "";
   private textStarted = false;
   private readonly tools = new Map<string, AcpToolState>();
+  private readonly diagnostics: AcpClientDiagnostics = {
+    agentMessageChunks: 0,
+    thoughtChunks: 0,
+    toolCallUpdates: 0,
+    permissionRequests: 0,
+    selectedPermissionRequests: 0,
+  };
 
   constructor(private readonly onEvent?: (event: AgentSessionEvent) => void) {}
 
@@ -172,15 +201,27 @@ class PiclawAcpClient implements Client {
     return this.finalText.trim();
   }
 
+  getDiagnostics(): AcpClientDiagnostics {
+    return { ...this.diagnostics };
+  }
+
   async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    this.diagnostics.permissionRequests += 1;
     const optionId = selectPermissionOption(params);
+    log.info("ACP permission request handled", {
+      operation: "acp.permission_request",
+      optionCount: Array.isArray(params.options) ? params.options.length : 0,
+      selectedOptionId: optionId,
+    });
     if (!optionId) return { outcome: { outcome: "cancelled" } };
+    this.diagnostics.selectedPermissionRequests += 1;
     return { outcome: { outcome: "selected", optionId } };
   }
 
   async sessionUpdate(params: SessionNotification): Promise<void> {
     const update = params.update;
     if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
+      this.diagnostics.agentMessageChunks += 1;
       const text = update.content.text || "";
       if (!this.textStarted) {
         this.textStarted = true;
@@ -192,18 +233,35 @@ class PiclawAcpClient implements Client {
     }
 
     if (update.sessionUpdate === "agent_thought_chunk" && update.content.type === "text") {
+      this.diagnostics.thoughtChunks += 1;
       this.onEvent?.(thoughtMessageUpdate(update.content.text || ""));
       return;
     }
 
     if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
+      this.diagnostics.toolCallUpdates += 1;
       emitToolUpdate(update, this.tools, this.onEvent);
     }
   }
 }
 
 export function shouldUseCodexAcpBackend(): boolean {
-  return process.env.PICLAW_AGENT_BACKEND === "acp-codex" || process.env.PICLAW_EXPERIMENTAL_CODEX_ACP === "1";
+  return getAgentBackendConfig().backend === "codex-acp";
+}
+
+function observeChildExit(child: ChildProcessWithoutNullStreams): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+}
+
+async function waitForChildExit(
+  childExit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null } | null> {
+  return Promise.race([
+    childExit,
+    Bun.sleep(1_000).then(() => null),
+  ]);
 }
 
 export async function runCodexAcpPrompt(
@@ -215,13 +273,23 @@ export async function runCodexAcpPrompt(
   const cwd = getWorkspaceDir();
   const acpCommand = resolveCodexAcpCommand();
   let child: ChildProcessWithoutNullStreams | null = null;
+  let childExit: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | null = null;
 
   try {
+    log.info("Starting Codex ACP backend", {
+      operation: "acp.codex.start",
+      chatJid,
+      cwd,
+      command: acpCommand.command,
+      argCount: acpCommand.args.length,
+      replayMessages: getAgentBackendConfig().replayMessages,
+    });
     child = spawn(acpCommand.command, acpCommand.args, {
       cwd,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    childExit = observeChildExit(child);
 
     const client = new PiclawAcpClient(runOptions.onEvent);
     const stream = ndJsonStream(
@@ -234,7 +302,7 @@ export async function runCodexAcpPrompt(
     child.stderr.on("data", (chunk) => {
       const text = String(chunk || "");
       stderrChunks.push(text);
-      log.debug("codex-acp stderr", { operation: "acp.codex.stderr", text });
+      log.debug("codex-acp stderr", { operation: "acp.codex.stderr", chars: text.length, text });
     });
 
     await connection.initialize({
@@ -242,12 +310,26 @@ export async function runCodexAcpPrompt(
       clientInfo: { name: "piclaw", version: "acp-spike" },
       clientCapabilities: {},
     });
+    log.info("Codex ACP connection initialized", {
+      operation: "acp.codex.initialized",
+      chatJid,
+      protocolVersion: PROTOCOL_VERSION,
+    });
 
     const session = await connection.newSession({ cwd, mcpServers: [] });
     const replayPrompt = buildReplayPrompt(chatJid, prompt);
+    log.info("Codex ACP session ready", {
+      operation: "acp.codex.session_ready",
+      chatJid,
+      sessionId: session.sessionId,
+      promptBlockCount: replayPrompt.prompt.length,
+      replayCount: replayPrompt.replayCount,
+      transcriptChars: replayPrompt.transcriptChars,
+      promptChars: replayPrompt.promptChars,
+    });
     const result = await connection.prompt({
       sessionId: session.sessionId,
-      prompt: [{ type: "text", text: replayPrompt }],
+      prompt: replayPrompt.prompt,
     });
 
     const finalText = client.getFinalText();
@@ -262,6 +344,20 @@ export async function runCodexAcpPrompt(
     } as unknown as AgentSessionEvent);
 
     child.kill();
+    const exit = childExit ? await waitForChildExit(childExit) : null;
+    const diagnostics = client.getDiagnostics();
+    log.info("Codex ACP prompt completed", {
+      operation: "acp.codex.prompt_complete",
+      chatJid,
+      sessionId: session.sessionId,
+      stopReason: result.stopReason,
+      durationMs: Date.now() - startedAt,
+      finalTextChars: finalText.length,
+      stderrChars: stderrChunks.join("").length,
+      childExitCode: exit?.code ?? null,
+      childSignal: exit?.signal ?? null,
+      ...diagnostics,
+    });
     const status = result.stopReason === "cancelled" || result.stopReason === "refusal" ? "error" : "success";
     return status === "success"
       ? { status: "success", result: finalText || null }

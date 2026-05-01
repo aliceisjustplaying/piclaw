@@ -67,6 +67,11 @@ const envConfig = readEnvFile([
   "AGENT_TIMEOUT",
   "PICLAW_BACKGROUND_AGENT_TIMEOUT",
   "AGENT_TIMEOUT_BACKGROUND",
+  "PICLAW_AGENT_BACKEND",
+  "PICLAW_EXPERIMENTAL_CODEX_ACP",
+  "PICLAW_ACP_REPLAY_MESSAGES",
+  "PICLAW_CODEX_ACP_COMMAND",
+  "PICLAW_CLAUDE_ACP_COMMAND",
   "PICLAW_WHATSAPP_PHONE",
   "WHATSAPP_PHONE",
   "PUSHOVER_APP_TOKEN",
@@ -466,6 +471,67 @@ export const AGENT_RUNTIME_CONFIG = Object.freeze<AgentRuntimeConfig>({
 /** Return grouped agent timeout settings for runtime wiring and tests. */
 export function getAgentRuntimeConfig(): Readonly<AgentRuntimeConfig> {
   return AGENT_RUNTIME_CONFIG;
+}
+
+// ---------------------------------------------------------------------------
+// Agent backend selection.
+// ---------------------------------------------------------------------------
+
+export type AgentBackend = "pi" | "codex-acp" | "claude-acp";
+
+export interface AgentBackendConfig {
+  backend: AgentBackend;
+  replayMessages: number;
+  codexAcpCommand: string;
+  claudeAcpCommand: string;
+}
+
+function parseAgentBackend(): AgentBackend {
+  const raw = (
+    process.env.PICLAW_AGENT_BACKEND ||
+    envConfig.PICLAW_AGENT_BACKEND ||
+    ""
+  ).trim().toLowerCase();
+
+  if (!raw && (process.env.PICLAW_EXPERIMENTAL_CODEX_ACP || envConfig.PICLAW_EXPERIMENTAL_CODEX_ACP) === "1") {
+    return "codex-acp";
+  }
+
+  if (!raw || raw === "pi") return "pi";
+  if (raw === "codex-acp") return "codex-acp";
+  if (raw === "claude-acp") return "claude-acp";
+  if (raw === "acp-codex") {
+    log.warn("Deprecated agent backend alias is set", {
+      operation: "core_config.agent_backend.deprecated_alias",
+      configuredBackend: raw,
+      canonicalBackend: "codex-acp",
+    });
+    return "codex-acp";
+  }
+
+  log.warn("Unknown agent backend configured; falling back to pi", {
+    operation: "core_config.agent_backend.unknown",
+    configuredBackend: raw,
+    allowedBackends: ["pi", "codex-acp", "claude-acp"],
+  });
+  return "pi";
+}
+
+function parseAcpReplayMessages(): number {
+  const raw = process.env.PICLAW_ACP_REPLAY_MESSAGES || envConfig.PICLAW_ACP_REPLAY_MESSAGES || "";
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 200) : 20;
+}
+
+export const AGENT_BACKEND_CONFIG = Object.freeze<AgentBackendConfig>({
+  backend: parseAgentBackend(),
+  replayMessages: parseAcpReplayMessages(),
+  codexAcpCommand: (process.env.PICLAW_CODEX_ACP_COMMAND || envConfig.PICLAW_CODEX_ACP_COMMAND || "").trim(),
+  claudeAcpCommand: (process.env.PICLAW_CLAUDE_ACP_COMMAND || envConfig.PICLAW_CLAUDE_ACP_COMMAND || "").trim(),
+});
+
+export function getAgentBackendConfig(): Readonly<AgentBackendConfig> {
+  return AGENT_BACKEND_CONFIG;
 }
 
 /** Parse a numeric port string, falling back to `fallback` on failure. */
