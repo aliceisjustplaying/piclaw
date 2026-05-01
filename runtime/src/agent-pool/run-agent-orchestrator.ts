@@ -20,7 +20,7 @@ import {
   type RecoveryClassifier,
   type RecoveryStrategy,
 } from "./automatic-recovery.js";
-import { getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
+import { getAgentBackendConfig, getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
 import { writeAgentLog } from "./logging.js";
@@ -51,6 +51,7 @@ import {
 } from "./blank-turn-detection.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
+import { runCodexAppServerPrompt, type PiclawBridgeSession } from "./codex-app-server-backend.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -795,6 +796,34 @@ export async function runAgentPrompt(
   try {
     if (runOptions.scheduleIdleAutoCompaction) {
       cancelScheduledIdleAutoCompaction(chatJid);
+    }
+
+    if (getAgentBackendConfig().backend === "codex-app-server") {
+      const runtime = await options.getOrCreateRuntime(chatJid);
+      modelLabel = getAgentBackendConfig().codexAppServerModel
+        ? `codex/${getAgentBackendConfig().codexAppServerModel}`
+        : "codex/default";
+      updateSessionModel(chatJid, modelLabel, null);
+      beginTrackedPhase(chatJid, "prompt", { source: "run_agent.codex_app_server" });
+      options.onInfo?.("Using experimental Codex app-server backend", {
+        operation: "run_agent_prompt.codex_app_server_backend_selected",
+        chatJid,
+        model: modelLabel,
+        promptLength: prompt.length,
+        ...getRunObservabilityDetails(runOptions),
+      });
+      const output = await runCodexAppServerPrompt(prompt, chatJid, runOptions, runtime.session as unknown as PiclawBridgeSession);
+      const duration = Date.now() - startTime;
+      writeAgentLog(
+        options.logsDir,
+        chatJid,
+        duration,
+        false,
+        output.status === "success" ? output.result : null,
+        output.status === "error" ? output.error || "Codex app-server error" : null,
+        null,
+      );
+      return output;
     }
 
     const runtime = await options.getOrCreateRuntime(chatJid);

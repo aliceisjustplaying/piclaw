@@ -27,6 +27,8 @@ import { readJsonConfig, writeJsonConfig } from "./config-store.js";
 import { createLogger } from "../utils/logger.js";
 import { getConfiguredLogLevel, parseLogLevel } from "../utils/log-level.js";
 
+const log = createLogger("core.config");
+
 // ---------------------------------------------------------------------------
 // CLI argument parsing helpers.
 // ---------------------------------------------------------------------------
@@ -67,6 +69,9 @@ const envConfig = readEnvFile([
   "AGENT_TIMEOUT",
   "PICLAW_BACKGROUND_AGENT_TIMEOUT",
   "AGENT_TIMEOUT_BACKGROUND",
+  "PICLAW_AGENT_BACKEND",
+  "PICLAW_CODEX_APP_SERVER_COMMAND",
+  "PICLAW_CODEX_APP_SERVER_MODEL",
   "PICLAW_WHATSAPP_PHONE",
   "WHATSAPP_PHONE",
   "PUSHOVER_APP_TOKEN",
@@ -325,8 +330,6 @@ const configTrustProxy = pickBoolean(webConfig, [
 // Deprecation warnings for renamed environment variables.
 // ---------------------------------------------------------------------------
 
-const log = createLogger("core.config");
-
 /** Emit a structured warning if only the old env var name is set. */
 function warnDeprecatedEnv(oldName: string, newName: string): void {
   const oldValue = process.env[oldName] ?? envConfig[oldName];
@@ -466,6 +469,40 @@ export const AGENT_RUNTIME_CONFIG = Object.freeze<AgentRuntimeConfig>({
 /** Return grouped agent timeout settings for runtime wiring and tests. */
 export function getAgentRuntimeConfig(): Readonly<AgentRuntimeConfig> {
   return AGENT_RUNTIME_CONFIG;
+}
+
+// ---------------------------------------------------------------------------
+// Agent backend selection.
+// ---------------------------------------------------------------------------
+
+export type AgentBackend = "pi" | "codex-app-server";
+
+export interface AgentBackendConfig {
+  backend: AgentBackend;
+  codexAppServerCommand: string;
+  codexAppServerModel: string | null;
+}
+
+function parseAgentBackend(): AgentBackend {
+  const raw = (process.env.PICLAW_AGENT_BACKEND || envConfig.PICLAW_AGENT_BACKEND || "").trim().toLowerCase();
+  if (!raw || raw === "pi") return "pi";
+  if (raw === "codex-app-server" || raw === "codex") return "codex-app-server";
+  log.warn("Unknown agent backend configured; falling back to pi", {
+    operation: "core_config.agent_backend.unknown",
+    configuredBackend: raw,
+    allowedBackends: ["pi", "codex-app-server"],
+  });
+  return "pi";
+}
+
+export const AGENT_BACKEND_CONFIG = Object.freeze<AgentBackendConfig>({
+  backend: parseAgentBackend(),
+  codexAppServerCommand: (process.env.PICLAW_CODEX_APP_SERVER_COMMAND || envConfig.PICLAW_CODEX_APP_SERVER_COMMAND || "codex").trim(),
+  codexAppServerModel: (process.env.PICLAW_CODEX_APP_SERVER_MODEL || envConfig.PICLAW_CODEX_APP_SERVER_MODEL || "").trim() || null,
+});
+
+export function getAgentBackendConfig(): Readonly<AgentBackendConfig> {
+  return AGENT_BACKEND_CONFIG;
 }
 
 /** Parse a numeric port string, falling back to `fallback` on failure. */
