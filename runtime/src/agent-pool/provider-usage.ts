@@ -133,18 +133,14 @@ function formatCurrencyMinorUnits(amountMinor: number | null, currency: string |
 function buildCodexHint(
   primary: ProviderUsageWindow | null,
   secondary: ProviderUsageWindow | null,
-  creditsRemaining: number | null,
-  creditsUnlimited: boolean
+  _creditsRemaining: number | null,
+  _creditsUnlimited: boolean
 ): string {
   const parts: string[] = [];
   const p1 = compactPercent(primary?.remaining_percent ?? null);
   const p2 = compactPercent(secondary?.remaining_percent ?? null);
   if (p1) parts.push(`5h ${p1}`);
   if (p2) parts.push(`wk ${p2}`);
-  if (creditsUnlimited) parts.push("credits ∞");
-  else if (creditsRemaining != null && Number.isFinite(creditsRemaining)) {
-    parts.push(`credits ${creditsRemaining.toFixed(creditsRemaining >= 100 ? 0 : 1).replace(/\.0$/, "")}`);
-  }
   return parts.join(" • ");
 }
 
