@@ -832,6 +832,8 @@ const PROGRESS_WATCHDOG_TIMEOUT_CONFIG_KEYS = [
 ];
 const configProgressWatchdogEnabled = pickBoolean(compactionConfig, PROGRESS_WATCHDOG_ENABLED_CONFIG_KEYS);
 const configProgressWatchdogTimeoutMs = pickNumber(compactionConfig, PROGRESS_WATCHDOG_TIMEOUT_CONFIG_KEYS);
+const configCompactionThresholdPercent = pickNumber(compactionConfig, ["thresholdPercent", "threshold_percent", "PICLAW_COMPACTION_THRESHOLD_PERCENT"]);
+const configCompactionBackoffDecayFactor = pickNumber(compactionConfig, ["backoffDecayFactor", "backoff_decay_factor", "PICLAW_COMPACTION_BACKOFF_DECAY_FACTOR"]);
 const hasExplicitConfigProgressWatchdogTimeout = hasDefinedConfigValue(compactionConfig, PROGRESS_WATCHDOG_TIMEOUT_CONFIG_KEYS);
 const envProgressWatchdogEnabled = pickBoolean({
   PICLAW_PROGRESS_WATCHDOG_ENABLED: process.env.PICLAW_PROGRESS_WATCHDOG_ENABLED ?? envConfig.PICLAW_PROGRESS_WATCHDOG_ENABLED,
@@ -1009,8 +1011,10 @@ let COMPACTION_RUNTIME_CONFIG: CompactionRuntimeConfig = Object.seal({
   progressWatchdogTimeoutMs: Number.isFinite(configProgressWatchdogTimeoutMs)
     ? Math.max(0, Math.round(Number(configProgressWatchdogTimeoutMs)))
     : DEFAULT_PROGRESS_WATCHDOG_TIMEOUT_MS,
-  thresholdPercent: 50,
-  backoffDecayFactor: 0.5,
+  thresholdPercent: typeof configCompactionThresholdPercent === "number" && configCompactionThresholdPercent > 0 && configCompactionThresholdPercent <= 100
+    ? configCompactionThresholdPercent : 50,
+  backoffDecayFactor: typeof configCompactionBackoffDecayFactor === "number" && configCompactionBackoffDecayFactor > 0 && configCompactionBackoffDecayFactor <= 1
+    ? configCompactionBackoffDecayFactor : 0.5,
 });
 
 function parseOptionalBooleanFlag(value: unknown, fallback: boolean): boolean {
