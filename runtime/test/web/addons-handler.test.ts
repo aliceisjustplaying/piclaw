@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import pathModule, { dirname, join } from 'node:path';
 
 import '../helpers.js';
 import { withTempWorkspaceEnv } from '../helpers.js';
@@ -513,8 +513,7 @@ test('handleAddonAssetRequest serves transpiled addon browser modules', async ()
 });
 
 test('handleAddonAssetRequest accepts Windows-style resolved paths inside the addon root', async () => {
-  const originalResolve = require('node:path').resolve;
-  const pathModule = require('node:path');
+  const originalResolve = pathModule.resolve;
   pathModule.resolve = ((...parts: string[]) => {
     const joined = parts.join('/').replace(/\\/g, '/').replace(/\/+/g, '/');
     if (joined.endsWith('/web/index.ts')) return 'C:\\workspace\\.pi\\extensions\\node_modules\\piclaw-addon-example\\web\\index.ts';

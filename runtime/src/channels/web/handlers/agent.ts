@@ -1013,6 +1013,11 @@ export async function handleAgentMessage(
     const isQueueCommand = command.type === "queue" || command.type === "queue_all";
     const isSteerCommand = command.type === "steer";
 
+    const rollupTargetChatJid = command.type === "rollup" && result.status === "success" && typeof (result as { rolled_up_to?: unknown }).rolled_up_to === "string"
+      ? String((result as { rolled_up_to?: string }).rolled_up_to || "").trim()
+      : "";
+    const responseChatJid = rollupTargetChatJid || chatJid;
+
     if (formatted || result.contentBlocks?.length) {
       if (isQueueCommand && result.queued_followup) {
         return queueDeferredFollowup(((command as { message?: string }).message || content).trim());
@@ -1036,7 +1041,7 @@ export async function handleAgentMessage(
         if (result.contentBlocks?.length) {
           sendOptions.contentBlocks = result.contentBlocks;
         }
-        await channel.sendMessage(chatJid, formatted || "", sendOptions);
+        await channel.sendMessage(responseChatJid, formatted || "", sendOptions);
       }
     }
 
@@ -1066,6 +1071,13 @@ export async function handleAgentMessage(
         thinking_level: thinkingLevel ?? null,
         thinking_level_label: thinkingLevelLabel ?? thinkingLevel ?? null,
         supports_thinking: supportsThinking,
+      });
+    }
+
+    if (command.type === "rollup" && rollupTargetChatJid) {
+      channel.broadcastEvent("extension_ui_title", {
+        chat_jid: rollupTargetChatJid,
+        title: "",
       });
     }
 

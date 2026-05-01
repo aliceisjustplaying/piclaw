@@ -50,6 +50,7 @@ import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/se
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
 import {
   type ChatBranchRecord,
+  type MergeChatBranchIntoParentResult,
   type SshConfig,
   type SshConfigApplyTiming,
   type SshConfigClearResult,
@@ -328,6 +329,28 @@ export class AgentPool {
   }
 
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {
+    if (command.type === "rollup") {
+      try {
+        const result = await this.mergeChatBranchIntoParent(chatJid);
+        const counts = result.counts;
+        return {
+          status: "success",
+          message: [
+            `Rolled up ${result.source.chat_jid} into parent ${result.parent.chat_jid}.`,
+            `Moved: ${counts.messages} message(s), ${counts.token_usage} token-usage row(s), ${counts.scheduled_tasks} scheduled task(s).`,
+            "Note: Pi JSONL session files were not merged.",
+          ].join("\n"),
+          rolled_up_to: result.parent.chat_jid,
+          source_chat_jid: result.source.chat_jid,
+        };
+      } catch (error) {
+        return {
+          status: "error",
+          message: error instanceof Error ? error.message : String(error || "Failed to roll up branch."),
+        };
+      }
+    }
+
     return this.runtimeFacade.applyControlCommand(chatJid, command);
   }
 
@@ -484,6 +507,10 @@ export class AgentPool {
 
   async pruneChatBranch(chatJid: string): Promise<ChatBranchRecord> {
     return this.branchManager.pruneChatBranch(chatJid);
+  }
+
+  async mergeChatBranchIntoParent(chatJid: string): Promise<MergeChatBranchIntoParentResult> {
+    return this.branchManager.mergeChatBranchIntoParent(chatJid);
   }
 
   async renameChatJid(

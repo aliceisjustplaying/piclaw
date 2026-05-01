@@ -22,6 +22,7 @@ import path from "path";
 
 import { STORE_DIR, WORKSPACE_DIR } from "../core/config.js";
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
+import { recompressExistingMedia } from "./media-recompress.js";
 
 const log = createLogger("db.connection");
 
@@ -892,7 +893,6 @@ function ensureMediaCompression(database: Database): void {
   if (version >= 2) return;
 
   try {
-    const { recompressExistingMedia } = require("./media-recompress.js");
     const result = recompressExistingMedia();
     if (result.compressed > 0) {
       log.info("Media compression migration completed", {

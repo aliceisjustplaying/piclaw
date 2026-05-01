@@ -3,7 +3,6 @@
  */
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
-import { PICLAW_CONFIG_PATH } from "../../../core/config.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -173,6 +172,11 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   },
   {
     method: "POST",
+    path: "/agent/branch-merge-parent",
+    handle: (channel, req) => channel.handleAgentBranchMergeParent(req),
+  },
+  {
+    method: "POST",
     path: "/agent/branch-prune",
     handle: (channel, req) => channel.handleAgentBranchPrune(req),
   },
@@ -264,16 +268,6 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         }
         return { name: p.name, label: p.label, mode: p.mode, colors };
       });
-      // Read raw config for extra fields
-      let rawConfig: Record<string, unknown> = {};
-      try {
-        if (existsSync(PICLAW_CONFIG_PATH)) {
-          rawConfig = JSON.parse(readFileSync(PICLAW_CONFIG_PATH, "utf-8"));
-        }
-      } catch (e) { /* context usage non-critical — best effort */ void e; }
-      const assistantSection = typeof rawConfig.assistant === "object" && rawConfig.assistant ? rawConfig.assistant as Record<string, unknown> : rawConfig;
-      const userSection = typeof rawConfig.user === "object" && rawConfig.user ? rawConfig.user as Record<string, unknown> : rawConfig;
-
       // Read auth + custom provider state
       const piAgentDir = process.env.PICLAW_PI_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
       let authProviders: Record<string, unknown> = {};

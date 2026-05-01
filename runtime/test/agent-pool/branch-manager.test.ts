@@ -95,6 +95,41 @@ test("AgentBranchManager registers active chats and resolves agent handles", asy
   ws.cleanup();
 });
 
+test("AgentBranchManager renames branch handles without changing the chat JID", async () => {
+  const ws = createTempWorkspace("piclaw-branch-rename-");
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+
+  let appliedSessionName = "Topic";
+  const fixture = createManager();
+  fixture.pool.set("web:topic", {
+    runtime: createRuntime({
+      sessionName: "Topic",
+      setSessionName(name: string) {
+        appliedSessionName = name;
+        this.sessionName = name;
+      },
+      isStreaming: false,
+      isCompacting: false,
+      isRetrying: false,
+      isBashRunning: false,
+    }),
+    lastUsed: Date.now(),
+  });
+
+  const branch = await fixture.manager.renameChatBranch("web:topic", { agentName: "Research Bot" });
+
+  expect(branch.chat_jid).toBe("web:topic");
+  expect(branch.agent_name).toBe("research-bot");
+  expect(appliedSessionName).toBe("research-bot");
+  expect(db.getChatBranchByChatJid("web:topic")?.agent_name).toBe("research-bot");
+  expect(db.getChatBranchByChatJid("web:research-bot")).toBeNull();
+
+  ws.cleanup();
+});
+
 test("AgentBranchManager writes a deferred fork seed and schedules branch warmup without hydrating the target runtime", async () => {
   const ws = createTempWorkspace("piclaw-branch-seed-");
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
@@ -150,7 +185,8 @@ test("AgentBranchManager writes a deferred fork seed and schedules branch warmup
   fixture.pool.set("web:default", { runtime: createRuntime(sourceSession), lastUsed: Date.now() });
 
   const branch = await fixture.manager.createForkedChatBranch("web:default");
-  expect(branch.chat_jid).not.toBe("web:default");
+  expect(branch.chat_jid).toBe("web:default:research-2");
+  expect(branch.agent_name).toBe("research-2");
   expect(getOrCreateCalls).toBe(1);
   expect(scheduled).toEqual([branch.chat_jid]);
 
@@ -159,6 +195,52 @@ test("AgentBranchManager writes a deferred fork seed and schedules branch warmup
   expect(seed?.sessionName).toBe(branch.agent_name);
   expect(seed?.model).toEqual({ provider: "openai", modelId: "gpt-test" });
   expect(seed?.mode).toBe("rotated_context");
+
+  ws.cleanup();
+});
+
+test("AgentBranchManager builds readable hierarchical JIDs from branch handles", async () => {
+  const ws = createTempWorkspace("piclaw-readable-branch-jid-");
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Default");
+  const root = db.getChatBranchByChatJid("web:default");
+  db.storeChatMetadata("web:default:branch:legacy-parent", new Date().toISOString(), "Legacy Parent");
+  const parent = db.ensureChatBranch({
+    chat_jid: "web:default:branch:legacy-parent",
+    root_chat_jid: "web:default",
+    parent_branch_id: root?.branch_id ?? null,
+    agent_name: "parent",
+  });
+
+  const sourceManager = SessionManager.create(ws.workspace, join(ws.workspace, "legacy-parent-session"));
+  sourceManager.appendSessionInfo("Parent");
+  sourceManager.appendModelChange("openai", "gpt-test");
+  sourceManager.appendMessage({ role: "user", content: "stable user", timestamp: Date.now() } as const);
+
+  const fixture = createManager();
+  fixture.pool.set(parent.chat_jid, {
+    runtime: createRuntime({
+      sessionManager: sourceManager,
+      sessionFile: sourceManager.getSessionFile(),
+      sessionName: "Parent",
+      model: { provider: "openai", id: "gpt-test" },
+      isStreaming: false,
+      isCompacting: false,
+      isRetrying: false,
+      isBashRunning: false,
+    }),
+    lastUsed: Date.now(),
+  });
+
+  const child = await fixture.manager.createForkedChatBranch(parent.chat_jid, { agentName: "Child Work" });
+
+  expect(child.chat_jid).toBe("web:default:parent:child-work");
+  expect(child.root_chat_jid).toBe("web:default");
+  expect(child.parent_branch_id).toBe(parent.branch_id);
+  expect(child.agent_name).toBe("child-work");
 
   ws.cleanup();
 });

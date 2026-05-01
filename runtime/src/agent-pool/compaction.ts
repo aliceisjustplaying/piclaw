@@ -85,7 +85,6 @@ export function resetCompactionSuccessCount(chatJid: string): void {
 }
 
 export const DEFAULT_FALLBACK_CONTEXT_WINDOW = 128_000;
-const DEFAULT_COMPACTION_TIMEOUT_MS = 180_000;
 
 export function getModelContextWindow(session: AgentSession): number | null {
   const model = session.model as (AgentSession["model"] & { contextLength?: number }) | undefined;
@@ -98,11 +97,6 @@ export function getModelContextWindow(session: AgentSession): number | null {
     return null;
   }
   return contextWindow;
-}
-
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function parseNonNegativeInt(value: string | undefined, fallback: number): number {

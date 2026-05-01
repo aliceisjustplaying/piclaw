@@ -269,6 +269,16 @@ export async function renameChatBranch(chatJid, options = {}) {
 }
 
 /**
+ * Merge a child branch's SQLite chat state back into its parent branch.
+ */
+export async function mergeChatBranchIntoParent(chatJid) {
+    return request('/agent/branch-merge-parent', {
+        method: 'POST',
+        body: JSON.stringify({ chat_jid: chatJid }),
+    });
+}
+
+/**
  * Archive/prune a registry-backed chat branch / agent identity.
  */
 export async function pruneChatBranch(chatJid) {

@@ -113,6 +113,18 @@ export function getChatBranchByAgentName(agentName: string): ChatBranchRecord | 
   return toRecord(row);
 }
 
+function getChatBranchByBranchId(branchId: string): ChatBranchRecord | null {
+  const normalized = String(branchId || "").trim();
+  if (!normalized) return null;
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT branch_id, chat_jid, root_chat_jid, parent_branch_id, agent_name, created_at, updated_at, archived_at
+       FROM chat_branches
+      WHERE branch_id = ?`
+  ).get(normalized) as ChatBranchRow | undefined;
+  return toRecord(row);
+}
+
 export function listChatBranches(
   rootChatJid?: string | null,
   options?: { includeArchived?: boolean }
@@ -378,6 +390,155 @@ export function previewPermanentDeleteArchivedBranch(chatJid: string): ArchivedB
   };
 }
 
+export interface MergeChatBranchIntoParentResult {
+  source: ChatBranchRecord;
+  parent: ChatBranchRecord;
+  counts: {
+    messages: number;
+    token_usage: number;
+    scheduled_tasks: number;
+    chat_cursors: number;
+    ssh_configs: number;
+    proxmox_configs: number;
+    portainer_configs: number;
+    extension_kv: number;
+    chat_branches_deleted: number;
+    chats_deleted: number;
+  };
+}
+
+export function mergeChatBranchIntoParent(chatJid: string): MergeChatBranchIntoParentResult {
+  const normalizedChatJid = String(chatJid || "").trim();
+  if (!normalizedChatJid) throw new Error("chat_jid is required");
+
+  const source = getChatBranchByChatJid(normalizedChatJid);
+  if (!source) throw new Error(`Unknown chat branch: ${normalizedChatJid}`);
+  if (!source.parent_branch_id) {
+    throw new Error(`Cannot merge a root chat session into a parent: ${normalizedChatJid}`);
+  }
+
+  const parent = getChatBranchByBranchId(source.parent_branch_id);
+  if (!parent) throw new Error(`Missing parent branch for chat: ${normalizedChatJid}`);
+  if (parent.archived_at) throw new Error(`Cannot merge into an archived parent chat: ${parent.chat_jid}`);
+
+  const childCount = countRows(
+    `SELECT COUNT(*) AS count FROM chat_branches WHERE parent_branch_id = ?`,
+    source.branch_id,
+  );
+  if (childCount > 0) {
+    throw new Error(`Cannot merge a chat branch that still has child branches: ${normalizedChatJid}`);
+  }
+
+  const messageCollisionCount = countRows(
+    `SELECT COUNT(*) AS count
+       FROM messages source
+       JOIN messages parent ON parent.chat_jid = ? AND parent.id = source.id
+      WHERE source.chat_jid = ?`,
+    parent.chat_jid,
+    source.chat_jid,
+  );
+  if (messageCollisionCount > 0) {
+    throw new Error(`Cannot merge chat branch because ${messageCollisionCount} message id(s) already exist in the parent chat.`);
+  }
+
+  const db = getDb();
+  const counts = {
+    messages: countRows(`SELECT COUNT(*) AS count FROM messages WHERE chat_jid = ?`, source.chat_jid),
+    token_usage: countRows(`SELECT COUNT(*) AS count FROM token_usage WHERE chat_jid = ?`, source.chat_jid),
+    scheduled_tasks: countRows(`SELECT COUNT(*) AS count FROM scheduled_tasks WHERE chat_jid = ?`, source.chat_jid),
+    chat_cursors: countRows(`SELECT COUNT(*) AS count FROM chat_cursors WHERE chat_jid = ?`, source.chat_jid),
+    ssh_configs: countRows(`SELECT COUNT(*) AS count FROM ssh_configs WHERE chat_jid = ?`, source.chat_jid),
+    proxmox_configs: countRows(`SELECT COUNT(*) AS count FROM proxmox_configs WHERE chat_jid = ?`, source.chat_jid),
+    portainer_configs: countRows(`SELECT COUNT(*) AS count FROM portainer_configs WHERE chat_jid = ?`, source.chat_jid),
+    extension_kv: countRows(`SELECT COUNT(*) AS count FROM extension_kv WHERE scope = 'chat' AND scope_key = ?`, source.chat_jid),
+    chat_branches_deleted: 1,
+    chats_deleted: countRows(`SELECT COUNT(*) AS count FROM chats WHERE jid = ?`, source.chat_jid),
+  };
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(`UPDATE messages SET chat_jid = ? WHERE chat_jid = ?`).run(parent.chat_jid, source.chat_jid);
+    db.prepare(`UPDATE token_usage SET chat_jid = ? WHERE chat_jid = ?`).run(parent.chat_jid, source.chat_jid);
+    db.prepare(`UPDATE scheduled_tasks SET chat_jid = ? WHERE chat_jid = ?`).run(parent.chat_jid, source.chat_jid);
+
+    const parentCursorCount = countRows(`SELECT COUNT(*) AS count FROM chat_cursors WHERE chat_jid = ?`, parent.chat_jid);
+    if (parentCursorCount > 0) {
+      db.prepare(
+        `UPDATE chat_cursors
+            SET cursor_ts = CASE
+                  WHEN (SELECT cursor_ts FROM chat_cursors WHERE chat_jid = ?) > cursor_ts
+                    THEN (SELECT cursor_ts FROM chat_cursors WHERE chat_jid = ?)
+                  ELSE cursor_ts
+                END
+          WHERE chat_jid = ?`
+      ).run(source.chat_jid, source.chat_jid, parent.chat_jid);
+      db.prepare(`DELETE FROM chat_cursors WHERE chat_jid = ?`).run(source.chat_jid);
+    } else {
+      db.prepare(`UPDATE chat_cursors SET chat_jid = ? WHERE chat_jid = ?`).run(parent.chat_jid, source.chat_jid);
+    }
+
+    db.prepare(
+      `INSERT OR IGNORE INTO ssh_configs (
+         chat_jid, ssh_target, ssh_port, private_key_keychain, known_hosts_keychain,
+         strict_host_key_checking, created_at, updated_at
+       )
+       SELECT ?, ssh_target, ssh_port, private_key_keychain, known_hosts_keychain,
+              strict_host_key_checking, created_at, updated_at
+         FROM ssh_configs
+        WHERE chat_jid = ?`
+    ).run(parent.chat_jid, source.chat_jid);
+    db.prepare(`DELETE FROM ssh_configs WHERE chat_jid = ?`).run(source.chat_jid);
+
+    db.prepare(
+      `INSERT OR IGNORE INTO proxmox_configs (
+         chat_jid, base_url, api_token_keychain, allow_insecure_tls, created_at, updated_at
+       )
+       SELECT ?, base_url, api_token_keychain, allow_insecure_tls, created_at, updated_at
+         FROM proxmox_configs
+        WHERE chat_jid = ?`
+    ).run(parent.chat_jid, source.chat_jid);
+    db.prepare(`DELETE FROM proxmox_configs WHERE chat_jid = ?`).run(source.chat_jid);
+
+    db.prepare(
+      `INSERT OR IGNORE INTO portainer_configs (
+         chat_jid, base_url, api_token_keychain, allow_insecure_tls, created_at, updated_at
+       )
+       SELECT ?, base_url, api_token_keychain, allow_insecure_tls, created_at, updated_at
+         FROM portainer_configs
+        WHERE chat_jid = ?`
+    ).run(parent.chat_jid, source.chat_jid);
+    db.prepare(`DELETE FROM portainer_configs WHERE chat_jid = ?`).run(source.chat_jid);
+
+    db.prepare(
+      `INSERT OR IGNORE INTO extension_kv (extension_id, scope, scope_key, key, value, created_at, updated_at)
+       SELECT extension_id, scope, ?, key, value, created_at, updated_at
+         FROM extension_kv
+        WHERE scope = 'chat'
+          AND scope_key = ?`
+    ).run(parent.chat_jid, source.chat_jid);
+    db.prepare(`DELETE FROM extension_kv WHERE scope = 'chat' AND scope_key = ?`).run(source.chat_jid);
+
+    db.prepare(
+      `UPDATE chats
+          SET last_message_time = CASE
+                WHEN (SELECT last_message_time FROM chats WHERE jid = ?) > last_message_time
+                  THEN (SELECT last_message_time FROM chats WHERE jid = ?)
+                ELSE last_message_time
+              END
+        WHERE jid = ?`
+    ).run(source.chat_jid, source.chat_jid, parent.chat_jid);
+    db.prepare(`DELETE FROM chat_branches WHERE branch_id = ?`).run(source.branch_id);
+    db.prepare(`DELETE FROM chats WHERE jid = ?`).run(source.chat_jid);
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  return { source, parent, counts };
+}
+
 export function permanentDeleteArchivedBranch(chatJid: string): PermanentDeleteArchivedBranchResult {
   const preview = previewPermanentDeleteArchivedBranch(chatJid);
   const branch = preview.branch;
@@ -555,7 +716,6 @@ export function renameChatJid(oldJid: string, newJid: string): RenameChatJidResu
     db.exec(`INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')`);
   } catch (_ftsErr) {
     // Non-fatal: search may lag until the next natural rebuild.
-    // eslint-disable-next-line no-console
     console.debug("[chat-branches] FTS rebuild after rename failed — search may lag", _ftsErr);
   }
 

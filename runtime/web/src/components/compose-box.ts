@@ -55,6 +55,7 @@ export const SLASH_COMMANDS = [
   { name: "/new-session", description: "Start a new session" },
   { name: "/switch-session", description: "Switch to a session file" },
   { name: "/session-rotate", description: "Rotate the current persisted session into an archived file" },
+  { name: "/rollup", description: "Merge the current branch chat back into its parent chat" },
   { name: "/clone", description: "Duplicate the current active branch into a new session" },
   { name: "/fork", description: "Fork from a previous message" },
   { name: "/forks", description: "List forkable messages" },
@@ -913,6 +914,7 @@ export function ComposeBox({
     const [modelPopupIndex, setModelPopupIndex] = useState(0);
     const [sessionPopupIndex, setSessionPopupIndex] = useState(0);
     const [loadingModels, setLoadingModels] = useState(false);
+    const [rollingUpSession, setRollingUpSession] = useState(false);
     const [footerWidth, setFooterWidth] = useState(0);
     const [submitError, setSubmitError] = useState(null);
     const [submitNotice, setSubmitNotice] = useState(null);
@@ -1080,6 +1082,21 @@ export function ComposeBox({
         && currentSessionAgent.chat_jid === (currentSessionAgent.root_chat_jid || currentSessionAgent.chat_jid)
     );
     const isCurrentDefaultRootSession = Boolean(isCurrentRootSession && (currentSessionAgent?.chat_jid || currentChatJid) === 'web:default');
+    const currentRollupParent = (() => {
+        const parentBranchId = typeof currentSessionAgent?.parent_branch_id === 'string' ? currentSessionAgent.parent_branch_id.trim() : '';
+        const branchId = typeof currentSessionAgent?.branch_id === 'string' ? currentSessionAgent.branch_id.trim() : '';
+        if (!currentSessionAgent || !parentBranchId || !branchId || currentSessionAgent.archived_at) return null;
+        const children = (Array.isArray(activeChatAgents) ? activeChatAgents : []).filter((chat) => {
+            const candidateParent = typeof chat?.parent_branch_id === 'string' ? chat.parent_branch_id.trim() : '';
+            return candidateParent && candidateParent === branchId;
+        });
+        if (children.length > 0) return null;
+        const parent = (Array.isArray(activeChatAgents) ? activeChatAgents : []).find((chat) => {
+            const candidateId = typeof chat?.branch_id === 'string' ? chat.branch_id.trim() : '';
+            return candidateId && candidateId === parentBranchId && !chat?.archived_at;
+        });
+        return parent || null;
+    })();
     const switchableChatAgents = useMemo(() => resolveSessionPopupChats(activeChatAgents, currentChatJid), [activeChatAgents, currentChatJid]);
     const hasSwitchableChatAgents = switchableChatAgents.length > 0;
     const canSwitchSession = hasSwitchableChatAgents && typeof onSwitchChat === 'function';
@@ -1087,9 +1104,10 @@ export function ComposeBox({
     const renameInProgress = Boolean(isRenameSessionInProgress || renameSessionInProgressRef.current);
     const canRenameSession = !searchMode && typeof onRenameSession === 'function' && !renameInProgress;
     const canCreateSession = !searchMode && typeof onCreateSession === 'function';
+    const canRollupSession = !searchMode && !isAgentActive && !rollingUpSession && Boolean(currentRollupParent?.chat_jid);
     const canDeleteSession = !searchMode && typeof onDeleteSession === 'function' && !isCurrentDefaultRootSession;
     const canPurgeArchivedSession = !searchMode && typeof onPurgeArchivedSession === 'function';
-    const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canDeleteSession || canPurgeArchivedSession);
+    const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canRollupSession || canDeleteSession || canPurgeArchivedSession);
     const modelPickerState = resolveComposeModelPickerState(activeModel, agentModelsPayload);
     const showModelPickerHint = modelPickerState.showPicker;
     const modelHintLabel = modelPickerState.label;
@@ -1302,6 +1320,15 @@ export function ComposeBox({
         if (canCreateSession) {
             entries.push({ type: 'action', key: 'action:new', label: 'New session', action: 'new', disabled: false });
         }
+        if (currentRollupParent?.chat_jid) {
+            entries.push({
+                type: 'action',
+                key: 'action:rollup',
+                label: 'Merge current w/ parent',
+                action: 'rollup',
+                disabled: !canRollupSession,
+            });
+        }
         if (canRenameSession) {
             entries.push({ type: 'action', key: 'action:rename', label: 'Rename current session', action: 'rename', disabled: renameInProgress });
         }
@@ -1309,7 +1336,7 @@ export function ComposeBox({
             entries.push({ type: 'action', key: 'action:delete', label: 'Delete current session', action: 'delete', disabled: false });
         }
         return entries;
-    }, [switchableChatAgents, canRestoreSession, canSwitchSession, canCreateSession, canRenameSession, canDeleteSession, renameInProgress]);
+    }, [switchableChatAgents, canRestoreSession, canSwitchSession, canCreateSession, currentRollupParent, canRollupSession, canRenameSession, canDeleteSession, renameInProgress]);
 
     const handleRenameSession = async (event) => {
         if (event?.preventDefault) event.preventDefault();
@@ -1335,6 +1362,39 @@ export function ComposeBox({
             await onCreateSession();
         } catch (error) {
             console.warn('Failed to create session:', error);
+        }
+        requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+
+    const handleRollupSession = async () => {
+        const parentChatJid = typeof currentRollupParent?.chat_jid === 'string' ? currentRollupParent.chat_jid.trim() : '';
+        if (!parentChatJid || rollingUpSession || isAgentActive) return;
+        setShowSessionPopup(false);
+        setSubmitError(null);
+        setSubmitNotice(null);
+        setRollingUpSession(true);
+        try {
+            const response = await sendAgentMessage('default', '/rollup', null, [], null, currentChatJid);
+            onMessageResponse?.(response);
+            onPost?.(response);
+            const command = response?.command;
+            if (command?.status === 'error') {
+                const message = command?.message || 'Failed to merge current session with parent.';
+                setSubmitError(message);
+                onSubmitError?.(message);
+                return;
+            }
+            const rolledUpTo = typeof command?.rolled_up_to === 'string' && command.rolled_up_to.trim()
+                ? command.rolled_up_to.trim()
+                : parentChatJid;
+            onSwitchChat?.(rolledUpTo);
+        } catch (error) {
+            const message = error?.message || 'Failed to merge current session with parent.';
+            setSubmitError(message);
+            onSubmitError?.(message);
+            console.warn('Failed to merge session with parent:', error);
+        } finally {
+            setRollingUpSession(false);
         }
         requestAnimationFrame(() => textareaRef.current?.focus());
     };
@@ -1609,6 +1669,10 @@ export function ComposeBox({
         if (entry.type === 'action') {
             if (entry.action === 'new') {
                 void handleCreateSession();
+                return;
+            }
+            if (entry.action === 'rollup') {
+                void handleRollupSession();
                 return;
             }
             if (entry.action === 'rename') {
@@ -2745,6 +2809,17 @@ export function ComposeBox({
                                             title="Create a new agent/session branch from this chat"
                                         >
                                             New
+                                        </button>
+                                    `}
+                                    ${currentRollupParent?.chat_jid && html`
+                                        <button
+                                            type="button"
+                                            class=${`compose-model-popup-btn${sessionPopupEntries.findIndex((entry) => entry.key === 'action:rollup') === sessionPopupIndex ? ' active' : ''}`}
+                                            onClick=${() => { void handleRollupSession(); }}
+                                            title=${canRollupSession ? `Merge this branch into ${currentRollupParent.agent_name ? `@${currentRollupParent.agent_name}` : currentRollupParent.chat_jid}` : 'This branch cannot be merged while active or while it has children'}
+                                            disabled=${!canRollupSession}
+                                        >
+                                            Merge current w/ parent
                                         </button>
                                     `}
                                     ${canRenameSession && html`

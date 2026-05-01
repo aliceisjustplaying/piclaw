@@ -107,11 +107,11 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
 
 test("AgentRuntimeFacade returns registry-backed model options without hydrating a cold chat runtime", async () => {
   let refreshCalls = 0;
-  let getOrCreateCalls = 0;
+  let _getOrCreateCalls = 0;
 
   const fixture = createFacade({
     getOrCreateRuntime: async () => {
-      getOrCreateCalls += 1;
+      _getOrCreateCalls += 1;
       throw new Error("cold model lookup should not hydrate a runtime");
     },
     modelRegistry: {

@@ -18,6 +18,7 @@ export {
   renameChatBranchIdentity,
   renameChatJid,
   archiveChatBranch,
+  mergeChatBranchIntoParent,
   previewPermanentDeleteArchivedBranch,
   permanentDeleteArchivedBranch,
   restoreChatBranchIdentity,
@@ -154,6 +155,7 @@ export {
   deleteExpiredWebSessions,
   deleteAllWebSessions,
 } from "./db/web-sessions.js";
+export type { MergeChatBranchIntoParentResult } from "./db/chat-branches.js";
 export type {
   ChatBranchRecord,
   InteractionRow,

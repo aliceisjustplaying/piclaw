@@ -203,6 +203,9 @@ async function maybeAutoRotateSession(
   const exceedsLines = sessionStorageConfig.maxLines > 0
     && sessionFileLines !== null
     && sessionFileLines >= sessionStorageConfig.maxLines;
+  const compactionCount = getCompactionSuccessCount(chatJid);
+  const exceedsCompactions = sessionStorageConfig.maxCompactionsBeforeRotation > 0
+    && compactionCount >= sessionStorageConfig.maxCompactionsBeforeRotation;
   if (!exceedsSize && !exceedsLines && !exceedsCompactions) return session;
 
   if (session.isStreaming || session.isCompacting || session.isRetrying) {
@@ -235,7 +238,7 @@ async function maybeAutoRotateSession(
       previousSize: result.previousSize ?? sessionFileSize,
       previousLines: sessionFileLines,
       nextSize: result.nextSize ?? "unknown",
-      trigger: exceedsLines ? "lines" : "size",
+      trigger: exceedsCompactions ? "compactions" : exceedsLines ? "lines" : "size",
     });
     return runtime.session;
   }

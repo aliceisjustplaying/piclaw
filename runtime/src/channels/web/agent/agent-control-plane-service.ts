@@ -43,6 +43,7 @@ type ControlPlaneAgentPool = AgentPool & {
   createForkedChatBranch?: (chatJid: string, options?: { agentName?: string | null }) => Promise<unknown>;
   renameChatBranch?: (chatJid: string, options?: { agentName?: string | null }) => Promise<unknown>;
   renameChatJid?: (oldJid: string, newJid: string) => Promise<unknown>;
+  mergeChatBranchIntoParent?: (chatJid: string) => Promise<unknown>;
   pruneChatBranch?: (chatJid: string) => Promise<unknown>;
   permanentPurgeChatBranch?: (chatJid: string) => Promise<unknown>;
   restoreChatBranch?: (chatJid: string, options?: { agentName?: string | null }) => Promise<unknown>;
@@ -446,6 +447,28 @@ export class WebAgentControlPlaneService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || "Failed to rename JID.");
       return this.options.json({ error: message || "Failed to rename JID." }, 400);
+    }
+  }
+
+  async handleAgentBranchMergeParent(req: Request): Promise<Response> {
+    const parsed = await parseJsonObjectRequest(req);
+    if (!parsed.ok) return this.options.json({ error: parsed.error }, 400);
+
+    const payload = parsed.payload as { chat_jid?: string };
+    const chatJid = this.resolveRequiredChatJid(payload.chat_jid);
+    if (!chatJid) {
+      return this.options.json({ error: "Missing chat_jid" }, 400);
+    }
+
+    try {
+      const result = await this.options.agentPool.mergeChatBranchIntoParent?.(chatJid);
+      if (!result) {
+        return this.options.json({ error: "Branch merge is not available." }, 501);
+      }
+      return this.options.json({ status: "ok", ...result }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || "Failed to merge branch into parent.");
+      return this.options.json({ error: message || "Failed to merge branch into parent." }, 400);
     }
   }
 

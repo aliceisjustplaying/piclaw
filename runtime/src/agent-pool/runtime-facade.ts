@@ -78,7 +78,7 @@ function getPersistedSessionState(chatJid: string): { current: string | null; th
     persistedModelStateCache.delete(chatJid);
     return { current: null, thinkingLevel: null };
   }
-  let signature = fullPath;
+  let signature: string;
   try {
     const stat = statSync(fullPath);
     signature = `${fullPath}:${stat.size}:${Math.round(stat.mtimeMs)}`;

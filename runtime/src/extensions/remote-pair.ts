@@ -25,8 +25,6 @@ import {
   updateRemotePeer,
   upsertRemotePeer,
   createOutboundPairRequest,
-  getOutboundPairRequestById,
-  updateOutboundPairRequestStatus,
   getPendingRemoteRequests,
   getAllRemoteRequests,
   countRemoteRequests,
@@ -643,7 +641,7 @@ export async function runBlockPairFlow(idOrFingerprint: string, pi: ExtensionAPI
   const req = resolveIdOrFingerprintToPairRequest(idOrFingerprint);
   let instanceId: string;
   let publicKey: string;
-  let displayName: string | null = null;
+  let displayName: string | null;
 
   if (req) {
     if (req.status !== "pending") {

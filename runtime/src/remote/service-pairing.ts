@@ -6,7 +6,6 @@ import { createUuid } from "../utils/ids.js";
 import { getClientKey } from "../utils/request-client.js";
 import {
   createPairRequest,
-  getPairRequestById,
   getPendingPairRequest,
   getRemotePeer,
   getOutboundPairRequestById,
