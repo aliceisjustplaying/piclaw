@@ -93,6 +93,8 @@ export interface RunAgentOptions {
   timeoutMs?: number;
   /** Abort after this many tool calls complete. Undefined means no cap. */
   maxToolCalls?: number;
+  /** Media IDs from the user turn that should be forwarded to compatible backends. */
+  inputMediaIds?: number[];
   /**
    * Skip Piclaw-managed pre-prompt compaction for this run.
    *
