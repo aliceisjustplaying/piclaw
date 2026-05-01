@@ -12,6 +12,7 @@ export type SendMessageOptions =
       threadId?: number | null;
       forceRoot?: boolean;
       source?: string;
+      asUser?: boolean;
       mediaIds?: number[];
       contentBlocks?: Array<Record<string, unknown>>;
     };
@@ -39,6 +40,7 @@ export interface MessageWriteStore {
 /** Broadcast contract required by web message write flows. */
 export interface MessageWriteBroadcaster {
   broadcastAgentResponse(interaction: InteractionRow): void;
+  broadcastNewPost(interaction: InteractionRow): void;
   broadcastInteractionUpdated(interaction: InteractionRow): void;
 }
 
@@ -58,6 +60,7 @@ export interface MessageWriteContext {
 interface NormalizedSendMessageOptions {
   threadId: number | null;
   forceRoot: boolean;
+  asUser: boolean;
   mediaIds: number[];
   contentBlocks: Array<Record<string, unknown>> | undefined;
 }
@@ -80,6 +83,7 @@ function normalizeSendMessageOptions(options?: SendMessageOptions): NormalizedSe
   return {
     threadId: normalized.threadId ?? null,
     forceRoot: Boolean(normalized.forceRoot),
+    asUser: Boolean(normalized.asUser),
     mediaIds: mediaIds,
     contentBlocks,
   };
@@ -92,11 +96,11 @@ export function sendWebMessage(
   options: SendMessageOptions | undefined,
   ctx: MessageWriteContext
 ): void {
-  const { threadId, forceRoot, mediaIds, contentBlocks } = normalizeSendMessageOptions(options);
+  const { threadId, forceRoot, asUser, mediaIds, contentBlocks } = normalizeSendMessageOptions(options);
   const interaction = ctx.store.storeMessage(
     chatJid,
     text,
-    true,
+    !asUser,
     mediaIds,
     {
       ...(threadId !== null ? { threadId } : {}),
@@ -112,7 +116,8 @@ export function sendWebMessage(
     interaction.data.thread_id = interaction.id;
   }
 
-  ctx.broadcaster.broadcastAgentResponse(interaction);
+  if (asUser) ctx.broadcaster.broadcastNewPost(interaction);
+  else ctx.broadcaster.broadcastAgentResponse(interaction);
 }
 
 /** Store, queue, and broadcast a follow-up placeholder interaction. */

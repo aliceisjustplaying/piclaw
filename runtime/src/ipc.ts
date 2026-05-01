@@ -40,6 +40,7 @@ interface IpcMessageOptions {
   forceRoot?: boolean;
   threadId?: number | null;
   source?: string;
+  asUser?: boolean;
   mediaIds?: number[];
   contentBlocks?: Array<Record<string, unknown>>;
 }
@@ -363,8 +364,12 @@ export async function processMessageCommand(data: JsonRecord, deps: IpcDeps): Pr
   const options: IpcMessageOptions = {};
   if (mediaIds.length > 0) options.mediaIds = mediaIds;
   if (contentBlocks.length > 0) options.contentBlocks = contentBlocks;
+  if (data.agentInput === true || data.asUser === true) options.asUser = true;
 
   await deps.sendMessage(chatJid, finalText, options);
+  if (data.runAgent === true || data.resumeChat === true) {
+    await deps.resumeChat?.({ chatJid });
+  }
   if (data.noNudge !== true) {
     await deps.sendNudge?.(finalText || "Message with attachment(s)");
   }
