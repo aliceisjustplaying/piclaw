@@ -68,7 +68,8 @@ import {
 
 const log = createLogger("web.handlers.agent");
 
-function hasUntrustedExternalContent(message: NewMessage): boolean {
+/** Return true when a persisted user message carries external untrusted content metadata. */
+export function hasUntrustedExternalContentForTests(message: NewMessage): boolean {
   if (String(message.content || "").includes("[Untrusted email notification]")) return true;
   if (!Array.isArray(message.content_blocks)) return false;
   return message.content_blocks.some((block) => {
@@ -1664,7 +1665,7 @@ export async function processChat(
     timeoutMs,
     turnId,
     inputMediaIds: Array.isArray(currentMessage.media_ids) ? currentMessage.media_ids : [],
-    hasUntrustedExternalContent: hasUntrustedExternalContent(currentMessage),
+    hasUntrustedExternalContent: hasUntrustedExternalContentForTests(currentMessage),
     codexReplayPrompt,
     ...(browserObservability?.userId ? { userId: browserObservability.userId } : {}),
     ...(browserObservability?.sessionId ? { sessionId: browserObservability.sessionId } : {}),

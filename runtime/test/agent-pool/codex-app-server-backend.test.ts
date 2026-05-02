@@ -4,8 +4,11 @@ import {
   compactCodexAppServerChat,
   getCodexAppServerFastMode,
   hasCodexAppServerThread,
+  isCodexAppServerThreadUntrustedForTests,
+  isCodexExternalDataToolForTests,
   isCodexBridgeToolAllowed,
   listCodexBridgeDynamicToolsForTests,
+  markCodexAppServerThreadUntrustedForTests,
   resolveCodexAppServerApprovalForTests,
   runCodexAppServerPrompt,
   setCodexAppServerFastMode,
@@ -249,4 +252,32 @@ test("Codex app-server accepts approvals for normal local-user turns", () => {
     { threadId: "thread-1", permissions: { sandbox: "danger-full-access" } },
     false,
   )).toEqual({ permissions: { sandbox: "danger-full-access" }, scope: "turn" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "future/requestApproval",
+    { threadId: "thread-1" },
+    false,
+  )).toEqual({ decision: "denied" });
+});
+
+test("Codex app-server keeps untrusted thread state sticky across later trusted turns", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    await runCodexAppServerPrompt("hello", "web:codex-untrusted-sticky", { timeoutMs: 1000 });
+    markCodexAppServerThreadUntrustedForTests("web:codex-untrusted-sticky");
+    expect(isCodexAppServerThreadUntrustedForTests("web:codex-untrusted-sticky")).toBe(true);
+
+    await runCodexAppServerPrompt("followup", "web:codex-untrusted-sticky", { timeoutMs: 1000, hasUntrustedExternalContent: false });
+    expect(isCodexAppServerThreadUntrustedForTests("web:codex-untrusted-sticky")).toBe(true);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex treats all bridged Piclaw tools as external data for approval safety", () => {
+  expect(isCodexExternalDataToolForTests("gmail_fetch_email")).toBe(true);
+  expect(isCodexExternalDataToolForTests("m365_mail")).toBe(true);
+  expect(isCodexExternalDataToolForTests("m365_spo_download")).toBe(true);
+  expect(isCodexExternalDataToolForTests("office_read")).toBe(true);
+  expect(isCodexExternalDataToolForTests("schedule_task")).toBe(true);
 });

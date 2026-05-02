@@ -1,6 +1,7 @@
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
 
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
+import { parsePositiveNumber } from "../utils/numbers.js";
 
 const ANTHROPIC_OAUTH_USAGE_BETA = "oauth-2025-04-20";
 const PROVIDER_USAGE_FETCH_TIMEOUT_MS = 10_000;
@@ -46,11 +47,6 @@ type CachedUsage = {
 };
 
 type SupportedProviderId = ProviderUsageSnapshot["provider"];
-
-function parsePositiveNumber(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 const USAGE_CACHE_TTL_MS = parsePositiveNumber(process.env.PICLAW_PROVIDER_USAGE_TTL_MS, 60_000);
 const usageCache = new Map<string, CachedUsage>();
