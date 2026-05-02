@@ -1,4 +1,5 @@
 import { getAgentBackendConfig, getCompactionRuntimeConfig } from "../../core/config.js";
+import { getAttachmentRegistry } from "../attachments.js";
 import type { AgentOutput, RunAgentOptions } from "../contracts.js";
 import {
   buildUserInput,
@@ -460,6 +461,11 @@ export async function runCodexAppServerPrompt(
     },
   });
 
+  const attachments = getAttachmentRegistry().take(chatJid);
   if (!completed) return { status: "error", result: finalText || null, error: completionErrorMessage || "Codex turn failed" };
-  return { status: "success", result: finalText || null };
+  return {
+    status: "success",
+    result: finalText || null,
+    ...(attachments.length ? { attachments } : {}),
+  };
 }
