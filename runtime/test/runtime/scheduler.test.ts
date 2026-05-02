@@ -234,6 +234,57 @@ test("runScheduledTask passes configured timeout to agent tasks", async () => {
   expect(calls[0][2]).toMatchObject({ timeoutMs: 20_000, skipBackendHandoff: true });
 });
 
+test("runScheduledTask suppresses proactive no-update replies", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+  const proactive = await import("../../src/agent-pool/proactive.js");
+
+  const scheduler = await import("../../src/task-scheduler.js");
+  scheduler.resetSchedulerMetricsForTests();
+
+  const taskId = `task-proactive-no-update-${Date.now()}`;
+  db.createTask({
+    id: taskId,
+    chat_jid: "web:default",
+    prompt: proactive.PROACTIVE_PROMPT,
+    timeout_sec: 20,
+    schedule_type: "interval",
+    schedule_value: "60000",
+    next_run: new Date(Date.now() - 1000).toISOString(),
+    status: "active",
+    created_at: new Date().toISOString(),
+  });
+
+  const sent: string[] = [];
+  const deps = {
+    queue: { enqueueTask: (_id: string, fn: () => Promise<void>) => fn() } as any,
+    agentPool: {
+      runAgent: async (prompt: string) => {
+        expect(prompt).toContain("Proactive memory for this chat");
+        return { status: "success", result: proactive.PROACTIVE_NO_UPDATE };
+      },
+      saveSessionPosition: async () => "leaf-proactive",
+      restoreSessionPosition: async () => {},
+      getCurrentModelLabel: async () => null,
+      applyControlCommand: async () => ({ status: "success", message: "" }),
+    } as any,
+    sendMessage: async (_jid: string, text: string) => {
+      sent.push(text);
+    },
+  };
+
+  const task = db.getTaskById(taskId)!;
+  await scheduler.runScheduledTask(task, deps as any);
+
+  expect(sent).toEqual([]);
+  expect(db.getTaskById(taskId)!.last_result).toContain(proactive.PROACTIVE_NO_UPDATE);
+  const state = db.extensionKvGet<any>("proactive-agent", "state", "chat", "web:default")!;
+  expect(state.noUpdateCount).toBe(1);
+});
+
 test("runScheduledTask still logs and advances the task after an early execution throw", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });

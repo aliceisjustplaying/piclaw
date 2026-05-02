@@ -21,6 +21,11 @@
 
 import { WORKSPACE_DIR, getRuntimeTimingConfig } from "./core/config.js";
 import { formatRecoverySummary } from "./agent-pool/automatic-recovery.js";
+import {
+  buildProactivePrompt,
+  isProactiveTask,
+  recordProactiveResult,
+} from "./agent-pool/proactive.js";
 import { DREAM_TASK_ID, parseDreamPromptToken, runDreamAgentTurn, runDreamMaintenance } from "./dream.js";
 import { computeNextRun } from "./task-scheduler-utils.js";
 import type { AgentPool } from "./agent-pool.js";
@@ -337,7 +342,8 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
         }
 
         if (!error) {
-          const out = await deps.agentPool.runAgent(task.prompt, task.chat_jid, {
+          const proactiveTask = isProactiveTask(task);
+          const out = await deps.agentPool.runAgent(proactiveTask ? buildProactivePrompt(task) : task.prompt, task.chat_jid, {
             timeoutMs: getAgentTaskTimeoutMs(task),
             skipBackendHandoff: true,
           });
@@ -347,7 +353,8 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
             loggedError = appendRecoverySummary(error, recoverySummary);
           } else {
             loggedResult = appendRecoverySummary(out.result, recoverySummary);
-            if (out.result) {
+            const proactiveDecision = proactiveTask && out.result ? recordProactiveResult(task, out.result) : null;
+            if (out.result && proactiveDecision?.shouldNotify !== false) {
               result = out.result;
               const t = formatOutbound(result, detectChannel(task.chat_jid));
               if (t) {
