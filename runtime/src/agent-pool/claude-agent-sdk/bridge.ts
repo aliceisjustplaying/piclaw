@@ -14,6 +14,10 @@ import type { PiclawBridgeSession } from "../codex-app-server-backend.js";
 
 const GENERIC_TOOL_SHAPE = { input: z.record(z.string(), z.unknown()).optional() };
 
+export type ClaudeBridgeTrustState = {
+  hasUntrustedExternalContent: boolean;
+};
+
 function bridgeContext(chatJid: string): Record<string, unknown> {
   return {
     hasUI: false,
@@ -67,6 +71,7 @@ export function createPiclawMcpServer(
   chatJid: string,
   bridgeSession: PiclawBridgeSession | null | undefined,
   getContextUsage: () => unknown,
+  trustState: ClaudeBridgeTrustState = { hasUntrustedExternalContent: false },
 ) {
   const tools = [
     tool("search_messages", "Search this Piclaw chat timeline. Returns matching messages with row ids, timestamps, text, media ids, and thread ids.", {
@@ -121,7 +126,11 @@ export function createPiclawMcpServer(
       try {
         const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
         const toolArgs = "input" in args && args.input && typeof args.input === "object" ? args.input : args;
+        if (trustState.hasUntrustedExternalContent && isMutatingBridgeTool(name, toolArgs)) {
+          return mcpText("Denied because this session has untrusted external content.", true);
+        }
         const result = await (bridgeTool.execute as Function)(`claude-bridge-${Date.now().toString(36)}`, toolArgs, signal, () => undefined, bridgeContext(chatJid));
+        trustState.hasUntrustedExternalContent = true;
         return mcpText(bridgeResultToText(result));
       } catch (error) {
         return mcpText(`${name} failed: ${error instanceof Error ? error.message : String(error)}`, true);
@@ -130,6 +139,21 @@ export function createPiclawMcpServer(
   }
 
   return createSdkMcpServer({ name: "piclaw", version: "0.1.0", tools, alwaysLoad: true });
+}
+
+function isMutatingBridgeTool(name: string, input: unknown): boolean {
+  const lowerName = name.toLowerCase();
+  const args = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const action = String(args.action ?? args.operation ?? args.mode ?? "").toLowerCase();
+  if (/(send|reply|draft|archive|trash|delete|remove|mark|label|move|write|create|update|patch|schedule)/.test(lowerName)) return true;
+  if (/^(create|update|patch|delete|remove|send|reply|draft|archive|trash|mark|label|move|schedule)$/.test(action)) return true;
+  if (lowerName.includes("calendar") && action && !/^(list|get|search|read|freebusy)$/.test(action)) return true;
+  if (lowerName.includes("gmail") && action && !/^(list|get|search|read|fetch)$/.test(action)) return true;
+  return false;
+}
+
+export function isMutatingClaudeBridgeToolForTests(name: string, input: unknown): boolean {
+  return isMutatingBridgeTool(name, input);
 }
 
 export function buildClaudePrompt(chatJid: string, prompt: string, mediaIds: number[] | undefined, bridgeSession?: PiclawBridgeSession | null): string {

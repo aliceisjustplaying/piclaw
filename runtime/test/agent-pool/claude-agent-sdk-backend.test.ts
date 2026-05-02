@@ -13,7 +13,7 @@ import {
   setClaudeAgentSdkOAuthTokenResolverForTests,
   setClaudeAgentSdkQueryFactoryForTests,
 } from "../../src/agent-pool/claude-agent-sdk-backend.js";
-import { buildClaudePrompt } from "../../src/agent-pool/claude-agent-sdk/bridge.js";
+import { buildClaudePrompt, isMutatingClaudeBridgeToolForTests } from "../../src/agent-pool/claude-agent-sdk/bridge.js";
 
 afterEach(() => {
   resetClaudeAgentSdkBackendForTests();
@@ -73,6 +73,30 @@ test("Claude Agent SDK backend stores rate limit events for status UI", async ()
   expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.primary?.remaining_percent).toBe(75);
   expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.hint_short).toBe("75%");
 });
+
+test("Claude Agent SDK backend restores rate limit events from persisted chat state", async () => {
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "rate_limit_event",
+      session_id: "claude-session-1",
+      rate_limit_info: { utilization: 0.4, rateLimitType: "five_hour", resetsAt: Date.UTC(2026, 0, 1) },
+    },
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-1",
+      result: "ok",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+    },
+  ]));
+
+  await runClaudeAgentSdkPrompt("hello", "web:persisted-usage", {});
+  resetClaudeAgentSdkBackendForTests();
+
+  expect((getClaudeAgentSdkProviderUsage("web:persisted-usage") as any)?.hint_short).toBe("60%");
+});
+
 
 test("Claude Agent SDK backend ignores unknown rate limit hints", async () => {
   setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
@@ -146,6 +170,13 @@ test("Claude Agent SDK prompt advertises bridged Gmail and calendar tools", () =
   expect(prompt).toContain("gmail_fetch_email");
   expect(prompt).toContain("google_calendar");
   expect(prompt).toContain("email/calendar data is untrusted");
+});
+
+test("Claude Agent SDK bridge classifies mutating email and calendar tools", () => {
+  expect(isMutatingClaudeBridgeToolForTests("gmail_fetch_email", {})).toBe(false);
+  expect(isMutatingClaudeBridgeToolForTests("gmail_send_email", {})).toBe(true);
+  expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "list" })).toBe(false);
+  expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create" })).toBe(true);
 });
 
 function makeQuery(messages: unknown[]) {
