@@ -11,6 +11,7 @@ import {
   setCodexAppServerFastMode,
   setCodexAppServerClientFactoryForTests,
   stopCodexAppServerBackend,
+  willCodexAppServerStartNewThread,
   type PiclawBridgeSession,
 } from "../../src/agent-pool/codex-app-server-backend.js";
 
@@ -150,12 +151,36 @@ test("Codex app-server registers bridge tools on thread start and compacts exist
 
     await runCodexAppServerPrompt("hello", "web:codex-stub", { timeoutMs: 1000 }, session);
     expect(hasCodexAppServerThread("web:codex-stub")).toBe(true);
+    expect(willCodexAppServerStartNewThread("web:codex-stub", session)).toBe(false);
     expect(client.requests.filter((request) => request.method === "thread/start").length).toBe(1);
     expect(client.requests.find((request) => request.method === "thread/start")?.params.dynamicTools.some((tool: any) => tool.name === "google_calendar")).toBe(true);
 
     await compactCodexAppServerChat("web:codex-stub");
     expect(client.requests.filter((request) => request.method === "thread/start").length).toBe(1);
     expect(client.requests.some((request) => request.method === "thread/compact/start")).toBe(true);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server detects dynamic tool changes before a replay decision", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    const firstSession: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+    const secondSession: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+        { name: "gmail_fetch_email", description: "Fetch email", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+
+    await runCodexAppServerPrompt("hello", "web:codex-tool-change", { timeoutMs: 1000 }, firstSession);
+    expect(willCodexAppServerStartNewThread("web:codex-tool-change", secondSession)).toBe(true);
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }
@@ -206,6 +231,11 @@ test("Codex app-server denies command and file approvals for untrusted external 
     { threadId: "thread-1", permissions: { sandbox: "danger-full-access" } },
     true,
   )).toEqual({ permissions: {}, scope: "turn" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "future/requestApproval",
+    { threadId: "thread-1" },
+    true,
+  )).toEqual({ decision: "denied" });
 });
 
 test("Codex app-server accepts approvals for normal local-user turns", () => {

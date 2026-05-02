@@ -184,7 +184,13 @@ async function request(method: "tools/list" | "tools/call", params: Record<strin
         newline = buffer.indexOf("\n");
         if (!line) continue;
 
-        const frame = JSON.parse(line) as Record<string, unknown>;
+        let frame: Record<string, unknown>;
+        try {
+          frame = JSON.parse(line) as Record<string, unknown>;
+        } catch (error) {
+          finish(() => reject(new Error(`invalid Gmail daemon frame: ${error instanceof Error ? error.message : String(error)}`)));
+          return;
+        }
         if (frame.type === "hello" && transportReady) {
           id += 1;
           socket.write(`${JSON.stringify({ id: String(id), method, params, type: "request" })}\n`);

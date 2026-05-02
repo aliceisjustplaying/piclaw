@@ -51,7 +51,7 @@ import {
 } from "./blank-turn-detection.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
-import { runCodexAppServerPrompt, type PiclawBridgeSession } from "./codex-app-server-backend.js";
+import { runCodexAppServerPrompt, willCodexAppServerStartNewThread, type PiclawBridgeSession } from "./codex-app-server-backend.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -826,7 +826,11 @@ export async function runAgentPrompt(
         promptLength: prompt.length,
         ...getRunObservabilityDetails(runOptions),
       });
-      const output = await runCodexAppServerPrompt(prompt, chatJid, runOptions, runtime.session as unknown as PiclawBridgeSession);
+      const bridgeSession = runtime.session as unknown as PiclawBridgeSession;
+      const promptForCodex = willCodexAppServerStartNewThread(chatJid, bridgeSession)
+        ? (runOptions.codexReplayPrompt || prompt)
+        : prompt;
+      const output = await runCodexAppServerPrompt(promptForCodex, chatJid, runOptions, bridgeSession);
       const duration = Date.now() - startTime;
       writeAgentLog(
         options.logsDir,

@@ -47,7 +47,12 @@ type CachedUsage = {
 
 type SupportedProviderId = ProviderUsageSnapshot["provider"];
 
-const USAGE_CACHE_TTL_MS = Number(process.env.PICLAW_PROVIDER_USAGE_TTL_MS || "60000");
+function parsePositiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const USAGE_CACHE_TTL_MS = parsePositiveNumber(process.env.PICLAW_PROVIDER_USAGE_TTL_MS, 60_000);
 const usageCache = new Map<string, CachedUsage>();
 const usageRefreshInFlight = new Map<string, Promise<ProviderUsageSnapshot | null>>();
 const log = createLogger("agent-pool.provider-usage");

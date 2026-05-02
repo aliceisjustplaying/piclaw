@@ -34,6 +34,40 @@ describe("web message write flows", () => {
     expect(events).toEqual(["thread:42", "broadcast:42"]);
   });
 
+  test("sendWebMessage persists structured untrusted external metadata", () => {
+    let storedOptions: { contentBlocks?: unknown[] } | undefined;
+    const context: MessageWriteContext = {
+      defaultAgentId: "default",
+      store: {
+        storeMessage: (_chatJid, _content, _isBot, _mediaIds, options) => {
+          storedOptions = options;
+          return {
+            id: 43,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            data: { type: "user_message", content: "mail" },
+          };
+        },
+        replaceMessageContent: () => null,
+        setMessageThreadToSelf: () => {},
+      },
+      broadcaster: {
+        broadcastAgentResponse: () => {},
+        broadcastNewPost: () => {},
+        broadcastInteractionUpdated: () => {},
+      },
+      followups: {
+        enqueue: () => {},
+      },
+    };
+
+    sendWebMessage("web:default", "mail", { asUser: true, untrustedExternalContent: true }, context);
+
+    expect(storedOptions?.contentBlocks).toContainEqual({
+      type: "piclaw_metadata",
+      untrusted_external_content: true,
+    });
+  });
+
   test("queueFollowupPlaceholderMessage enqueues placeholders without broadcasting", () => {
     const events: string[] = [];
     const context: MessageWriteContext = {

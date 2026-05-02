@@ -56,6 +56,7 @@ import "../../../extensions/generic-tool-status-hints.js";
 import { createUuid } from "../../../utils/ids.js";
 import { createLogger } from "../../../utils/logger.js";
 import type { AttachmentInfo } from "../../../agent-pool/attachments.js";
+import type { NewMessage } from "../../../types.js";
 import { cancelScheduledIdleAutoCompaction, maybeAutoCompactSessionBeforePrompt } from "../../../agent-pool/compaction.js";
 import { checkPendingShutdown } from "../../../runtime/shutdown-registry.js";
 import { DEFAULT_BASE_RETRY_MS, getRetryAtIso } from "../../../queue/retry-policy.js";
@@ -67,6 +68,16 @@ import {
 } from "../../../runtime/progress-watchdog.js";
 
 const log = createLogger("web.handlers.agent");
+
+function hasUntrustedExternalContent(message: NewMessage): boolean {
+  if (String(message.content || "").includes("[Untrusted email notification]")) return true;
+  if (!Array.isArray(message.content_blocks)) return false;
+  return message.content_blocks.some((block) => {
+    if (!block || typeof block !== "object") return false;
+    const record = block as Record<string, unknown>;
+    return record.type === "piclaw_metadata" && record.untrusted_external_content === true;
+  });
+}
 
 type BrowserObservabilityContext = {
   userId?: string;
@@ -1372,11 +1383,10 @@ export async function processChat(
 
   const channelName = detectChannel(chatJid);
   const identity = getIdentityConfig();
-  const includeCodexReplay = getAgentBackendConfig().backend === "codex-app-server" && !channel.agentPool.hasActiveCodexThread(chatJid);
-  const promptMessages = includeCodexReplay
-    ? [...getRecentMessagesForPrompt(chatJid, currentMessage.timestamp, identity.assistantName, 16), currentMessage]
-    : [currentMessage];
-  const prompt = formatMessages(promptMessages, channelName);
+  const codexReplayPrompt = getAgentBackendConfig().backend === "codex-app-server"
+    ? formatMessages([...getRecentMessagesForPrompt(chatJid, currentMessage.timestamp, identity.assistantName, 16), currentMessage], channelName)
+    : undefined;
+  const prompt = formatMessages([currentMessage], channelName);
   const lastMessage = currentMessage;
   const runStartedAt = new Date().toISOString();
   const threadId = lastMessage.timestamp;
@@ -1687,7 +1697,8 @@ export async function processChat(
     timeoutMs,
     turnId,
     inputMediaIds: Array.isArray(currentMessage.media_ids) ? currentMessage.media_ids : [],
-    hasUntrustedExternalContent: String(currentMessage.content || "").includes("[Untrusted email notification]"),
+    hasUntrustedExternalContent: hasUntrustedExternalContent(currentMessage),
+    codexReplayPrompt,
     ...(browserObservability?.userId ? { userId: browserObservability.userId } : {}),
     ...(browserObservability?.sessionId ? { sessionId: browserObservability.sessionId } : {}),
     ...(browserObservability?.clientId ? { clientId: browserObservability.clientId } : {}),

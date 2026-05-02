@@ -41,6 +41,7 @@ interface IpcMessageOptions {
   threadId?: number | null;
   source?: string;
   asUser?: boolean;
+  untrustedExternalContent?: boolean;
   mediaIds?: number[];
   contentBlocks?: Array<Record<string, unknown>>;
 }
@@ -366,6 +367,9 @@ export async function processMessageCommand(data: JsonRecord, deps: IpcDeps): Pr
   if (contentBlocks.length > 0) options.contentBlocks = contentBlocks;
   if (data.runAgent === true || data.resumeChat === true) options.asUser = true;
   if (data.agentInput === true || data.asUser === true) options.asUser = true;
+  if (data.untrustedExternalContent === true || data.trust === "untrusted_external") {
+    options.untrustedExternalContent = true;
+  }
 
   await deps.sendMessage(chatJid, finalText, options);
   if (data.runAgent === true || data.resumeChat === true) {

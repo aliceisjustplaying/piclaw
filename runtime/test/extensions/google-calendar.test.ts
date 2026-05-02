@@ -30,6 +30,14 @@ test("google_calendar writes require explicit confirmation", () => {
   })).toThrow("confirm=true");
 });
 
+test("google_calendar rejects flag-like event ids", () => {
+  expect(() => buildGoogleCalendarArgsForTests({
+    action: "delete",
+    eventId: "--help",
+    confirm: true,
+  })).toThrow("eventId contains unsupported characters");
+});
+
 test("google_calendar calendars action uses inline discovery script", () => {
   const args = buildGoogleCalendarArgsForTests({ action: "calendars" });
   expect(args[0]).toBe("-c");
