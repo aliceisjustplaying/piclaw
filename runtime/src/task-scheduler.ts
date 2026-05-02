@@ -25,6 +25,7 @@ import {
   buildProactivePrompt,
   isProactiveTask,
   recordProactiveResult,
+  shouldSuppressProactiveOutput,
 } from "./agent-pool/proactive.js";
 import { DREAM_TASK_ID, parseDreamPromptToken, runDreamAgentTurn, runDreamMaintenance } from "./dream.js";
 import { computeNextRun } from "./task-scheduler-utils.js";
@@ -354,7 +355,7 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
           } else {
             loggedResult = appendRecoverySummary(out.result, recoverySummary);
             const proactiveDecision = proactiveTask && out.result ? recordProactiveResult(task, out.result) : null;
-            if (out.result && proactiveDecision?.shouldNotify !== false) {
+            if (out.result && !shouldSuppressProactiveOutput(out.result) && proactiveDecision?.shouldNotify !== false) {
               result = out.result;
               const t = formatOutbound(result, detectChannel(task.chat_jid));
               if (t) {
