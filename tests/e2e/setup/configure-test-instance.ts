@@ -18,10 +18,10 @@ import { homedir } from "node:os";
 
 // --- Configuration ---
 
-const OPENCODE_BASE_URL = process.env.OPENCODE_BASE_URL || "https://api.opencode.ai/v1";
-const OPENCODE_API_KEY = process.env.OPENCODE_API_KEY || "";
-const OPENCODE_MODEL = process.env.OPENCODE_MODEL || "opencode/gpt-4.1-nano";
-const OPENCODE_PROVIDER_ID = "opencode";
+const OPENCODE_BASE_URL = process.env.OPENCODE_BASE_URL || "https://opencode.ai/zen/v1";
+const OPENCODE_API_KEY = process.env.OPENCODE_API_KEY || ""; // optional — free models work without a key
+const OPENCODE_MODEL = process.env.OPENCODE_MODEL || "minimax-m2.5-free";
+const OPENCODE_PROVIDER_ID = "opencode-zen";
 
 const PI_AGENT_DIR = process.env.PICLAW_PI_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
 const WORKSPACE_DIR = process.env.PICLAW_WORKSPACE || "/workspace";
@@ -30,12 +30,9 @@ const PICLAW_CONFIG_PATH = join(WORKSPACE_DIR, ".piclaw", "config.json");
 // --- Validation ---
 
 if (!OPENCODE_API_KEY) {
-  console.error("ERROR: OPENCODE_API_KEY environment variable is required.");
-  console.error("Get a free API key at https://opencode.ai");
-  console.error("");
-  console.error("Usage:");
-  console.error("  OPENCODE_API_KEY=oc-... bun run tests/e2e/setup/configure-test-instance.ts");
-  process.exit(1);
+  console.log("NOTE: No OPENCODE_API_KEY set. Free-tier models work without a key.");
+  console.log("      Set one for access to paid models.");
+  console.log("");
 }
 
 // --- auth.json ---
@@ -54,7 +51,7 @@ if (existsSync(authPath)) {
 
 authData[OPENCODE_PROVIDER_ID] = {
   type: "api-key",
-  apiKey: OPENCODE_API_KEY,
+  apiKey: OPENCODE_API_KEY || "free-tier", // free models don't need a real key
   baseUrl: OPENCODE_BASE_URL,
 };
 
@@ -91,7 +88,7 @@ console.log("\nValidating OpenCode API connectivity...");
 try {
   const resp = await fetch(`${OPENCODE_BASE_URL}/models`, {
     headers: {
-      Authorization: `Bearer ${OPENCODE_API_KEY}`,
+      ...(OPENCODE_API_KEY ? { Authorization: `Bearer ${OPENCODE_API_KEY}` } : {}),
     },
   });
 
@@ -131,20 +128,21 @@ try {
   const resp = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${OPENCODE_API_KEY}`,
+      ...(OPENCODE_API_KEY ? { Authorization: `Bearer ${OPENCODE_API_KEY}` } : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: OPENCODE_MODEL,
-      messages: [{ role: "user", content: "Reply with exactly: OK" }],
-      max_tokens: 10,
+      messages: [{ role: "user", content: "Say hello in one sentence." }],
+      max_tokens: 100,
     }),
   });
 
   if (resp.ok) {
-    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const reply = data.choices?.[0]?.message?.content || "";
-    console.log(`✓ Completion works. Reply: "${reply.trim().slice(0, 50)}"`);
+    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string; reasoning?: string } }> };
+    const msg = data.choices?.[0]?.message;
+    const reply = msg?.content || msg?.reasoning || "";
+    console.log(`✓ Completion works. Reply: "${reply.trim().slice(0, 80)}"`);
   } else {
     const text = await resp.text();
     console.error(`✗ Completion failed (${resp.status}): ${text.slice(0, 200)}`);
