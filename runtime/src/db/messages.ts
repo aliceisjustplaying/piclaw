@@ -547,19 +547,23 @@ export function getMessagesSince(
 export function getRecentMessagesForPrompt(
   chatJid: string,
   beforeTimestamp: string,
+  botPrefixOrLimit: string | number = "Pix",
   limit = 12
 ): NewMessage[] {
+  const botPrefix = typeof botPrefixOrLimit === "string" ? botPrefixOrLimit : "Pix";
+  const rowLimit = typeof botPrefixOrLimit === "number" ? botPrefixOrLimit : limit;
   const db = getDb();
   const sql = `
     SELECT rowid, id, chat_jid, sender, sender_name, content, content_blocks, timestamp, thread_id, is_bot_message
     FROM messages
     WHERE chat_jid = ? AND timestamp < ?
+      AND content NOT LIKE ?
       AND LTRIM(content) NOT LIKE '/%'
       AND COALESCE(is_steering_message, 0) = 0
     ORDER BY timestamp DESC
     LIMIT ?
   `;
-  const rows = db.prepare(sql).all(chatJid, beforeTimestamp, Math.max(1, Math.min(50, limit))) as Array<NewMessage & { rowid: number; content_blocks?: string | null; is_bot_message?: number }>;
+  const rows = db.prepare(sql).all(chatJid, beforeTimestamp, `${botPrefix}:%`, Math.max(1, Math.min(50, rowLimit))) as Array<NewMessage & { rowid: number; content_blocks?: string | null; is_bot_message?: number }>;
   return rows.reverse().map((row) => ({
     ...row,
     sender_name: row.is_bot_message ? "Pix" : row.sender_name,
