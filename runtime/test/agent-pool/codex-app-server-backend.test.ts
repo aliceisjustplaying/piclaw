@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { getAttachmentRegistry } from "../../src/agent-pool/attachments.js";
 import {
   compactCodexAppServerChat,
   getCodexAppServerFastMode,
@@ -233,6 +234,57 @@ test("Codex app-server uses completed agent message text as final output", async
     const output = await run;
     expect(output).toMatchObject({ status: "success", result: "Barcelona until May 10" });
   } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server returns attachments registered during the turn", async () => {
+  const client = new StubCodexClient();
+  client.holdTurn = true;
+  useStubClient(client);
+  const chatJid = "web:codex-attachment-output";
+  const attachments = getAttachmentRegistry();
+  attachments.clear(chatJid);
+  try {
+    const run = runCodexAppServerPrompt("hello", chatJid, { timeoutMs: 1000 });
+    await Bun.sleep(0);
+    attachments.register(chatJid, {
+      id: 42,
+      name: "barcode.png",
+      contentType: "image/png",
+      size: 1234,
+      kind: "image",
+      sourcePath: "/workspace/tmp/barcode.png",
+    });
+    client.emit({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "item-1",
+        delta: "attached barcode",
+      },
+    });
+    client.emit({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } });
+
+    const output = await run;
+    expect(output).toMatchObject({
+      status: "success",
+      result: "attached barcode",
+      attachments: [
+        {
+          id: 42,
+          name: "barcode.png",
+          contentType: "image/png",
+          size: 1234,
+          kind: "image",
+          sourcePath: "/workspace/tmp/barcode.png",
+        },
+      ],
+    });
+    expect(attachments.take(chatJid)).toEqual([]);
+  } finally {
+    attachments.clear(chatJid);
     setCodexAppServerClientFactoryForTests(null);
   }
 });
