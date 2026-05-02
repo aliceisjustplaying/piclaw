@@ -129,6 +129,24 @@ export function getMediaById(id: number): MediaRecord | undefined {
 }
 
 /**
+ * Fetch a full media record only when it is attached to a message in chatJid.
+ * Used by agent-facing tools so media ids cannot be guessed across chats.
+ */
+export function getMediaByIdForChat(chatJid: string, id: number): MediaRecord | undefined {
+  const db = getDb();
+  const allowed = db
+    .prepare(`
+      SELECT 1
+      FROM message_media mm
+      JOIN messages m ON m.rowid = mm.message_rowid
+      WHERE mm.media_id = ? AND m.chat_jid = ?
+      LIMIT 1
+    `)
+    .get(id, chatJid);
+  return allowed ? getMediaById(id) : undefined;
+}
+
+/**
  * Fetch media metadata (without the binary data/thumbnail blobs) by ID.
  * Used by agent-pool/attachments.ts to describe files in the agent prompt
  * without loading potentially large blobs into memory.
@@ -152,6 +170,23 @@ export function getMediaInfoById(id: number): Omit<MediaRecord, "data" | "thumbn
     metadata: row.metadata ? JSON.parse(row.metadata) : null,
     created_at: row.created_at,
   };
+}
+
+/**
+ * Fetch media metadata only when it is attached to a message in chatJid.
+ */
+export function getMediaInfoByIdForChat(chatJid: string, id: number): Omit<MediaRecord, "data" | "thumbnail"> | undefined {
+  const db = getDb();
+  const allowed = db
+    .prepare(`
+      SELECT 1
+      FROM message_media mm
+      JOIN messages m ON m.rowid = mm.message_rowid
+      WHERE mm.media_id = ? AND m.chat_jid = ?
+      LIMIT 1
+    `)
+    .get(id, chatJid);
+  return allowed ? getMediaInfoById(id) : undefined;
 }
 
 // ── FTS text extraction for media ────────────────────────────────────────

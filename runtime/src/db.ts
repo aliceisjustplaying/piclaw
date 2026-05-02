@@ -48,7 +48,9 @@ export {
   getMediaIdsForMessage,
   createMedia,
   getMediaById,
+  getMediaByIdForChat,
   getMediaInfoById,
+  getMediaInfoByIdForChat,
   deleteUnreferencedMedia,
 } from "./db/media.js";
 export {
