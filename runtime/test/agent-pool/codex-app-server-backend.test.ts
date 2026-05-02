@@ -10,6 +10,7 @@ import {
   isCodexBridgeToolAllowed,
   listCodexBridgeDynamicToolsForTests,
   markCodexAppServerThreadUntrustedForTests,
+  normalizeCodexAppServerAssistantTextForTests,
   resolveCodexAppServerApprovalForTests,
   runCodexAppServerPrompt,
   setCodexAppServerFastMode,
@@ -125,6 +126,24 @@ test("Codex fast mode persists per chat", () => {
 
   expect(getCodexAppServerFastMode("web:codex-fast-a")).toBe(true);
   expect(getCodexAppServerFastMode("web:codex-fast-b")).toBe(false);
+});
+
+test("Codex app-server normalizes smushed bullet output", () => {
+  const raw = [
+    "last few items:",
+    "- you asked whether I can send proactive push notifications- a delayed push test didn’t land- an untrusted receipt came in",
+    "- Pix asked whether to add that to calendar or just keep it as contextNo calendar event was created yet.",
+  ].join("\n");
+
+  expect(normalizeCodexAppServerAssistantTextForTests(raw)).toBe([
+    "last few items:",
+    "- you asked whether I can send proactive push notifications",
+    "- a delayed push test didn’t land",
+    "- an untrusted receipt came in",
+    "- Pix asked whether to add that to calendar or just keep it as context",
+    "",
+    "No calendar event was created yet.",
+  ].join("\n"));
 });
 
 test("Codex bridge exposes extension runner registered tools", () => {
