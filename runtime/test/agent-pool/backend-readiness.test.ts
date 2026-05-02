@@ -168,3 +168,22 @@ test("backend switching preserves handoff context across Codex and Claude turns"
     await pool.shutdown();
   }
 });
+
+test("available model picker options stay scoped to the active backend", async () => {
+  const chatJid = `web:backend-models-${Date.now()}`;
+  setCodexAppServerClientFactoryForTests(() => new StubCodexClient() as any);
+  const pool = new AgentPool({ createSession: async () => createRuntime() });
+  try {
+    setChatAgentBackend(chatJid, "codex");
+    const codexModels = await pool.getAvailableModels(chatJid);
+    expect(codexModels.model_options?.every((model) => model.provider === "codex")).toBe(true);
+    expect(codexModels.models.every((model) => model.startsWith("codex/"))).toBe(true);
+
+    setChatAgentBackend(chatJid, "claude");
+    const claudeModels = await pool.getAvailableModels(chatJid);
+    expect(claudeModels.model_options?.every((model) => model.provider === "claude")).toBe(true);
+    expect(claudeModels.models.every((model) => model.startsWith("claude/"))).toBe(true);
+  } finally {
+    await pool.shutdown();
+  }
+});

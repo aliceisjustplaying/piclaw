@@ -823,7 +823,6 @@ export class AgentPool {
     const eagerWarmup = getEagerWarmupConfig();
     if (backend === "codex-app-server") {
       const models = await listCodexAppServerModels();
-      const claudeModels = listClaudeAgentSdkModels();
       const current = getCodexAppServerDisplayModelLabel(chatJid, models);
       const thinking = getCodexAppServerThinkingLevel(chatJid);
       const providerUsage = eagerWarmup.enabled
@@ -832,25 +831,15 @@ export class AgentPool {
       if (!eagerWarmup.enabled) void warmCodexAppServerProviderUsage();
       return {
         current,
-        models: [...models.map((model) => model.label), ...claudeModels.map((model) => model.label)],
-        model_options: [
-          ...models.map((model) => ({
+        models: models.map((model) => model.label),
+        model_options: models.map((model) => ({
           label: model.label,
           provider: "codex",
           id: model.id,
           name: model.name,
           context_window: model.contextWindow ?? getCodexAppServerContextUsage(chatJid)?.contextWindow ?? null,
           reasoning: true,
-          })),
-          ...claudeModels.map((model) => ({
-            label: model.label,
-            provider: "claude",
-            id: model.id,
-            name: model.name,
-            context_window: model.contextWindow,
-            reasoning: true,
-          })),
-        ],
+        })),
         thinking_level: thinking,
         thinking_level_label: thinking,
         fast_mode: getCodexAppServerFastMode(chatJid),
@@ -863,7 +852,6 @@ export class AgentPool {
       const current = getClaudeAgentSdkModelLabel(chatJid);
       const usage = getClaudeAgentSdkContextUsage(chatJid);
       const models = listClaudeAgentSdkModels();
-      const codexModels = await listCodexAppServerModels();
       const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
       const providerUsage = eagerWarmup.enabled
         ? (await withWarmupTimeout(warmProviderUsage(this.authStorage, "anthropic"), eagerWarmup.providerUsageTimeoutMs)
@@ -873,25 +861,15 @@ export class AgentPool {
       if (!eagerWarmup.enabled) void warmProviderUsage(this.authStorage, "anthropic");
       return {
         current,
-        models: [...models.map((model) => model.label), ...codexModels.map((model) => model.label)],
-        model_options: [
-          ...models.map((model) => ({
-            label: model.label,
-            provider: "claude",
-            id: model.id,
-            name: model.name,
-            context_window: model.contextWindow ?? usage?.contextWindow ?? null,
-            reasoning: true,
-          })),
-          ...codexModels.map((model) => ({
-            label: model.label,
-            provider: "codex",
-            id: model.id,
-            name: model.name,
-            context_window: model.contextWindow ?? null,
-            reasoning: true,
-          })),
-        ],
+        models: models.map((model) => model.label),
+        model_options: models.map((model) => ({
+          label: model.label,
+          provider: "claude",
+          id: model.id,
+          name: model.name,
+          context_window: model.contextWindow ?? usage?.contextWindow ?? null,
+          reasoning: true,
+        })),
         thinking_level: thinking,
         thinking_level_label: thinking,
         fast_mode: null,
