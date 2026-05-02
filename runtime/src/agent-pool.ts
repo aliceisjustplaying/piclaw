@@ -33,7 +33,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { type AgentControlCommand, type AgentControlResult } from "./agent-control/index.js";
-import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig, type AgentBackend } from "./core/config.js";
+import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig, getEagerWarmupConfig, type AgentBackend } from "./core/config.js";
 import { createTrackedBashOperations } from "./tools/tracked-bash.js";
 import { type ActiveChatAgent } from "./agent-pool/branch-manager.js";
 import {
@@ -230,6 +230,21 @@ function loadAgentPoolConfig() {
 }
 const DEFAULT_PROVIDER_RATE_LIMIT_MAX_RETRIES = 5;
 const DEFAULT_PROVIDER_RATE_LIMIT_BASE_DELAY_MS = 5000;
+
+async function withWarmupTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return await promise;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * Manages a pool of persistent AgentSession instances keyed by chat JID.
@@ -769,13 +784,16 @@ export class AgentPool {
   /** Return available model labels and current model for a chat session. */
   async getAvailableModels(chatJid: string): Promise<AvailableModelsResult> {
     const backend = getChatAgentBackend(chatJid);
+    const eagerWarmup = getEagerWarmupConfig();
     if (backend === "codex-app-server") {
       const models = await listCodexAppServerModels();
       const claudeModels = listClaudeAgentSdkModels();
       const current = getCodexAppServerDisplayModelLabel(chatJid, models);
       const thinking = getCodexAppServerThinkingLevel(chatJid);
-      const providerUsage = peekCodexAppServerProviderUsage();
-      void warmCodexAppServerProviderUsage();
+      const providerUsage = eagerWarmup.enabled
+        ? await withWarmupTimeout(warmCodexAppServerProviderUsage(), eagerWarmup.providerUsageTimeoutMs)
+        : peekCodexAppServerProviderUsage();
+      if (!eagerWarmup.enabled) void warmCodexAppServerProviderUsage();
       return {
         current,
         models: [...models.map((model) => model.label), ...claudeModels.map((model) => model.label)],
@@ -811,8 +829,12 @@ export class AgentPool {
       const models = listClaudeAgentSdkModels();
       const codexModels = await listCodexAppServerModels();
       const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
-      const providerUsage = peekProviderUsage("anthropic", { allowStale: true }) ?? getClaudeAgentSdkProviderUsage(chatJid);
-      void warmProviderUsage(this.authStorage, "anthropic");
+      const providerUsage = eagerWarmup.enabled
+        ? (await withWarmupTimeout(warmProviderUsage(this.authStorage, "anthropic"), eagerWarmup.providerUsageTimeoutMs)
+          ?? peekProviderUsage("anthropic", { allowStale: true })
+          ?? getClaudeAgentSdkProviderUsage(chatJid))
+        : (peekProviderUsage("anthropic", { allowStale: true }) ?? getClaudeAgentSdkProviderUsage(chatJid));
+      if (!eagerWarmup.enabled) void warmProviderUsage(this.authStorage, "anthropic");
       return {
         current,
         models: [...models.map((model) => model.label), ...codexModels.map((model) => model.label)],
