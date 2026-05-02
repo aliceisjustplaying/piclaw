@@ -51,7 +51,20 @@ Releases follow a two-phase tag workflow. **No release ships without passing UX 
 | `v*-ux` / `v*-prerelease` | — | — | ✅ | — |
 | `v*` (no suffix) | ✅ | ✅ | — | ✅ |
 
-### Conventions
+### Quick reference
+
+```bash
+# Push a UX prerelease tag to trigger E2E tests
+git tag -a v2.3.0-ux -m 'UX prerelease' && git push origin v2.3.0-ux
+
+# After E2E passes, push the final release tag
+git tag -a v2.3.0 -m 'PiClaw v2.3.0 — Movie Name' && git push origin v2.3.0
+
+# Clean up the prerelease tag
+git tag -d v2.3.0-ux && git push origin :refs/tags/v2.3.0-ux
+```
+
+### Rules
 
 - Never push a final release tag without a passing `-ux` run first.
 - The `-ux` tag can be deleted after the final tag is pushed.
