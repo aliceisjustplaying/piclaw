@@ -88,6 +88,22 @@ writeFileSync(modelsPath, JSON.stringify(modelsData, null, 2));
 console.log(`✓ models.json updated: ${modelsPath}`);
 console.log(`  Active model: ${modelsData.activeModel}`);
 
+// --- settings.json ---
+
+const settingsPath = join(PI_AGENT_DIR, "settings.json");
+let settingsData: Record<string, unknown> = {};
+if (existsSync(settingsPath)) {
+  try { settingsData = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { settingsData = {}; }
+}
+
+settingsData.defaultProvider = PROVIDER_ID;
+settingsData.defaultModel = GITHUB_MODEL;
+settingsData.defaultThinkingLevel = "off";
+
+writeFileSync(settingsPath, JSON.stringify(settingsData, null, 2));
+console.log(`✓ settings.json updated: ${settingsPath}`);
+console.log(`  Default model: ${PROVIDER_ID}/${GITHUB_MODEL}`);
+
 // --- Validate ---
 
 console.log("\nValidating GitHub Models connectivity...");
