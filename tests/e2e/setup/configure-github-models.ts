@@ -63,7 +63,24 @@ if (existsSync(modelsPath)) {
 if (!modelsData.providers) modelsData.providers = {};
 modelsData.providers[PROVIDER_ID] = {
   baseUrl: GITHUB_MODELS_BASE_URL,
-  modelId: GITHUB_MODEL,
+  api: "openai-completions",
+  apiKey: "GITHUB_TOKEN",
+  authHeader: true,
+  compat: {
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: false,
+  },
+  models: [
+    {
+      id: GITHUB_MODEL,
+      name: `GitHub Models ${GITHUB_MODEL}`,
+      input: ["text"],
+      reasoning: false,
+      contextWindow: 128000,
+      maxTokens: 4096,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    },
+  ],
 };
 modelsData.activeModel = `${PROVIDER_ID}/${GITHUB_MODEL}`;
 

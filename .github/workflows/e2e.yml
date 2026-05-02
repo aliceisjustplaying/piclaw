@@ -42,6 +42,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start PiClaw instance
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate a test internal secret
           export PICLAW_INTERNAL_SECRET=$(openssl rand -hex 16)
@@ -82,6 +84,7 @@ jobs:
         env:
           PICLAW_E2E_URL: http://localhost:3000
           PICLAW_INTERNAL_SECRET: ${{ env.PICLAW_INTERNAL_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run E2E tests
         run: bun run test -- --project=desktop-chrome
@@ -89,6 +92,7 @@ jobs:
         env:
           PICLAW_E2E_URL: http://localhost:3000
           PICLAW_INTERNAL_SECRET: ${{ env.PICLAW_INTERNAL_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate PDF report
         if: always()
