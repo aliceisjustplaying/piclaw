@@ -29,6 +29,7 @@ class StubCodexClient {
   rejectCompactStart = false;
   rejectNextThreadStart = false;
   holdTurn = false;
+  threadStartGate: Promise<void> | null = null;
   stopped = false;
   private threadCounter = 0;
 
@@ -37,6 +38,7 @@ class StubCodexClient {
   async request(method: string, params: unknown): Promise<unknown> {
     this.requests.push({ method, params });
     if (method === "thread/start") {
+      if (this.threadStartGate) await this.threadStartGate;
       if (this.rejectNextThreadStart) {
         this.rejectNextThreadStart = false;
         throw new Error("thread start failed");
@@ -84,6 +86,14 @@ class StubCodexClient {
   stop() {
     this.stopped = true;
   }
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
 }
 
 function useStubClient(client: StubCodexClient): void {
@@ -352,6 +362,27 @@ test("Codex app-server removes notification handlers when start requests fail", 
     client.rejectCompactStart = true;
     await expect(compactCodexAppServerChat("web:codex-fail-compact")).rejects.toThrow("compact start failed");
     expect(client.handlers.size).toBe(0);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server does not start a turn after aborting during thread startup", async () => {
+  const client = new StubCodexClient();
+  const gate = deferred();
+  client.threadStartGate = gate.promise;
+  useStubClient(client);
+  try {
+    const controller = new AbortController();
+    const run = runCodexAppServerPrompt("hello", "web:codex-abort-during-thread-start", { timeoutMs: 1000, signal: controller.signal });
+    await Bun.sleep(0);
+    controller.abort();
+    gate.resolve();
+
+    const output = await run;
+    expect(output.status).toBe("error");
+    expect(output.error).toContain("aborted");
+    expect(client.requests.some((request) => request.method === "turn/start")).toBe(false);
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }
