@@ -95,6 +95,7 @@ const DEFAULT_CODEX_THINKING_LEVEL: CodexThinkingLevel = "medium";
 const FAST_CONFIG_PATH = join(WORKSPACE_DIR, ".pi", "extensions", "pi-openai-fast.json");
 const PROVIDER_USAGE_TTL_MS = parsePositiveNumber(process.env.PICLAW_PROVIDER_USAGE_TTL_MS, 60_000);
 const ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS = parsePositiveNumber(process.env.PICLAW_CODEX_ATTACHMENT_TEXT_PREVIEW_CHARS, 200_000);
+const TOKEN_USAGE_TRAILING_GRACE_MS = parsePositiveNumber(process.env.PICLAW_CODEX_TOKEN_USAGE_GRACE_MS, 250);
 
 const PICLAW_DYNAMIC_TOOLS = [
   {
@@ -1077,22 +1078,47 @@ export async function compactCodexAppServerChat(chatJid: string): Promise<void> 
   const nextClient = await getClient();
   const thread = threadsByChat.get(chatJid);
   if (!thread) throw new Error("Codex app-server has no active thread to compact.");
+  const previousUsage = contextUsageByChat.get(chatJid) ?? null;
   contextUsageByChat.delete(chatJid);
 
   const timeoutMs = getCompactionRuntimeConfig().timeoutMs;
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let compactTurnId: string | null = null;
   let unsubscribe: Function | null = null;
+  let usageUpdatedDuringCompaction = false;
   const compacted = new Promise<void>((resolve, reject) => {
+    const resolveAfterTrailingEvents = () => {
+      if (settleTimer) return;
+      if (timeout) clearTimeout(timeout);
+      settleTimer = setTimeout(() => {
+        unsubscribe?.();
+        unsubscribe = null;
+        resolve();
+      }, TOKEN_USAGE_TRAILING_GRACE_MS);
+    };
     unsubscribe = nextClient.onNotification((message) => {
       const method = readString(message.method);
       const params = (message.params && typeof message.params === "object" ? message.params : {}) as JsonObject;
       if (params.threadId !== thread.threadId) return;
+      if (method === "thread/tokenUsage/updated") {
+        const tokenUsage = params.tokenUsage && typeof params.tokenUsage === "object" ? params.tokenUsage as JsonObject : null;
+        const usage = tokenUsage ? normalizeContextUsage(tokenUsage) : null;
+        if (usage) {
+          usageUpdatedDuringCompaction = true;
+          contextUsageByChat.set(chatJid, usage);
+          log.info("Codex app-server context usage updated after compaction", {
+            operation: "codex_app_server.context_usage_updated_after_compaction",
+            chatJid,
+            tokens: usage.tokens,
+            contextWindow: usage.contextWindow,
+            percent: usage.percent,
+          });
+        }
+        return;
+      }
       if (method === "thread/compacted") {
-        unsubscribe?.();
-        unsubscribe = null;
-        if (timeout) clearTimeout(timeout);
-        resolve();
+        resolveAfterTrailingEvents();
         return;
       }
       if (method === "item/started" || method === "item/completed") {
@@ -1106,15 +1132,16 @@ export async function compactCodexAppServerChat(chatJid: string): Promise<void> 
         const turn = params.turn && typeof params.turn === "object" ? params.turn as JsonObject : null;
         const turnId = readString(turn?.id) ?? readString(params.turnId);
         if (compactTurnId && turnId === compactTurnId) {
-          unsubscribe?.();
-          unsubscribe = null;
-          if (timeout) clearTimeout(timeout);
           const status = readString(turn?.status);
           if (status && status !== "completed") {
+            unsubscribe?.();
+            unsubscribe = null;
+            if (timeout) clearTimeout(timeout);
+            if (settleTimer) clearTimeout(settleTimer);
             const error = turn?.error && typeof turn.error === "object" ? turn.error as JsonObject : null;
             reject(new Error(readString(error?.message) || `Codex compaction turn ${status}`));
           } else {
-            resolve();
+            resolveAfterTrailingEvents();
           }
         }
       }
@@ -1129,10 +1156,17 @@ export async function compactCodexAppServerChat(chatJid: string): Promise<void> 
   try {
     await nextClient.request("thread/compact/start", { threadId: thread.threadId });
     await compacted;
+  } catch (error) {
+    if (!usageUpdatedDuringCompaction) {
+      if (previousUsage) contextUsageByChat.set(chatJid, previousUsage);
+      else contextUsageByChat.delete(chatJid);
+    }
+    throw error;
   } finally {
     const cleanup = unsubscribe as (() => void) | null;
     cleanup?.();
     if (timeout) clearTimeout(timeout);
+    if (settleTimer) clearTimeout(settleTimer);
   }
 }
 
@@ -1207,12 +1241,24 @@ export async function runCodexAppServerPrompt(
   let completed = false;
   let completionErrorMessage: string | null = null;
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let unsubscribe: Function | null = null;
   let abortHandler: (() => void) | null = null;
 
   const finish = new Promise<void>((resolve, reject) => {
+    const resolveAfterTrailingEvents = () => {
+      if (settleTimer) return;
+      if (timeout) clearTimeout(timeout);
+      settleTimer = setTimeout(() => {
+        unsubscribe?.();
+        unsubscribe = null;
+        resolve();
+      }, TOKEN_USAGE_TRAILING_GRACE_MS);
+    };
     const abortRun = () => {
+      if (completed) return;
       abortController.abort();
+      if (settleTimer) clearTimeout(settleTimer);
       if (turnId) cancelCodexTurn(nextClient, chatJid, thread.threadId, turnId);
       unsubscribe?.();
       unsubscribe = null;
@@ -1342,9 +1388,14 @@ export async function runCodexAppServerPrompt(
         const error = turn?.error && typeof turn.error === "object" ? turn.error as JsonObject : null;
         completed = status === "completed";
         if (!completed) completionErrorMessage = readString(error?.message) || `Codex turn ${status || "did not complete"}`;
-        unsubscribe?.();
-        unsubscribe = null;
-        resolve();
+        if (completed) {
+          resolveAfterTrailingEvents();
+        } else {
+          unsubscribe?.();
+          unsubscribe = null;
+          if (timeout) clearTimeout(timeout);
+          resolve();
+        }
       }
     });
 
@@ -1399,6 +1450,7 @@ export async function runCodexAppServerPrompt(
     toolAbortControllersByThread.delete(thread.threadId);
     abortController.abort();
     if (timeout) clearTimeout(timeout);
+    if (settleTimer) clearTimeout(settleTimer);
   }
 
   if (textStarted) {
