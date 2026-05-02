@@ -16,6 +16,7 @@ import {
   resolveComposePrefillRequest,
   resolveComposeSubmitButtonState,
   resolveComposeAbortButtonState,
+  shouldOpenModelPickerCommand,
   isComposeSubmitAbortMode,
   resolveSessionPopupChats,
   isSessionPopupChatEmphasized,
@@ -321,6 +322,14 @@ test('model picker helpers expose searchable names, formatted context windows, a
     tokens: 150000,
     contextWindow: 128000,
   });
+});
+
+test('shouldOpenModelPickerCommand only intercepts bare /model', () => {
+  expect(shouldOpenModelPickerCommand('/model')).toBe(true);
+  expect(shouldOpenModelPickerCommand('  /model  ')).toBe(true);
+  expect(shouldOpenModelPickerCommand('/MODEL')).toBe(true);
+  expect(shouldOpenModelPickerCommand('/model claude/sonnet')).toBe(false);
+  expect(shouldOpenModelPickerCommand('/models')).toBe(false);
 });
 
 test('resolveComposeModelPickerState keeps the model picker visible for cold chats with available models', () => {
