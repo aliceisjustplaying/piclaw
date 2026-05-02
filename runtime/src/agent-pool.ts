@@ -81,6 +81,7 @@ import {
   setClaudeAgentSdkThinkingLevel,
 } from "./agent-pool/claude-agent-sdk-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
+import { peekProviderUsage, warmProviderUsage } from "./agent-pool/provider-usage.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
 import {
@@ -810,6 +811,8 @@ export class AgentPool {
       const models = listClaudeAgentSdkModels();
       const codexModels = await listCodexAppServerModels();
       const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
+      const providerUsage = peekProviderUsage("anthropic", { allowStale: true }) ?? getClaudeAgentSdkProviderUsage(chatJid);
+      void warmProviderUsage(this.authStorage, "anthropic");
       return {
         current,
         models: [...models.map((model) => model.label), ...codexModels.map((model) => model.label)],
@@ -836,7 +839,7 @@ export class AgentPool {
         fast_mode: null,
         supports_thinking: true,
         available_thinking_levels: ["off", "low", "medium", "high", "xhigh", "max"],
-        provider_usage: getClaudeAgentSdkProviderUsage(chatJid) as any,
+        provider_usage: providerUsage as any,
       };
     }
     return this.runtimeFacade.getAvailableModels(chatJid);
