@@ -10,7 +10,6 @@
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import {
-  getAgentBackendConfig,
   getAgentRuntimeConfig,
   getIdentityConfig,
   getRoutingConfig,
@@ -18,6 +17,7 @@ import {
 } from "../../../core/config.js";
 import { parseControlCommand } from "../../../agent-control/index.js";
 import { isSlashCommandInvocation } from "../../../agent-pool/slash-command.js";
+import { getChatAgentBackend } from "../../../agent-pool/backend-state.js";
 import {
   normalizeAgentMessagePayload,
   parseAgentMessageRequest,
@@ -1351,7 +1351,7 @@ export async function processChat(
 
   const channelName = detectChannel(chatJid);
   const identity = getIdentityConfig();
-  const codexReplayPrompt = getAgentBackendConfig().backend === "codex-app-server"
+  const codexReplayPrompt = getChatAgentBackend(chatJid) === "codex-app-server"
     ? formatMessages([...getRecentMessagesForPrompt(chatJid, currentMessage.timestamp, identity.assistantName, 16), currentMessage], channelName)
     : undefined;
   const prompt = formatMessages([currentMessage], channelName);

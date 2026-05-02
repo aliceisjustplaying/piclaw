@@ -3,6 +3,7 @@ import { type AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { createRequire } from "node:module";
 
 import { WORKSPACE_DIR, getAgentBackendConfig } from "../core/config.js";
+import { extensionKvGet, extensionKvSet } from "../db.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
 import type { PiclawBridgeSession } from "./codex-app-server-backend.js";
@@ -11,6 +12,8 @@ import { buildClaudePrompt, createPiclawMcpServer } from "./claude-agent-sdk/bri
 const log = createLogger("agent-pool.claude-agent-sdk");
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 const requireFromHere = createRequire(import.meta.url);
+const STATE_EXTENSION_ID = "claude-agent-sdk";
+const STATE_KEY = "state";
 
 type ClaudeQueryFactory = typeof claudeQuery;
 
@@ -27,6 +30,20 @@ const modelByChat = new Map<string, string>();
 const CLAUDE_THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"] as const;
 type ClaudeThinkingLevel = typeof CLAUDE_THINKING_LEVELS[number];
 const DEFAULT_THINKING_LEVEL: ClaudeThinkingLevel = "high";
+
+type PersistedClaudeState = {
+  model?: string | null;
+  thinking?: ClaudeThinkingLevel;
+};
+
+function readPersistedState(chatJid: string): PersistedClaudeState {
+  return extensionKvGet<PersistedClaudeState>(STATE_EXTENSION_ID, STATE_KEY, "chat", chatJid) ?? {};
+}
+
+function writePersistedState(chatJid: string, patch: PersistedClaudeState): void {
+  const next = { ...readPersistedState(chatJid), ...patch };
+  extensionKvSet(STATE_EXTENSION_ID, STATE_KEY, next, "chat", chatJid);
+}
 
 export function setClaudeAgentSdkQueryFactoryForTests(factory: ClaudeQueryFactory | null): void {
   queryFactory = factory ?? claudeQuery;
@@ -48,13 +65,20 @@ export function resetClaudeAgentSdkBackendForTests(): void {
 }
 
 export function getClaudeAgentSdkModelLabel(chatJid?: string): string {
-  const model = chatJid ? (modelByChat.get(chatJid) ?? getAgentBackendConfig().claudeAgentSdkModel) : getAgentBackendConfig().claudeAgentSdkModel;
+  const persisted = chatJid ? readPersistedState(chatJid).model : null;
+  const model = chatJid ? (modelByChat.get(chatJid) ?? persisted ?? getAgentBackendConfig().claudeAgentSdkModel) : getAgentBackendConfig().claudeAgentSdkModel;
   return model ? `claude/${model}` : "claude/default";
 }
 
 export function listClaudeAgentSdkModels(): { label: string; provider: string; id: string; name: string; contextWindow: number }[] {
   const configured = getAgentBackendConfig().claudeAgentSdkModel;
-  const ids = configured ? [configured] : ["default", "opus", "sonnet"];
+  const ids = Array.from(new Set([
+    "default",
+    "claude-opus-4.6[1m]",
+    "opus",
+    "sonnet",
+    ...(configured ? [configured] : []),
+  ]));
   return ids.map((id) => ({
     label: `claude/${id}`,
     provider: "claude",
@@ -81,7 +105,7 @@ export function hasClaudeAgentSdkSession(chatJid: string): boolean {
 }
 
 export function getClaudeAgentSdkThinkingLevel(chatJid: string): ClaudeThinkingLevel {
-  return thinkingLevelByChat.get(chatJid) ?? DEFAULT_THINKING_LEVEL;
+  return thinkingLevelByChat.get(chatJid) ?? readPersistedState(chatJid).thinking ?? DEFAULT_THINKING_LEVEL;
 }
 
 export function setClaudeAgentSdkThinkingLevel(chatJid: string, level: string): ClaudeThinkingLevel | null {
@@ -89,6 +113,7 @@ export function setClaudeAgentSdkThinkingLevel(chatJid: string, level: string): 
   if (!CLAUDE_THINKING_LEVELS.includes(normalized as ClaudeThinkingLevel)) return null;
   const next = normalized as ClaudeThinkingLevel;
   thinkingLevelByChat.set(chatJid, next);
+  writePersistedState(chatJid, { thinking: next });
   return next;
 }
 
@@ -97,6 +122,7 @@ export function cycleClaudeAgentSdkThinkingLevel(chatJid: string): ClaudeThinkin
   const index = CLAUDE_THINKING_LEVELS.indexOf(current);
   const next = CLAUDE_THINKING_LEVELS[(index + 1) % CLAUDE_THINKING_LEVELS.length];
   thinkingLevelByChat.set(chatJid, next);
+  writePersistedState(chatJid, { thinking: next });
   return next;
 }
 
@@ -105,6 +131,7 @@ export async function setClaudeAgentSdkModel(chatJid: string, requested: string 
   if (!raw) throw new Error("Missing Claude model.");
   const id = raw.startsWith("claude/") ? raw.slice("claude/".length) : raw;
   modelByChat.set(chatJid, id === "default" ? "" : id);
+  writePersistedState(chatJid, { model: id === "default" ? null : id });
   return getClaudeAgentSdkModelLabel(chatJid);
 }
 
@@ -322,7 +349,7 @@ export async function runClaudeAgentSdkPrompt(
   const streamState = { textStarted: false, text: "", thinkingStarted: false, thinking: "" };
   let errorMessage: string | null = null;
   const sessionId = sessionIdByChat.get(chatJid);
-  const selectedModel = modelByChat.get(chatJid) || getAgentBackendConfig().claudeAgentSdkModel || undefined;
+  const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel || undefined;
   const promptWithAttachments = buildClaudePrompt(chatJid, prompt, runOptions.inputMediaIds, bridgeSession);
   const options: Options & { getOAuthToken?: (options: { signal: AbortSignal }) => Promise<string | null> } = {
     abortController: controller,
