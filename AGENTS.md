@@ -42,6 +42,7 @@ Releases follow a two-phase tag workflow. **No release ships without passing UX 
 2. This triggers **CI**, **Integration gate**, and **Publish Docker images** — but **not** E2E tests.
 3. The integration gate must pass before Docker images are built.
 4. Publish release notes to GitHub Releases.
+5. Download the E2E report artifact from the `-ux` workflow run and **attach it as a release asset** (PDF or HTML).
 
 ### Tag routing summary
 
