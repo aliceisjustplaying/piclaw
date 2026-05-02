@@ -45,12 +45,15 @@ import {
   handleWebPushSubscriptionUpsert,
   handleWebPushVapidPublicKey,
 } from "../push/web-push-routes.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 
 interface ExactAgentRoute {
   method: string;
   path: string;
   handle: (channel: WebChannelLike, req: Request, url: URL) => Response | Promise<Response>;
 }
+
+const log = createLogger("web.http.dispatch-agent");
 
 const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   {
@@ -119,7 +122,9 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
             const candidateTaskId = body.key.replace("codex.dismiss.", "").trim();
             if (!validTaskId(candidateTaskId)) return Response.json({ error: "Invalid task id" }, { status: 400 });
           }
-        } catch {}
+        } catch (err) {
+          debugSuppressedError(log, "Failed to parse Codex dismiss request body.", err);
+        }
         return Response.json({ ok: true });
       } catch (err) {
         return Response.json({ error: String(err) }, { status: 500 });
@@ -139,7 +144,9 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
             const candidateTaskId = body.key.replace("codex.stop.", "").trim();
             taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
           }
-        } catch {}
+        } catch (err) {
+          debugSuppressedError(log, "Failed to parse Codex stop request body.", err);
+        }
         const { spawnSync } = await import("node:child_process");
         const { accessSync, constants } = await import("node:fs");
         const searchPath = [
@@ -152,9 +159,19 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
           "/home/agent/.bun/bin",
         ].filter(Boolean);
         let tmuxBin = "tmux";
+        const unavailableTmuxCandidates: string[] = [];
         for (const dir of searchPath) {
           const candidate = `${dir}/tmux`;
-          try { accessSync(candidate, constants.X_OK); tmuxBin = candidate; break; } catch {}
+          try {
+            accessSync(candidate, constants.X_OK);
+            tmuxBin = candidate;
+            break;
+          } catch {
+            unavailableTmuxCandidates.push(candidate);
+          }
+        }
+        if (tmuxBin === "tmux") {
+          debugSuppressedError(log, "Codex stop tmux binary not found in explicit search path.", undefined, { candidates: unavailableTmuxCandidates });
         }
         const env = { ...process.env, PATH: Array.from(new Set(searchPath)).join(":") };
         const tmuxSession = taskId ? `codex-${taskId}` : "codex-delegate";

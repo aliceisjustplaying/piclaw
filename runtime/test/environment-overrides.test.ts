@@ -12,6 +12,8 @@ describe("environment overrides", () => {
       TEST_ENVIRONMENT_VISIBLE: "base-value",
       TEST_ENVIRONMENT_RESTORE: "original-value",
       TEST_ENVIRONMENT_NEW: undefined,
+      PICLAW_KEYCHAIN_KEY: "environment-overrides-test-key",
+      PICLAW_KEYCHAIN_KEY_FILE: undefined,
     });
     initDatabase();
     getDb().prepare("DELETE FROM extension_kv WHERE extension_id = ?").run("piclaw.environment-settings");

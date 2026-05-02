@@ -101,12 +101,23 @@ function readPosts(body: unknown): Array<Record<string, unknown>> {
   return Array.isArray(root.posts) ? root.posts.filter((post): post is Record<string, unknown> => Boolean(post && typeof post === "object")) : [];
 }
 
+function isNoSuchProcessError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ESRCH");
+}
+
 function killProcessTree(childProcess: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
-  if (!childProcess.pid) return;
+  if (!childProcess.pid || childProcess.exitCode !== null) return;
   try {
     process.kill(-childProcess.pid, signal);
-  } catch {
-    childProcess.kill(signal);
+  } catch (error) {
+    if (isNoSuchProcessError(error)) return;
+    try {
+      childProcess.kill(signal);
+    } catch (fallbackError) {
+      if (!isNoSuchProcessError(fallbackError)) {
+        console.warn("[codex-app-server-smoke] failed to signal smoke server", fallbackError);
+      }
+    }
   }
 }
 
@@ -203,7 +214,10 @@ try {
   await Promise.race([
     once(child, "exit"),
     Bun.sleep(2000).then(() => killProcessTree(child, "SIGKILL")),
-  ]).catch(() => {});
+  ]).catch((error) => {
+    if (isNoSuchProcessError(error)) return;
+    console.warn("[codex-app-server-smoke] failed while waiting for smoke server shutdown", error);
+  });
   rmSync(temp, { recursive: true, force: true });
   if (child.exitCode !== 0 && child.exitCode !== null && stderr.trim()) {
     console.error(stderr.trim());
