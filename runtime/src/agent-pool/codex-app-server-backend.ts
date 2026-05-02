@@ -1185,6 +1185,9 @@ export async function runCodexAppServerPrompt(
   runOptions: RunAgentOptions,
   bridgeSession?: PiclawBridgeSession | null,
 ): Promise<AgentOutput> {
+  if (runOptions.signal?.aborted) {
+    return { status: "error", result: null, error: "Codex app-server aborted" };
+  }
   const nextClient = await getClient();
   const thread = await getThread(nextClient, chatJid, bridgeSession);
   if (bridgeSession) {
