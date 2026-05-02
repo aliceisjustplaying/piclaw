@@ -9,6 +9,27 @@ describe("web http agent dispatch", () => {
     expect(response).toBeNull();
   });
 
+  test("codex panel control routes reject malformed JSON", async () => {
+    const channel = {} as any;
+    const stopReq = new Request("https://example.com/agent/codex/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
+    });
+    const stopResponse = await handleAgentRoutes(channel, stopReq, "/agent/codex/stop", new URL(stopReq.url));
+    expect(stopResponse?.status).toBe(400);
+    expect(await stopResponse?.json()).toEqual({ error: "Invalid JSON" });
+
+    const dismissReq = new Request("https://example.com/agent/codex/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(["bad"]),
+    });
+    const dismissResponse = await handleAgentRoutes(channel, dismissReq, "/agent/codex/dismiss", new URL(dismissReq.url));
+    expect(dismissResponse?.status).toBe(400);
+    expect(await dismissResponse?.json()).toEqual({ error: "JSON body must be an object" });
+  });
+
   test("dispatches thought route with query params", async () => {
     const channel = {
       handleThought: (panel: string | null, turnId: string | null) => new Response(`${panel}:${turnId}`),
