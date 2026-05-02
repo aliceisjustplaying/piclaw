@@ -24,6 +24,7 @@ import {
 import { formatBranchPickerLabel } from './ui/branch-lifecycle.js';
 import {
     getCurrentAppAssetVersion,
+    LAST_CHAT_JID_KEY,
     getRenameBranchFormLock,
     readAppLocationModes,
 } from './ui/app-shell-state.js';
@@ -107,6 +108,10 @@ function MainApp({ locationParams, navigate }) {
         branchLoaderMode,
         branchLoaderSourceChatJid,
     } = useMemo(() => readAppLocationModes(locationParams), [locationParams]);
+
+    useEffect(() => {
+        if (currentChatJid) setLocalStorageItem(LAST_CHAT_JID_KEY, currentChatJid);
+    }, [currentChatJid]);
 
     const surface = useMainAppSurfaceState({
         currentChatJid,
