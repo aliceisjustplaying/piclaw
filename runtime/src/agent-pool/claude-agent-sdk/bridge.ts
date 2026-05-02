@@ -126,7 +126,7 @@ export function createPiclawMcpServer(
       try {
         const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
         const toolArgs = "input" in args && args.input && typeof args.input === "object" ? args.input : args;
-        if (trustState.hasUntrustedExternalContent && isMutatingBridgeTool(name, toolArgs)) {
+        if (trustState.hasUntrustedExternalContent && (isMutatingBridgeTool(name, args) || isMutatingBridgeTool(name, toolArgs))) {
           return mcpText("Denied because this session has untrusted external content.", true);
         }
         const result = await (bridgeTool.execute as Function)(`claude-bridge-${Date.now().toString(36)}`, toolArgs, signal, () => undefined, bridgeContext(chatJid));

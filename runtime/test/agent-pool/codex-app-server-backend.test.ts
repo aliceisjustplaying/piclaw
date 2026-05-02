@@ -299,6 +299,50 @@ test("Codex app-server returns attachments registered during the turn", async ()
   }
 });
 
+test("Codex app-server preserves streamed text and attachments when a turn aborts", async () => {
+  const client = new StubCodexClient();
+  client.holdTurn = true;
+  useStubClient(client);
+  const chatJid = "web:codex-abort-preserve-output";
+  const attachments = getAttachmentRegistry();
+  attachments.clear(chatJid);
+  try {
+    const controller = new AbortController();
+    const events: any[] = [];
+    const run = runCodexAppServerPrompt("hello", chatJid, {
+      timeoutMs: 1000,
+      signal: controller.signal,
+      onEvent: (event) => events.push(event),
+    });
+    await Bun.sleep(0);
+    client.emit({
+      method: "item/agentMessage/delta",
+      params: { threadId: "thread-1", turnId: "turn-1", itemId: "item-1", delta: "partial text" },
+    });
+    attachments.register(chatJid, {
+      id: 43,
+      name: "partial.txt",
+      contentType: "text/plain",
+      size: 12,
+      kind: "file",
+      sourcePath: "/workspace/tmp/partial.txt",
+    });
+    controller.abort();
+
+    const output = await run;
+    expect(output).toMatchObject({
+      status: "error",
+      result: "partial text",
+      attachments: [{ id: 43, name: "partial.txt" }],
+    });
+    expect(events.some((event) => event.assistantMessageEvent?.type === "text_end")).toBe(true);
+    expect(events.some((event) => event.type === "message_end" && event.message?.content?.[0]?.text === "partial text")).toBe(true);
+  } finally {
+    attachments.clear(chatJid);
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
 test("Codex app-server detects dynamic tool changes before a replay decision", async () => {
   const client = new StubCodexClient();
   useStubClient(client);

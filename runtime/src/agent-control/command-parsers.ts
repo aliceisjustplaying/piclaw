@@ -110,11 +110,13 @@ export function parseBackend(args: string, raw: string): AgentControlCommand {
 
 export function parseProactive(args: string, raw: string): AgentControlCommand {
   const value = args.split(/\s+/).filter(Boolean)[0]?.toLowerCase();
-  const action = value === "off" || value === "disable" || value === "stop"
+  const action = !value || value === "on" || value === "enable" || value === "start"
+    ? "on"
+    : value === "off" || value === "disable" || value === "stop"
     ? "off"
     : value === "status"
       ? "status"
-      : "on";
+      : undefined;
   return { type: "proactive", action, raw };
 }
 

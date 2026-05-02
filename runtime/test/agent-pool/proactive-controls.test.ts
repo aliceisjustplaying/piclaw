@@ -39,7 +39,7 @@ describe("proactive agent controls", () => {
     expect(task.schedule_type).toBe("interval");
     expect(task.schedule_value).toBe(String(15 * 60 * 1000));
     expect(task.timeout_sec).toBe(20);
-    expect(task.model).toBe("claude/default");
+    expect(task.model).toBeNull();
     expect(task.prompt).toContain("Gmail and Google Calendar tools");
     expect(task.prompt).toContain("Do not send email");
 
@@ -58,5 +58,21 @@ describe("proactive agent controls", () => {
     expect(getTaskById(task.id)?.timeout_sec).toBe(20);
 
     expect(getDb().prepare("SELECT COUNT(*) as count FROM scheduled_tasks WHERE chat_jid = ?").get(chatJid)).toEqual({ count: 1 });
+  });
+
+  test("/backend rejects unknown backend names without throwing", async () => {
+    const result = await pool!.applyControlCommand("web:backend-unknown", { type: "backend", backend: "wat", raw: "/backend wat" });
+
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("Unknown backend");
+  });
+
+  test("/proactive rejects unknown actions without creating a task", async () => {
+    const chatJid = "web:proactive-unknown";
+
+    const result = await pool!.applyControlCommand(chatJid, { type: "proactive", action: undefined, raw: "/proactive wat" });
+
+    expect(result.status).toBe("error");
+    expect(extensionKvGet<{ id: string }>("proactive-agent", "task", "chat", chatJid)).toBeNull();
   });
 });

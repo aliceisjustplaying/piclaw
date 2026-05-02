@@ -265,6 +265,8 @@ async function runCodexAppServerPromptUnlocked(
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let unsubscribe: Function | null = null;
   let abortHandler: (() => void) | null = null;
+  let completeTurn: ((turn: JsonObject | null) => void) | null = null;
+  let pendingCompletedTurn: JsonObject | null = null;
   let turnStartRequestedAt = 0;
   let firstDeltaLogged = false;
 
@@ -286,6 +288,14 @@ async function runCodexAppServerPromptUnlocked(
       unsubscribe?.();
       unsubscribe = null;
       reject(new Error("Codex app-server aborted"));
+    };
+    completeTurn = (turn) => {
+      const status = readString(turn?.status);
+      const error = turn?.error && typeof turn.error === "object" ? turn.error as JsonObject : null;
+      completed = status === "completed";
+      if (!completed) completionErrorMessage = readString(error?.message) || `Codex turn ${status || "did not complete"}`;
+      if (completed) resolveAfterTrailingEvents();
+      else resolveAfterTrailingEvents();
     };
     abortHandler = abortRun;
     if (runOptions.signal?.aborted) {
@@ -399,12 +409,11 @@ async function runCodexAppServerPromptUnlocked(
       if (method === "turn/completed") {
         const turn = params.turn && typeof params.turn === "object" ? params.turn as JsonObject : null;
         if (turnId && turn?.id && turn.id !== turnId) return;
-        const status = readString(turn?.status);
-        const error = turn?.error && typeof turn.error === "object" ? turn.error as JsonObject : null;
-        completed = status === "completed";
-        if (!completed) completionErrorMessage = readString(error?.message) || `Codex turn ${status || "did not complete"}`;
-        if (completed) resolveAfterTrailingEvents();
-        else resolveAfterTrailingEvents();
+        if (!turnId && turn?.id) {
+          pendingCompletedTurn = turn;
+          return;
+        }
+        completeTurn?.(turn);
       }
     });
 
@@ -440,6 +449,9 @@ async function runCodexAppServerPromptUnlocked(
     if (response?.turn?.id) {
       turnId = String(response.turn.id);
       activeTurnByChat.set(chatJid, { threadId: thread.threadId, turnId });
+      const pendingTurn = pendingCompletedTurn as JsonObject | null;
+      const completePendingTurn = completeTurn as ((turn: JsonObject | null) => void) | null;
+      if (pendingTurn && readString(pendingTurn.id) === turnId && completePendingTurn) completePendingTurn(pendingTurn);
       log.info("Codex app-server turn/start accepted", {
         operation: "codex_app_server.turn_start_accepted",
         chatJid,
@@ -452,11 +464,34 @@ async function runCodexAppServerPromptUnlocked(
   } catch (err) {
     if (timeout) clearTimeout(timeout);
     const error = asError(err);
+    if (textStarted) {
+      emit(runOptions.onEvent, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_end", contentIndex: 0, partial: { type: "text", text: finalText } },
+      });
+    }
+    if (thinkingStarted) {
+      emit(runOptions.onEvent, {
+        type: "message_update",
+        assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: thinkingText },
+      });
+    }
+    const attachments = getAttachmentRegistry().take(chatJid);
     emit(runOptions.onEvent, {
       type: "message_end",
-      message: { role: "assistant", content: [], stopReason: "error", errorMessage: error.message },
+      message: {
+        role: "assistant",
+        content: finalText ? [{ type: "text", text: finalText }] : [],
+        stopReason: "error",
+        errorMessage: error.message,
+      },
     });
-    return { status: "error", result: null, error: error.message };
+    return {
+      status: "error",
+      result: finalText || null,
+      error: error.message,
+      ...(attachments.length ? { attachments } : {}),
+    };
   } finally {
     const cleanup = unsubscribe as (() => void) | null;
     cleanup?.();

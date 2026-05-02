@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 
 import { buildAgentChildEnv } from "../child-env.js";
+import { registerPreShutdownHook } from "../../runtime/shutdown-registry.js";
 import { handleDynamicToolCall } from "./bridge-tools.js";
 import { resolveApprovalResponse, isUntrustedThread } from "./notifications.js";
 import {
@@ -15,6 +16,8 @@ import { log } from "./telemetry.js";
 import type { CodexAppServerClientLike, JsonObject, JsonRpcId, NotificationHandler, PendingRequest } from "./types.js";
 import { appServerCommand, asError, contentItemsFrom, readString, workspaceCwd } from "./utils.js";
 
+let shutdownHookRegistered = false;
+
 class CodexAppServerClient implements CodexAppServerClientLike {
   private child: ChildProcessWithoutNullStreams;
   private nextId = 1;
@@ -25,6 +28,10 @@ class CodexAppServerClient implements CodexAppServerClientLike {
   private exited = false;
 
   constructor() {
+    if (!shutdownHookRegistered) {
+      shutdownHookRegistered = true;
+      registerPreShutdownHook(() => stopCodexAppServerBackend());
+    }
     const { command, args } = appServerCommand();
     this.child = spawn(command, args, {
       cwd: workspaceCwd(),
@@ -143,13 +150,11 @@ class CodexAppServerClient implements CodexAppServerClientLike {
       try {
         handler(message);
       } catch (err) {
-        const error = asError(err);
         log.warn("Codex app-server notification handler failed", {
           operation: "codex_app_server.notification_handler",
           method: message.method,
-          err: error,
+          err,
         });
-        this.failAll(error);
       }
     }
   }
