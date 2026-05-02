@@ -118,12 +118,14 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         const validTaskId = (value: string) => /^[a-zA-Z0-9_-]+$/.test(value);
         try {
           const body = await req.json();
+          if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "JSON body must be an object" }, { status: 400 });
           if (typeof body?.key === "string" && body.key.startsWith("codex.dismiss.")) {
             const candidateTaskId = body.key.replace("codex.dismiss.", "").trim();
             if (!validTaskId(candidateTaskId)) return Response.json({ error: "Invalid task id" }, { status: 400 });
           }
         } catch (err) {
           debugSuppressedError(log, "Failed to parse Codex dismiss request body.", err);
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
         return Response.json({ ok: true });
       } catch (err) {
@@ -140,12 +142,14 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         const validTaskId = (value: string) => /^[a-zA-Z0-9_-]+$/.test(value);
         try {
           const body = await req.json();
+          if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "JSON body must be an object" }, { status: 400 });
           if (typeof body?.key === "string" && body.key.startsWith("codex.stop.")) {
             const candidateTaskId = body.key.replace("codex.stop.", "").trim();
             taskId = validTaskId(candidateTaskId) ? candidateTaskId : "";
           }
         } catch (err) {
           debugSuppressedError(log, "Failed to parse Codex stop request body.", err);
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
         const { spawnSync } = await import("node:child_process");
         const { accessSync, constants } = await import("node:fs");

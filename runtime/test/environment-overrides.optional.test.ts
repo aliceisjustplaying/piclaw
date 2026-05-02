@@ -58,6 +58,17 @@ describe("environment overrides", () => {
     expect(process.env.TEST_ENVIRONMENT_RESTORE).toBe("original-value");
   });
 
+  test("clearing after multiple overrides restores the original process value", async () => {
+    const envSettings = await loadModule();
+
+    envSettings.setEnvironmentOverride("TEST_ENVIRONMENT_RESTORE", "first-override");
+    envSettings.setEnvironmentOverride("TEST_ENVIRONMENT_RESTORE", "second-override");
+
+    expect(process.env.TEST_ENVIRONMENT_RESTORE).toBe("second-override");
+    envSettings.clearEnvironmentOverride("TEST_ENVIRONMENT_RESTORE");
+    expect(process.env.TEST_ENVIRONMENT_RESTORE).toBe("original-value");
+  });
+
   test("rejects keychain-injected names as overrides", async () => {
     await setKeychainEntry({ name: "ssh/relay.local", secret: "secret", type: "ssh" });
     const envSettings = await loadModule();
