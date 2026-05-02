@@ -817,6 +817,20 @@ test("getMessagesSince and getNewMessages filter bot messages, bot-prefixed cont
   expect(messages.map((m) => m.content)).toEqual(["user message"]);
 });
 
+test("getRecentMessagesForPrompt filters slash commands and bot-prefixed messages", () => {
+  const chatJid = `test:${Date.now()}-recent-prompt-filter`;
+  db.storeChatMetadata(chatJid, new Date().toISOString(), "Test");
+
+  db.storeMessage(makeMessage(chatJid, "Pix: internal status", "2024-05-02T00:00:00.000Z", false));
+  db.storeMessage(makeMessage(chatJid, "/model", "2024-05-02T00:01:00.000Z", false));
+  db.storeMessage(makeMessage(chatJid, "assistant reply", "2024-05-02T00:02:00.000Z", true));
+  db.storeMessage(makeMessage(chatJid, "user context", "2024-05-02T00:03:00.000Z", false));
+
+  const rows = db.getRecentMessagesForPrompt(chatJid, "2024-05-02T00:04:00.000Z", "Pix", 10);
+  expect(rows.map((row) => row.content)).toEqual(["assistant reply", "user context"]);
+  expect(rows[0]?.sender).toBe("assistant");
+});
+
 // --- Delete cascade & media cleanup ---
 
 test("deleteMessageByRowId cleans up media only when unreferenced", () => {
@@ -878,6 +892,28 @@ test("deleteThreadByRowId removes thread replies and cleans up media", () => {
   expect(db.getTimeline(chatJid, 10).length).toBe(0);
   expect(db.getMediaById(mediaParent)).toBeUndefined();
   expect(db.getMediaById(mediaChild)).toBeUndefined();
+});
+
+test("media chat-scoped lookups reject guessed ids from other chats", () => {
+  const chatA = `test:${Date.now()}-media-a`;
+  const chatB = `test:${Date.now()}-media-b`;
+  db.storeChatMetadata(chatA, new Date().toISOString(), "A");
+  db.storeChatMetadata(chatB, new Date().toISOString(), "B");
+
+  const mediaId = db.createMedia(
+    "secret.txt",
+    "text/plain",
+    new TextEncoder().encode("secret"),
+    null,
+    { size: 6 }
+  );
+  const rowId = db.storeMessage(makeMessage(chatA, "has media", "2024-07-02T00:00:00.000Z"));
+  db.attachMediaToMessage(rowId, [mediaId]);
+
+  expect(db.getMediaByIdForChat(chatA, mediaId)?.id).toBe(mediaId);
+  expect(db.getMediaInfoByIdForChat(chatA, mediaId)?.id).toBe(mediaId);
+  expect(db.getMediaByIdForChat(chatB, mediaId)).toBeUndefined();
+  expect(db.getMediaInfoByIdForChat(chatB, mediaId)).toBeUndefined();
 });
 
 // --- Link previews preserve content_blocks ---
