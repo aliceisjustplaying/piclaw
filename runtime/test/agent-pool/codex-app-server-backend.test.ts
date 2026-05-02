@@ -466,6 +466,29 @@ test("Codex app-server cancels active turns when the caller aborts", async () =>
   }
 });
 
+test("Codex app-server serializes concurrent turns for the same chat", async () => {
+  const client = new StubCodexClient();
+  client.holdTurn = true;
+  useStubClient(client);
+  try {
+    const first = runCodexAppServerPrompt("first", "web:codex-serialized", { timeoutMs: 1000 });
+    await Bun.sleep(0);
+    const second = runCodexAppServerPrompt("second", "web:codex-serialized", { timeoutMs: 1000 });
+    await Bun.sleep(20);
+    expect(client.requests.filter((request) => request.method === "turn/start").length).toBe(1);
+
+    client.emit({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } });
+    await first;
+    await Bun.sleep(20);
+    expect(client.requests.filter((request) => request.method === "turn/start").length).toBe(2);
+
+    client.emit({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } });
+    await second;
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
 test("Codex app-server ignores caller abort after a completed turn", async () => {
   const client = new StubCodexClient();
   useStubClient(client);

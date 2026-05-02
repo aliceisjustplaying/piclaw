@@ -1,10 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
+import "../helpers.js";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 import { clearProviderUsageCache } from "../../src/agent-pool/provider-usage.js";
 import { AgentRuntimeFacade } from "../../src/agent-pool/runtime-facade.js";
+import {
+  runCodexAppServerPrompt,
+  setCodexAppServerClientFactoryForTests,
+  stopCodexAppServerBackend,
+} from "../../src/agent-pool/codex-app-server-backend.js";
+import { setChatAgentBackend } from "../../src/agent-pool/backend-state.js";
 import { SESSIONS_DIR } from "../../src/core/config.js";
 import { sanitiseJid } from "../../src/agent-pool/session.js";
 
@@ -25,7 +32,37 @@ function createRuntime(session: any): AgentSessionRuntime {
 
 afterEach(() => {
   clearProviderUsageCache();
+  stopCodexAppServerBackend();
+  setCodexAppServerClientFactoryForTests(null);
 });
+
+class StubCodexClient {
+  handlers = new Set<(message: Record<string, unknown>) => void>();
+  async ready() {}
+  async request(method: string, params: unknown): Promise<unknown> {
+    if (method === "thread/start") return { thread: { id: "thread-runtime-facade" } };
+    if (method === "turn/start") {
+      const threadId = (params as any).threadId;
+      queueMicrotask(() => {
+        this.emit({
+          method: "thread/tokenUsage/updated",
+          params: { threadId, tokenUsage: { modelContextWindow: 1000, last: { totalTokens: 250 } } },
+        });
+        this.emit({ method: "turn/completed", params: { threadId, turn: { id: "turn-runtime-facade", status: "completed" } } });
+      });
+      return { turn: { id: "turn-runtime-facade" } };
+    }
+    return {};
+  }
+  onNotification(handler: (message: Record<string, unknown>) => void): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
+  }
+  emit(message: Record<string, unknown>) {
+    for (const handler of [...this.handlers]) handler(message);
+  }
+  stop() {}
+}
 
 function createFacade(overrides: Partial<ConstructorParameters<typeof AgentRuntimeFacade>[0]> = {}) {
   const pool = new Map<string, { runtime: any; lastUsed: number }>();
@@ -103,6 +140,23 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
     contextWindow: 100,
     percent: 10,
   });
+});
+
+test("AgentRuntimeFacade scopes context usage to the active backend", async () => {
+  const chatJid = "web:runtime-facade-context-backend";
+  setCodexAppServerClientFactoryForTests(() => new StubCodexClient() as any);
+  setChatAgentBackend(chatJid, "codex");
+  await runCodexAppServerPrompt("hello", chatJid, { timeoutMs: 1000 });
+
+  const fixture = createFacade();
+  expect(fixture.facade.getContextUsageForChat(chatJid)).toEqual({
+    tokens: 250,
+    contextWindow: 1000,
+    percent: 25,
+  });
+
+  setChatAgentBackend(chatJid, "claude");
+  expect(fixture.facade.getContextUsageForChat(chatJid)).toBeNull();
 });
 
 test("AgentRuntimeFacade returns registry-backed model options without hydrating a cold chat runtime", async () => {

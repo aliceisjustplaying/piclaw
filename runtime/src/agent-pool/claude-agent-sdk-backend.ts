@@ -28,6 +28,7 @@ const contextUsageByChat = new Map<string, { tokens: number | null; contextWindo
 const providerUsageByChat = new Map<string, unknown>();
 const thinkingLevelByChat = new Map<string, ClaudeThinkingLevel>();
 const modelByChat = new Map<string, string>();
+const runLocksByChat = new Map<string, Promise<unknown>>();
 
 const CLAUDE_THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"] as const;
 type ClaudeThinkingLevel = typeof CLAUDE_THINKING_LEVELS[number];
@@ -77,6 +78,7 @@ export function resetClaudeAgentSdkBackendForTests(): void {
   providerUsageByChat.clear();
   thinkingLevelByChat.clear();
   modelByChat.clear();
+  runLocksByChat.clear();
 }
 
 export function getClaudeAgentSdkModelLabel(chatJid?: string): string {
@@ -357,6 +359,28 @@ export async function runClaudeAgentSdkPrompt(
   runOptions: RunAgentOptions,
   bridgeSession?: PiclawBridgeSession | null,
 ): Promise<AgentOutput> {
+  const previous = runLocksByChat.get(chatJid) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const current = previous.catch(() => undefined).then(() => gate);
+  runLocksByChat.set(chatJid, current);
+  await previous.catch(() => undefined);
+  try {
+    return await runClaudeAgentSdkPromptUnlocked(prompt, chatJid, runOptions, bridgeSession);
+  } finally {
+    release();
+    if (runLocksByChat.get(chatJid) === current) runLocksByChat.delete(chatJid);
+  }
+}
+
+async function runClaudeAgentSdkPromptUnlocked(
+  prompt: string,
+  chatJid: string,
+  runOptions: RunAgentOptions,
+  bridgeSession?: PiclawBridgeSession | null,
+): Promise<AgentOutput> {
   const token = await resolveOAuthToken();
 
   const controller = new AbortController();
@@ -428,7 +452,7 @@ export async function runClaudeAgentSdkPrompt(
     errorMessage = error instanceof Error ? error.message : String(error);
   } finally {
     runOptions.signal?.removeEventListener("abort", abortFromCaller);
-    activeRunsByChat.delete(chatJid);
+    if (activeRunsByChat.get(chatJid) === controller) activeRunsByChat.delete(chatJid);
   }
 
   if (streamState.textStarted) endText(runOptions, streamState.text);

@@ -171,6 +171,38 @@ function makeQuery(messages: unknown[]) {
   }) as any;
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+function makeDeferredQuery(wait: Promise<void>, messages: unknown[]) {
+  const generator = (async function* () {
+    await wait;
+    for (const message of messages) yield message;
+  })();
+  return Object.assign(generator, {
+    interrupt: async () => {},
+    setPermissionMode: async () => {},
+    setModel: async () => {},
+    setMaxThinkingTokens: async () => {},
+    applyFlagSettings: async () => {},
+    getSettings: async () => ({}),
+    rewindFiles: async () => ({}),
+    cancelAsyncMessage: async () => false,
+    seedReadState: async () => {},
+    enableRemoteControl: async () => ({}),
+    submitFeedback: async () => ({}),
+    generateSessionTitle: async () => "title",
+    askSideQuestion: async () => null,
+    launchUltrareview: async () => ({}),
+    messageRated: async () => {},
+  }) as any;
+}
+
 test("Claude Agent SDK backend emits assistant text and records usage", async () => {
   setClaudeAgentSdkOAuthTokenResolverForTests(async () => "oauth-token");
   setClaudeAgentSdkQueryFactoryForTests((params: any) => {
@@ -201,6 +233,39 @@ test("Claude Agent SDK backend emits assistant text and records usage", async ()
   expect(hasClaudeAgentSdkSession("web:test")).toBe(true);
   expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: 21, contextWindow: 200000, percent: 0.0105 });
   expect(events.some((event: any) => event.type === "message_end" && event.message?.content?.[0]?.text === "hi there")).toBe(true);
+});
+
+test("Claude Agent SDK backend serializes concurrent turns for the same chat", async () => {
+  const firstRelease = deferred();
+  const secondRelease = deferred();
+  let calls = 0;
+  setClaudeAgentSdkQueryFactoryForTests(() => {
+    calls += 1;
+    return makeDeferredQuery(calls === 1 ? firstRelease.promise : secondRelease.promise, [
+      {
+        type: "result",
+        subtype: "success",
+        session_id: `claude-session-${calls}`,
+        result: `ok ${calls}`,
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  const first = runClaudeAgentSdkPrompt("first", "web:claude-serialized", {});
+  await Bun.sleep(0);
+  const second = runClaudeAgentSdkPrompt("second", "web:claude-serialized", {});
+  await Bun.sleep(20);
+  expect(calls).toBe(1);
+
+  firstRelease.resolve();
+  expect(await first).toMatchObject({ status: "success", result: "ok 1" });
+  await Bun.sleep(20);
+  expect(calls).toBe(2);
+
+  secondRelease.resolve();
+  expect(await second).toMatchObject({ status: "success", result: "ok 2" });
 });
 
 test("Claude Agent SDK backend returns attachments registered during the turn", async () => {
