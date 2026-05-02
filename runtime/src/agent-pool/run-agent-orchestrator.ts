@@ -52,6 +52,7 @@ import {
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
 import { runCodexAppServerPrompt, willCodexAppServerStartNewThread, type PiclawBridgeSession } from "./codex-app-server-backend.js";
+import { getClaudeAgentSdkModelLabel, hasClaudeAgentSdkSession, runClaudeAgentSdkPrompt } from "./claude-agent-sdk-backend.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -825,6 +826,32 @@ export async function runAgentPrompt(
         false,
         output.status === "success" ? output.result : null,
         output.status === "error" ? output.error || "Codex app-server error" : null,
+        null,
+      );
+      return output;
+    }
+
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") {
+      modelLabel = getClaudeAgentSdkModelLabel();
+      updateSessionModel(chatJid, modelLabel, null);
+      beginTrackedPhase(chatJid, "prompt", { source: "run_agent.claude_agent_sdk" });
+      options.onInfo?.("Using experimental Claude Agent SDK backend", {
+        operation: "run_agent_prompt.claude_agent_sdk_backend_selected",
+        chatJid,
+        model: modelLabel,
+        promptLength: prompt.length,
+        ...getRunObservabilityDetails(runOptions),
+      });
+      const promptForClaude = hasClaudeAgentSdkSession(chatJid) ? prompt : (runOptions.codexReplayPrompt || prompt);
+      const output = await runClaudeAgentSdkPrompt(promptForClaude, chatJid, runOptions);
+      const duration = Date.now() - startTime;
+      writeAgentLog(
+        options.logsDir,
+        chatJid,
+        duration,
+        false,
+        output.status === "success" ? output.result : null,
+        output.status === "error" ? output.error || "Claude Agent SDK error" : null,
         null,
       );
       return output;

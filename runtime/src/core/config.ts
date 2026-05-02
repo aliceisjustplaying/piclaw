@@ -72,6 +72,8 @@ const envConfig = readEnvFile([
   "PICLAW_AGENT_BACKEND",
   "PICLAW_CODEX_APP_SERVER_COMMAND",
   "PICLAW_CODEX_APP_SERVER_MODEL",
+  "PICLAW_CLAUDE_AGENT_SDK_MODEL",
+  "PICLAW_CLAUDE_AGENT_SDK_OAUTH_TOKEN",
   "PICLAW_WHATSAPP_PHONE",
   "WHATSAPP_PHONE",
   "PUSHOVER_APP_TOKEN",
@@ -475,22 +477,25 @@ export function getAgentRuntimeConfig(): Readonly<AgentRuntimeConfig> {
 // Agent backend selection.
 // ---------------------------------------------------------------------------
 
-export type AgentBackend = "pi" | "codex-app-server";
+export type AgentBackend = "pi" | "codex-app-server" | "claude-agent-sdk";
 
 export interface AgentBackendConfig {
   backend: AgentBackend;
   codexAppServerCommand: string;
   codexAppServerModel: string | null;
+  claudeAgentSdkModel: string | null;
+  claudeAgentSdkOAuthToken: string | null;
 }
 
 function parseAgentBackend(): AgentBackend {
   const raw = (process.env.PICLAW_AGENT_BACKEND || envConfig.PICLAW_AGENT_BACKEND || "").trim().toLowerCase();
   if (!raw || raw === "pi") return "pi";
   if (raw === "codex-app-server" || raw === "codex") return "codex-app-server";
+  if (raw === "claude-agent-sdk" || raw === "claude-sdk" || raw === "claude") return "claude-agent-sdk";
   log.warn("Unknown agent backend configured; falling back to pi", {
     operation: "core_config.agent_backend.unknown",
     configuredBackend: raw,
-    allowedBackends: ["pi", "codex-app-server"],
+    allowedBackends: ["pi", "codex-app-server", "claude-agent-sdk"],
   });
   return "pi";
 }
@@ -499,6 +504,9 @@ export const AGENT_BACKEND_CONFIG = Object.freeze<AgentBackendConfig>({
   backend: parseAgentBackend(),
   codexAppServerCommand: (process.env.PICLAW_CODEX_APP_SERVER_COMMAND || envConfig.PICLAW_CODEX_APP_SERVER_COMMAND || "codex").trim(),
   codexAppServerModel: (process.env.PICLAW_CODEX_APP_SERVER_MODEL || envConfig.PICLAW_CODEX_APP_SERVER_MODEL || "").trim() || null,
+  claudeAgentSdkModel: (process.env.PICLAW_CLAUDE_AGENT_SDK_MODEL || envConfig.PICLAW_CLAUDE_AGENT_SDK_MODEL || "").trim() || null,
+  claudeAgentSdkOAuthToken:
+    (process.env.PICLAW_CLAUDE_AGENT_SDK_OAUTH_TOKEN || envConfig.PICLAW_CLAUDE_AGENT_SDK_OAUTH_TOKEN || "").trim() || null,
 });
 
 export function getAgentBackendConfig(): Readonly<AgentBackendConfig> {
