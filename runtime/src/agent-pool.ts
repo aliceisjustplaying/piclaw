@@ -52,7 +52,6 @@ import {
   getCodexAppServerContextUsage,
   getCodexAppServerFastMode,
   getCodexAppServerDisplayModelLabel,
-  getCodexAppServerModelLabel,
   getCodexAppServerThinkingLevel,
   hasCodexAppServerThread,
   listCodexAppServerModels,
@@ -77,15 +76,19 @@ import {
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
+import { formatBackendLabel, getChatAgentBackend, setChatAgentBackend } from "./agent-pool/backend-state.js";
 import {
   type ChatBranchRecord,
   type SshConfig,
   type SshConfigApplyTiming,
   type SshConfigClearResult,
   type SshConfigSetResult,
+  createTask,
   deleteSshConfig,
   getSshConfig,
+  getTaskById,
   listRecentChatJids,
+  updateTask,
   upsertSshConfig,
 } from "./db.js";
 import {
@@ -101,9 +104,20 @@ import { registerExtensionKvStore } from "./extension-kv-registry.js";
 import { setSshToolHandlers } from "./extensions/ssh.js";
 import { applyLiveSshConfig, clearLiveSshConfig, hasLiveChatSshSession, resolveSshCoreConfigFromChatConfig } from "./extensions/ssh-core.js";
 import { getKeychainEntry } from "./secure/keychain.js";
+import { createUuid } from "./utils/ids.js";
 import { addLogSink, createLogger, removeLogSink } from "./utils/logger.js";
 
 const log = createLogger("agent-pool");
+const PROACTIVE_EXTENSION_ID = "proactive-agent";
+const PROACTIVE_TASK_KEY = "task";
+const PROACTIVE_INTERVAL_MS = 15 * 60 * 1000;
+const PROACTIVE_PROMPT = [
+  "Proactive check-in task.",
+  "Use available Gmail and Google Calendar tools to inspect recent unread or important email and upcoming calendar events.",
+  "Use personal_memory when useful.",
+  "Do not send email, create/delete/update calendar events, or modify external state without explicit user confirmation.",
+  "Reply with a concise digest and suggested next actions only when there is something worth surfacing.",
+].join("\n");
 
 export type {
   AgentOutput,
@@ -360,8 +374,98 @@ export class AgentPool {
     return hasCodexAppServerThread(chatJid);
   }
 
+  private async applyProactiveCommand(chatJid: string, command: Extract<AgentControlCommand, { type: "proactive" }>): Promise<AgentControlResult> {
+    const taskRef = extensionKvGet<{ id: string }>(PROACTIVE_EXTENSION_ID, PROACTIVE_TASK_KEY, "chat", chatJid);
+    const existing = taskRef?.id ? getTaskById(taskRef.id) : undefined;
+    if (command.action === "status") {
+      return {
+        status: "success",
+        message: existing
+          ? `Proactive checks are ${existing.status} for ${chatJid}. Task: ${existing.id}.`
+          : `Proactive checks are off for ${chatJid}.`,
+      };
+    }
+    if (command.action === "off") {
+      if (existing) updateTask(existing.id, { status: "paused" });
+      return { status: "success", message: existing ? `Paused proactive checks for ${chatJid}.` : `Proactive checks were not enabled for ${chatJid}.` };
+    }
+
+    const nextRun = new Date(Date.now() + PROACTIVE_INTERVAL_MS).toISOString();
+    const model = await this.getCurrentModelLabel(chatJid) ?? getClaudeAgentSdkModelLabel(chatJid);
+    if (existing) {
+      updateTask(existing.id, {
+        prompt: PROACTIVE_PROMPT,
+        model,
+        schedule_type: "interval",
+        schedule_value: String(PROACTIVE_INTERVAL_MS),
+        next_run: nextRun,
+        status: "active",
+      });
+      return { status: "success", message: `Proactive checks enabled for ${chatJid}. Task: ${existing.id}.` };
+    }
+
+    const id = createUuid("task");
+    createTask({
+      id,
+      chat_jid: chatJid,
+      prompt: PROACTIVE_PROMPT,
+      model,
+      task_kind: "agent",
+      command: null,
+      cwd: null,
+      timeout_sec: null,
+      schedule_type: "interval",
+      schedule_value: String(PROACTIVE_INTERVAL_MS),
+      next_run: nextRun,
+      status: "active",
+      created_at: new Date().toISOString(),
+    });
+    extensionKvSet(PROACTIVE_EXTENSION_ID, PROACTIVE_TASK_KEY, { id }, "chat", chatJid);
+    return { status: "success", message: `Proactive checks enabled for ${chatJid}. Task: ${id}.` };
+  }
+
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {
-    if (getAgentBackendConfig().backend === "codex-app-server") {
+    const backend = getChatAgentBackend(chatJid);
+    if (command.type === "backend") {
+      if (!command.backend) {
+        return { status: "success", message: `Current backend: ${formatBackendLabel(backend)}.` };
+      }
+      const next = setChatAgentBackend(chatJid, command.backend);
+      return { status: "success", message: `Backend set to ${formatBackendLabel(next)} for ${chatJid}.` };
+    }
+    if (command.type === "proactive") return this.applyProactiveCommand(chatJid, command);
+    if (command.type === "model") {
+      const provider = command.provider || (command.modelId?.startsWith("claude-") ? "claude" : undefined);
+      if (provider === "claude") {
+        setChatAgentBackend(chatJid, "claude");
+        const modelLabel = await setClaudeAgentSdkModel(chatJid, command.modelId || "default");
+        const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
+        return {
+          status: "success",
+          message: `Backend set to claude. Model set to ${modelLabel}. Thinking level: ${thinking}.`,
+          model_label: modelLabel,
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          supports_thinking: true,
+        };
+      }
+      if (provider === "codex") {
+        setChatAgentBackend(chatJid, "codex");
+        const modelLabel = await setCodexAppServerModel(chatJid, command.modelId || "default");
+        const thinking = getCodexAppServerThinkingLevel(chatJid);
+        return {
+          status: "success",
+          message: `Backend set to codex. Model set to ${modelLabel}. Thinking level: ${thinking}.`,
+          model_label: modelLabel,
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          fast_mode: getCodexAppServerFastMode(chatJid),
+          supports_thinking: true,
+        };
+      }
+    }
+
+    if (backend === "codex-app-server") {
       const getDisplayModel = async () => getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
       if (command.type === "model") {
         if (!command.modelId && !command.provider) {
@@ -471,7 +575,7 @@ export class AgentPool {
         return { status: "success", message: `**Context usage**\n\n| Metric | Value |\n|---|---:|\n| Used | ${used} / ${total} tokens |\n| Percent | ${percent} |` };
       }
     }
-    if (getAgentBackendConfig().backend === "claude-agent-sdk") {
+    if (backend === "claude-agent-sdk") {
       if (command.type === "model") {
         const current = getClaudeAgentSdkModelLabel(chatJid);
         const models = listClaudeAgentSdkModels();
@@ -568,8 +672,9 @@ export class AgentPool {
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
-    if (getAgentBackendConfig().backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
-    if (getAgentBackendConfig().backend === "claude-agent-sdk") return getClaudeAgentSdkModelLabel(chatJid);
+    const backend = getChatAgentBackend(chatJid);
+    if (backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
+    if (backend === "claude-agent-sdk") return getClaudeAgentSdkModelLabel(chatJid);
     return this.runtimeFacade.getCurrentModelLabel(chatJid);
   }
 
@@ -586,23 +691,35 @@ export class AgentPool {
 
   /** Return available model labels and current model for a chat session. */
   async getAvailableModels(chatJid: string): Promise<AvailableModelsResult> {
-    if (getAgentBackendConfig().backend === "codex-app-server") {
+    const backend = getChatAgentBackend(chatJid);
+    if (backend === "codex-app-server") {
       const models = await listCodexAppServerModels();
+      const claudeModels = listClaudeAgentSdkModels();
       const current = getCodexAppServerDisplayModelLabel(chatJid, models);
       const thinking = getCodexAppServerThinkingLevel(chatJid);
       const providerUsage = peekCodexAppServerProviderUsage();
       void warmCodexAppServerProviderUsage();
       return {
         current,
-        models: models.map((model) => model.label),
-        model_options: models.map((model) => ({
+        models: [...models.map((model) => model.label), ...claudeModels.map((model) => model.label)],
+        model_options: [
+          ...models.map((model) => ({
           label: model.label,
           provider: "codex",
           id: model.id,
           name: model.name,
           context_window: model.contextWindow ?? getCodexAppServerContextUsage(chatJid)?.contextWindow ?? null,
           reasoning: true,
-        })),
+          })),
+          ...claudeModels.map((model) => ({
+            label: model.label,
+            provider: "claude",
+            id: model.id,
+            name: model.name,
+            context_window: model.contextWindow,
+            reasoning: true,
+          })),
+        ],
         thinking_level: thinking,
         thinking_level_label: thinking,
         fast_mode: getCodexAppServerFastMode(chatJid),
@@ -611,22 +728,33 @@ export class AgentPool {
         provider_usage: providerUsage,
       };
     }
-    if (getAgentBackendConfig().backend === "claude-agent-sdk") {
+    if (backend === "claude-agent-sdk") {
       const current = getClaudeAgentSdkModelLabel(chatJid);
       const usage = getClaudeAgentSdkContextUsage(chatJid);
       const models = listClaudeAgentSdkModels();
+      const codexModels = await listCodexAppServerModels();
       const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
       return {
         current,
-        models: models.map((model) => model.label),
-        model_options: models.map((model) => ({
-          label: model.label,
-          provider: "claude",
-          id: model.id,
-          name: model.name,
-          context_window: model.contextWindow ?? usage?.contextWindow ?? null,
-          reasoning: true,
-        })),
+        models: [...models.map((model) => model.label), ...codexModels.map((model) => model.label)],
+        model_options: [
+          ...models.map((model) => ({
+            label: model.label,
+            provider: "claude",
+            id: model.id,
+            name: model.name,
+            context_window: model.contextWindow ?? usage?.contextWindow ?? null,
+            reasoning: true,
+          })),
+          ...codexModels.map((model) => ({
+            label: model.label,
+            provider: "codex",
+            id: model.id,
+            name: model.name,
+            context_window: model.contextWindow ?? null,
+            reasoning: true,
+          })),
+        ],
         thinking_level: thinking,
         thinking_level_label: thinking,
         fast_mode: null,
@@ -644,7 +772,7 @@ export class AgentPool {
     contextWindow: number;
     percent: number | null;
   } | null> {
-    if (getAgentBackendConfig().backend === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
+    if (getChatAgentBackend(chatJid) === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
     return this.runtimeFacade.getContextUsageForChat(chatJid);
   }
 

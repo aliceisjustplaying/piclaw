@@ -51,6 +51,16 @@ describe("parseControlCommand", () => {
     expect(cmd).toEqual({ type: "model", modelId: "gpt-4", raw: "/model gpt-4" });
   });
 
+  test("/backend with backend name", () => {
+    expect(parseControlCommand("/backend claude")).toEqual({ type: "backend", backend: "claude", raw: "/backend claude" });
+  });
+
+  test("/proactive defaults to on and parses status/off", () => {
+    expect(parseControlCommand("/proactive")).toEqual({ type: "proactive", action: "on", raw: "/proactive" });
+    expect(parseControlCommand("/proactive status")).toEqual({ type: "proactive", action: "status", raw: "/proactive status" });
+    expect(parseControlCommand("/proactive off")).toEqual({ type: "proactive", action: "off", raw: "/proactive off" });
+  });
+
   test("/model with provider and separate id", () => {
     const cmd = parseControlCommand("/model openai gpt-4o");
     expect(cmd).toEqual({ type: "model", provider: "openai", modelId: "gpt-4o", raw: "/model openai gpt-4o" });
