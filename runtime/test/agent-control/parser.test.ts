@@ -59,6 +59,7 @@ describe("parseControlCommand", () => {
     expect(parseControlCommand("/proactive")).toEqual({ type: "proactive", action: "on", raw: "/proactive" });
     expect(parseControlCommand("/proactive status")).toEqual({ type: "proactive", action: "status", raw: "/proactive status" });
     expect(parseControlCommand("/proactive off")).toEqual({ type: "proactive", action: "off", raw: "/proactive off" });
+    expect(parseControlCommand("/proactive wat")).toEqual({ type: "proactive", action: undefined, raw: "/proactive wat" });
   });
 
   test("/model with provider and separate id", () => {

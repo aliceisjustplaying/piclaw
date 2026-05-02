@@ -177,6 +177,7 @@ test("Claude Agent SDK bridge classifies mutating email and calendar tools", () 
   expect(isMutatingClaudeBridgeToolForTests("gmail_send_email", {})).toBe(true);
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "list" })).toBe(false);
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create" })).toBe(true);
+  expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create", input: { action: "list" } })).toBe(true);
 });
 
 function makeQuery(messages: unknown[]) {
@@ -383,4 +384,36 @@ test("Claude Agent SDK backend can rely on native Claude Code auth", async () =>
   const output = await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
   expect(output).toEqual({ status: "success", result: "ok" });
+});
+
+test("Claude Agent SDK backend aborts runs after timeout", async () => {
+  const aborted = deferred();
+  setClaudeAgentSdkQueryFactoryForTests((params: any) => {
+    params.options.abortController.signal.addEventListener("abort", aborted.resolve, { once: true });
+    const generator = (async function* () {
+      await aborted.promise;
+      throw new Error("aborted by timeout");
+    })();
+    return Object.assign(generator, {
+      interrupt: async () => {},
+      setPermissionMode: async () => {},
+      setModel: async () => {},
+      setMaxThinkingTokens: async () => {},
+      applyFlagSettings: async () => {},
+      getSettings: async () => ({}),
+      rewindFiles: async () => ({}),
+      cancelAsyncMessage: async () => false,
+      seedReadState: async () => {},
+      enableRemoteControl: async () => ({}),
+      submitFeedback: async () => ({}),
+      generateSessionTitle: async () => "title",
+      askSideQuestion: async () => null,
+      launchUltrareview: async () => ({}),
+      messageRated: async () => {},
+    }) as any;
+  });
+
+  const output = await runClaudeAgentSdkPrompt("hello", "web:claude-timeout", { timeoutMs: 5 });
+
+  expect(output).toMatchObject({ status: "error", error: "aborted by timeout" });
 });

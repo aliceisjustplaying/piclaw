@@ -384,12 +384,16 @@ async function runClaudeAgentSdkPromptUnlocked(
   runOptions: RunAgentOptions,
   bridgeSession?: PiclawBridgeSession | null,
 ): Promise<AgentOutput> {
+  if (runOptions.signal?.aborted) return { status: "error", result: null, error: "Claude Agent SDK aborted" };
   const token = await resolveOAuthToken();
 
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort();
   runOptions.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  if (runOptions.signal?.aborted) controller.abort();
   activeRunsByChat.set(chatJid, controller);
+  const timeoutMs = typeof runOptions.timeoutMs === "number" ? runOptions.timeoutMs : 0;
+  const timeout = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   let finalText = "";
   const streamState = { textStarted: false, text: "", thinkingStarted: false, thinking: "" };
@@ -413,7 +417,7 @@ async function runClaudeAgentSdkPromptUnlocked(
     tools: { type: "preset", preset: "claude_code" },
     mcpServers: { piclaw: createPiclawMcpServer(chatJid, bridgeSession, () => contextUsageByChat.get(chatJid) ?? null, bridgeTrustState) },
     canUseTool: createPermissionHandler(runOptions, bridgeTrustState),
-    permissionMode: runOptions.hasUntrustedExternalContent ? "default" : "bypassPermissions",
+    permissionMode: "default",
     includePartialMessages: true,
   };
 
@@ -454,6 +458,7 @@ async function runClaudeAgentSdkPromptUnlocked(
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error);
   } finally {
+    if (timeout) clearTimeout(timeout);
     runOptions.signal?.removeEventListener("abort", abortFromCaller);
     if (activeRunsByChat.get(chatJid) === controller) activeRunsByChat.delete(chatJid);
   }
@@ -471,7 +476,12 @@ async function runClaudeAgentSdkPromptUnlocked(
   } as AgentSessionEvent);
 
   const attachments = getAttachmentRegistry().take(chatJid);
-  if (errorMessage) return { status: "error", result: finalText || null, error: errorMessage };
+  if (errorMessage) return {
+    status: "error",
+    result: finalText || null,
+    error: errorMessage,
+    ...(attachments.length ? { attachments } : {}),
+  };
   return {
     status: "success",
     result: finalText,

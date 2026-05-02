@@ -385,38 +385,42 @@ export class AgentPool {
 
   /** Run a prompt against the persistent session for `chatJid`. */
   async runAgent(prompt: string, chatJid: string, options: RunAgentOptions = {}): Promise<AgentOutput> {
-    const backend = getChatAgentBackend(chatJid);
-    const pendingHandoff = options.skipBackendHandoff ? null : getPendingBackendHandoff(chatJid, backend);
-    const handoffPrompt = pendingHandoff
-      ? [
-        "Backend handoff state from the previous native agent backend.",
-        `From: ${formatBackendLabel(pendingHandoff.from)}. To: ${formatBackendLabel(pendingHandoff.to)}. Created: ${pendingHandoff.createdAt}.`,
-        "Use this as working continuity for the current turn. Piclaw transcript/search tools remain available if details are missing.",
-        "",
-        pendingHandoff.summary,
-      ].join("\n")
-      : null;
-    const effectivePrompt = handoffPrompt ? `${handoffPrompt}\n\n${prompt}` : prompt;
-    const runOptions = handoffPrompt
-      ? {
-        ...options,
-        codexReplayPrompt: options.codexReplayPrompt ? `${handoffPrompt}\n\n${options.codexReplayPrompt}` : undefined,
-      }
-      : options;
-    const output = await withAgentChatRunLock(chatJid, () => runAgentPrompt(effectivePrompt, chatJid, runOptions, {
-      getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
-      turnCoordinator: this.turnCoordinator,
-      clearAttachments: (nextChatJid) => this.attachments.clear(nextChatJid),
-      takeAttachments: (nextChatJid) => this.attachments.take(nextChatJid),
-      logsDir: this.logsDir,
-      setActiveForkBaseLeaf: (nextChatJid, leafId) => this.activeForkBaseLeafByChat.set(nextChatJid, leafId),
-      clearActiveForkBaseLeaf: (nextChatJid) => {
-        this.activeForkBaseLeafByChat.delete(nextChatJid);
-      },
-      onInfo: (message, details) => log.info(message, details),
-      onWarn: (message, details) => log.warn(message, details),
-      onError: (message, details) => log.error(message, details),
-    }));
+    const output = await withAgentChatRunLock(chatJid, async () => {
+      const backend = getChatAgentBackend(chatJid);
+      const pendingHandoff = options.skipBackendHandoff ? null : getPendingBackendHandoff(chatJid, backend);
+      const handoffPrompt = pendingHandoff
+        ? [
+          "Backend handoff state from the previous native agent backend.",
+          `From: ${formatBackendLabel(pendingHandoff.from)}. To: ${formatBackendLabel(pendingHandoff.to)}. Created: ${pendingHandoff.createdAt}.`,
+          "Use this as working continuity for the current turn. Piclaw transcript/search tools remain available if details are missing.",
+          "",
+          pendingHandoff.summary,
+        ].join("\n")
+        : null;
+      const effectivePrompt = handoffPrompt ? `${handoffPrompt}\n\n${prompt}` : prompt;
+      const runOptions = handoffPrompt
+        ? {
+          ...options,
+          codexReplayPrompt: options.codexReplayPrompt ? `${handoffPrompt}\n\n${options.codexReplayPrompt}` : undefined,
+        }
+        : options;
+      const nextOutput = await runAgentPrompt(effectivePrompt, chatJid, runOptions, {
+        getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
+        turnCoordinator: this.turnCoordinator,
+        clearAttachments: (nextChatJid) => this.attachments.clear(nextChatJid),
+        takeAttachments: (nextChatJid) => this.attachments.take(nextChatJid),
+        logsDir: this.logsDir,
+        setActiveForkBaseLeaf: (nextChatJid, leafId) => this.activeForkBaseLeafByChat.set(nextChatJid, leafId),
+        clearActiveForkBaseLeaf: (nextChatJid) => {
+          this.activeForkBaseLeafByChat.delete(nextChatJid);
+        },
+        onInfo: (message, details) => log.info(message, details),
+        onWarn: (message, details) => log.warn(message, details),
+        onError: (message, details) => log.error(message, details),
+      });
+      if (pendingHandoff && nextOutput.status === "success") markBackendHandoffUsed(chatJid);
+      return nextOutput;
+    });
 
     const recovery = output.recovery;
     if (recovery) {
@@ -424,8 +428,6 @@ export class AgentPool {
       if (recovery.recovered) this.recoveryStats.recoveredRuns += 1;
       if (recovery.exhausted) this.recoveryStats.exhaustedRuns += 1;
     }
-    if (pendingHandoff && output.status === "success") markBackendHandoffUsed(chatJid);
-
     return output;
   }
 
@@ -434,6 +436,7 @@ export class AgentPool {
   }
 
   private async applyProactiveCommand(chatJid: string, command: Extract<AgentControlCommand, { type: "proactive" }>): Promise<AgentControlResult> {
+    if (!command.action) return { status: "error", message: "Unknown proactive action. Available: on, off, status." };
     const taskRef = extensionKvGet<{ id: string }>(PROACTIVE_EXTENSION_ID, PROACTIVE_TASK_KEY, "chat", chatJid);
     const existing = taskRef?.id ? getTaskById(taskRef.id) : undefined;
     if (command.action === "status") {
@@ -520,7 +523,11 @@ export class AgentPool {
         return null;
       })();
       if (!normalizedTarget) {
-        setChatAgentBackend(chatJid, command.backend);
+        try {
+          setChatAgentBackend(chatJid, command.backend);
+        } catch (error) {
+          return { status: "error", message: error instanceof Error ? error.message : String(error) };
+        }
       }
       if (normalizedTarget && normalizedTarget !== previous) await this.abortBackendTurnForSwitch(chatJid, previous);
       const handoff = normalizedTarget && normalizedTarget !== previous
@@ -533,9 +540,9 @@ export class AgentPool {
       }
       return { status: "success", message: `Backend set to ${formatBackendLabel(next)} for ${chatJid}.` };
     }
-    if (command.type === "proactive") return this.applyProactiveCommand(chatJid, command);
+    if (command.type === "proactive") return withAgentChatRunLock(chatJid, () => this.applyProactiveCommand(chatJid, command));
     if (command.type === "model") {
-      const provider = command.provider || (command.modelId?.startsWith("claude-") ? "claude" : undefined);
+      const provider = command.provider;
       if (provider === "claude") {
         const target: AgentBackend = "claude-agent-sdk";
         if (target !== backend) {
