@@ -33,9 +33,8 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { type AgentControlCommand, type AgentControlResult } from "./agent-control/index.js";
-import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig, getEagerWarmupConfig, type AgentBackend } from "./core/config.js";
+import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig, type AgentBackend } from "./core/config.js";
 import { createTrackedBashOperations } from "./tools/tracked-bash.js";
-import { type ActiveChatAgent } from "./agent-pool/branch-manager.js";
 import {
   type AgentOutput,
   type AgentPoolOptions,
@@ -47,56 +46,36 @@ import { runSidePrompt as runSidePromptInternal } from "./agent-pool/side-prompt
 import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
 import { withAgentChatRunLock } from "./agent-pool/chat-run-lock.js";
 import { applyNativeBackendControlCommand } from "./agent-pool/native-backend-control.js";
-import {
-  PROACTIVE_EXTENSION_ID,
-  PROACTIVE_INTERVAL_MS,
-  PROACTIVE_PROMPT,
-  PROACTIVE_TASK_KEY,
-  PROACTIVE_TIMEOUT_SEC,
-} from "./agent-pool/proactive.js";
+import { applyProactiveControlCommand } from "./agent-pool/proactive-control.js";
 import {
   abortCodexAppServerChat,
-  getCodexAppServerContextUsage,
-  getCodexAppServerFastMode,
-  getCodexAppServerDisplayModelLabel,
-  getCodexAppServerThinkingLevel,
   hasCodexAppServerThread,
-  listCodexAppServerModels,
-  peekCodexAppServerProviderUsage,
-  warmCodexAppServerProviderUsage,
 } from "./agent-pool/codex-app-server-backend.js";
 import {
   abortClaudeAgentSdkChat,
-  getClaudeAgentSdkContextUsage,
-  getClaudeAgentSdkModelLabel,
-  getClaudeAgentSdkProviderUsage,
-  getClaudeAgentSdkThinkingLevel,
-  listClaudeAgentSdkModels,
 } from "./agent-pool/claude-agent-sdk-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
-import { peekProviderUsage, warmProviderUsage } from "./agent-pool/provider-usage.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
+import { loadAgentPoolConfig } from "./agent-pool/config.js";
+import { applyPendingBackendHandoff, captureBackendHandoffSummary } from "./agent-pool/backend-handoff-control.js";
 import {
-  formatBackendLabel,
+  bindAgentPoolFacadeMethods,
+  type AgentPoolBoundBranchFacade,
+  type AgentPoolBoundRuntimeFacade,
+} from "./agent-pool/facade-bindings.js";
+import { getNativeAvailableModels, getNativeContextUsageForChat, getNativeCurrentModelLabel } from "./agent-pool/native-model-status.js";
+import { clearPoolSshConfig, getPoolSshConfig, setPoolSshConfig } from "./agent-pool/ssh-config-control.js";
+import { scheduleRecentChatWarmup as scheduleRecentChatWarmupInternal } from "./agent-pool/warmup-scheduler.js";
+import {
   getChatAgentBackend,
   getPendingBackendHandoff,
   markBackendHandoffUsed,
-  setBackendHandoff,
 } from "./agent-pool/backend-state.js";
 import {
-  type ChatBranchRecord,
   type SshConfig,
-  type SshConfigApplyTiming,
   type SshConfigClearResult,
   type SshConfigSetResult,
-  createTask,
-  deleteSshConfig,
-  getSshConfig,
-  getTaskById,
-  listRecentChatJids,
-  updateTask,
-  upsertSshConfig,
 } from "./db.js";
 import {
   extensionKvGet,
@@ -109,18 +88,10 @@ import {
 } from "./db.js";
 import { registerExtensionKvStore } from "./extension-kv-registry.js";
 import { setSshToolHandlers } from "./extensions/ssh.js";
-import { applyLiveSshConfig, clearLiveSshConfig, hasLiveChatSshSession, resolveSshCoreConfigFromChatConfig } from "./extensions/ssh-core.js";
 import { getKeychainEntry } from "./secure/keychain.js";
-import { createUuid } from "./utils/ids.js";
 import { addLogSink, createLogger, removeLogSink } from "./utils/logger.js";
 
 const log = createLogger("agent-pool");
-const BACKEND_HANDOFF_PROMPT = [
-  "Create a concise backend handoff state for continuing this Piclaw chat in another native agent backend.",
-  "Include: current goals, latest user intent, important decisions, files/commands touched, open tasks, constraints, tool/data caveats, and anything the next backend must preserve.",
-  "Do not include secrets. Keep it under 1200 words. Return only the handoff state.",
-].join("\n");
-
 export type {
   AgentOutput,
   AgentPoolOptions,
@@ -158,93 +129,10 @@ export interface AgentPoolMemoryInstrumentationSnapshot {
   recovery: AgentPoolRecoveryInstrumentationSnapshot;
 }
 
-/** How long (ms) an idle main session stays cached before being disposed. */
-const DEFAULT_MAIN_IDLE_TTL = 3 * 60 * 1000; // 3 minutes
-/** How long (ms) an idle side session stays cached before being disposed. */
-const DEFAULT_SIDE_IDLE_TTL = 60 * 1000; // 1 minute
-const DEFAULT_CLEANUP_INTERVAL = 30 * 1000; // check every 30 seconds
-const DEFAULT_MAIN_SESSION_POOL_MAX_SIZE = 2;
-// 512 MB: observed normal multi-session RSS peaks at 388–428 MB so 384 MB
-// triggered pressure during ordinary work. 512 MB gives headroom above those
-// peaks while still protecting against genuine memory stress.
-const DEFAULT_MEMORY_PRESSURE_RSS_BYTES = 512 * 1024 * 1024;
-// 60 s under genuine pressure: 30 s was too short — sessions were killed and
-// immediately recreated, causing high churn with no net memory benefit.
-const DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL = 60 * 1000;
-const DEFAULT_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE = 1;
-const EAGER_MAIN_IDLE_TTL = 60 * 60 * 1000;
-const EAGER_SIDE_IDLE_TTL = 30 * 60 * 1000;
-const EAGER_MAIN_SESSION_POOL_MAX_SIZE = 16;
-const EAGER_MEMORY_PRESSURE_RSS_BYTES = 4 * 1024 * 1024 * 1024;
-const EAGER_MEMORY_PRESSURE_MAIN_IDLE_TTL = 15 * 60 * 1000;
-const EAGER_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE = 8;
+export interface AgentPool extends AgentPoolBoundBranchFacade, AgentPoolBoundRuntimeFacade {}
 
-function parsePositiveMs(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function parseNonNegativeInt(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-function loadAgentPoolConfig() {
-  const eagerWarmup = getEagerWarmupConfig().enabled;
-  const mainIdleTtlMs = parsePositiveMs(
-    process.env.PICLAW_MAIN_SESSION_IDLE_TTL_MS ?? process.env.PICLAW_SESSION_IDLE_TTL_MS,
-    eagerWarmup ? EAGER_MAIN_IDLE_TTL : DEFAULT_MAIN_IDLE_TTL,
-  );
-  const sideIdleTtlMs = parsePositiveMs(
-    process.env.PICLAW_SIDE_SESSION_IDLE_TTL_MS ?? process.env.PICLAW_SESSION_IDLE_TTL_MS,
-    eagerWarmup ? EAGER_SIDE_IDLE_TTL : DEFAULT_SIDE_IDLE_TTL,
-  );
-  const cleanupIntervalMs = parsePositiveMs(process.env.PICLAW_SESSION_CLEANUP_INTERVAL_MS, DEFAULT_CLEANUP_INTERVAL);
-  const mainSessionPoolMaxSize = parseNonNegativeInt(
-    process.env.PICLAW_MAIN_SESSION_POOL_MAX_SIZE ?? process.env.PICLAW_SESSION_POOL_MAX_SIZE,
-    eagerWarmup ? EAGER_MAIN_SESSION_POOL_MAX_SIZE : DEFAULT_MAIN_SESSION_POOL_MAX_SIZE,
-  );
-  const memoryPressureRssBytes = parseNonNegativeInt(
-    process.env.PICLAW_MAIN_SESSION_PRESSURE_RSS_BYTES,
-    eagerWarmup ? EAGER_MEMORY_PRESSURE_RSS_BYTES : DEFAULT_MEMORY_PRESSURE_RSS_BYTES,
-  );
-  const memoryPressureMainIdleTtlMs = parsePositiveMs(
-    process.env.PICLAW_MAIN_SESSION_PRESSURE_IDLE_TTL_MS,
-    eagerWarmup ? EAGER_MEMORY_PRESSURE_MAIN_IDLE_TTL : DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL,
-  );
-  const memoryPressureMainSessionPoolMaxSize = parseNonNegativeInt(
-    process.env.PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE,
-    eagerWarmup ? EAGER_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE : DEFAULT_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE,
-  );
-
-  return {
-    mainIdleTtlMs,
-    sideIdleTtlMs,
-    cleanupIntervalMs,
-    mainSessionPoolMaxSize,
-    memoryPressureRssBytes,
-    memoryPressureMainIdleTtlMs,
-    memoryPressureMainSessionPoolMaxSize,
-    eagerWarmup,
-  };
-}
 const DEFAULT_PROVIDER_RATE_LIMIT_MAX_RETRIES = 5;
 const DEFAULT_PROVIDER_RATE_LIMIT_BASE_DELAY_MS = 5000;
-
-async function withWarmupTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return await promise;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 /**
  * Manages a pool of persistent AgentSession instances keyed by chat JID.
@@ -260,6 +148,7 @@ export class AgentPool {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private shuttingDown = false;
   private memoryPressureActive = false;
+  private recentWarmupCooldownByChat = new Map<string, number>();
   private recoveryStats: AgentPoolRecoveryInstrumentationSnapshot = {
     attemptsTotal: 0,
     recoveredRuns: 0,
@@ -314,6 +203,7 @@ export class AgentPool {
       onWarn: (message, details) => log.warn(message, details),
       onError: (message, details) => log.error(message, details),
     }));
+    bindAgentPoolFacadeMethods(this, this.branchManager, this.runtimeFacade);
     this.sideStreamSimple = options.sideStreamSimple;
     setSshToolHandlers({
       get: (chatJid) => this.getSshConfig(chatJid),
@@ -373,22 +263,7 @@ export class AgentPool {
     const output = await withAgentChatRunLock(chatJid, async () => {
       const backend = getChatAgentBackend(chatJid);
       const pendingHandoff = options.skipBackendHandoff ? null : getPendingBackendHandoff(chatJid, backend);
-      const handoffPrompt = pendingHandoff
-        ? [
-          "Backend handoff state from the previous native agent backend.",
-          `From: ${formatBackendLabel(pendingHandoff.from)}. To: ${formatBackendLabel(pendingHandoff.to)}. Created: ${pendingHandoff.createdAt}.`,
-          "Use this as working continuity for the current turn. Piclaw transcript/search tools remain available if details are missing.",
-          "",
-          pendingHandoff.summary,
-        ].join("\n")
-        : null;
-      const effectivePrompt = handoffPrompt ? `${handoffPrompt}\n\n${prompt}` : prompt;
-      const runOptions = handoffPrompt
-        ? {
-          ...options,
-          codexReplayPrompt: options.codexReplayPrompt ? `${handoffPrompt}\n\n${options.codexReplayPrompt}` : undefined,
-        }
-        : options;
+      const { effectivePrompt, runOptions } = applyPendingBackendHandoff(prompt, options, pendingHandoff);
       const nextOutput = await runAgentPrompt(effectivePrompt, chatJid, runOptions, {
         getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
         turnCoordinator: this.turnCoordinator,
@@ -420,59 +295,8 @@ export class AgentPool {
     return hasCodexAppServerThread(chatJid);
   }
 
-  private async applyProactiveCommand(chatJid: string, command: Extract<AgentControlCommand, { type: "proactive" }>): Promise<AgentControlResult> {
-    if (!command.action) return { status: "error", message: "Unknown proactive action. Available: on, off, status." };
-    const taskRef = extensionKvGet<{ id: string }>(PROACTIVE_EXTENSION_ID, PROACTIVE_TASK_KEY, "chat", chatJid);
-    const existing = taskRef?.id ? getTaskById(taskRef.id) : undefined;
-    if (command.action === "status") {
-      return {
-        status: "success",
-        message: existing
-          ? `Proactive checks are ${existing.status} for ${chatJid}. Task: ${existing.id}.`
-          : `Proactive checks are off for ${chatJid}.`,
-      };
-    }
-    if (command.action === "off") {
-      if (existing) updateTask(existing.id, { status: "paused" });
-      return { status: "success", message: existing ? `Paused proactive checks for ${chatJid}.` : `Proactive checks were not enabled for ${chatJid}.` };
-    }
-
-    const nextRun = new Date(Date.now() + PROACTIVE_INTERVAL_MS).toISOString();
-    if (existing) {
-      updateTask(existing.id, {
-        prompt: PROACTIVE_PROMPT,
-        model: null,
-        timeout_sec: PROACTIVE_TIMEOUT_SEC,
-        schedule_type: "interval",
-        schedule_value: String(PROACTIVE_INTERVAL_MS),
-        next_run: nextRun,
-        status: "active",
-      });
-      return { status: "success", message: `Proactive checks enabled for ${chatJid}. Task: ${existing.id}.` };
-    }
-
-    const id = createUuid("task");
-    createTask({
-      id,
-      chat_jid: chatJid,
-      prompt: PROACTIVE_PROMPT,
-      model: null,
-      task_kind: "agent",
-      command: null,
-      cwd: null,
-      timeout_sec: PROACTIVE_TIMEOUT_SEC,
-      schedule_type: "interval",
-      schedule_value: String(PROACTIVE_INTERVAL_MS),
-      next_run: nextRun,
-      status: "active",
-      created_at: new Date().toISOString(),
-    });
-    extensionKvSet(PROACTIVE_EXTENSION_ID, PROACTIVE_TASK_KEY, { id }, "chat", chatJid);
-    return { status: "success", message: `Proactive checks enabled for ${chatJid}. Task: ${id}.` };
-  }
-
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {
-    if (command.type === "proactive") return withAgentChatRunLock(chatJid, () => this.applyProactiveCommand(chatJid, command));
+    if (command.type === "proactive") return withAgentChatRunLock(chatJid, () => applyProactiveControlCommand(chatJid, command));
     const nativeResult = await applyNativeBackendControlCommand(chatJid, command, {
       getContextUsageForChat: (nextChatJid) => this.getContextUsageForChat(nextChatJid),
       abortBackendTurnForSwitch: (nextChatJid, backend) => this.abortBackendTurnForSwitch(nextChatJid, backend),
@@ -483,28 +307,13 @@ export class AgentPool {
   }
 
   private async captureBackendHandoff(chatJid: string, from: AgentBackend, to: AgentBackend): Promise<boolean> {
-    if (from === to) return false;
-    try {
-      const output = await this.runAgent(BACKEND_HANDOFF_PROMPT, chatJid, {
-        timeoutMs: 120_000,
-        skipPrePromptCompaction: true,
-        skipBackendHandoff: true,
-        scheduleIdleAutoCompaction: false,
-      });
-      const summary = output.status === "success" ? output.result?.trim() : "";
-      if (!summary) return false;
-      setBackendHandoff(chatJid, { from, to, summary });
-      return true;
-    } catch (error) {
-      log.warn("Failed to capture backend handoff", {
-        operation: "agent_backend.capture_handoff_failed",
-        chatJid,
-        from,
-        to,
-        err: error,
-      });
-      return false;
-    }
+    return captureBackendHandoffSummary(
+      chatJid,
+      from,
+      to,
+      (handoffPrompt, nextChatJid, options) => this.runAgent(handoffPrompt, nextChatJid, options),
+      (message, details) => log.warn(message, details),
+    );
   }
 
   private async abortBackendTurnForSwitch(chatJid: string, backend: AgentBackend): Promise<void> {
@@ -530,10 +339,7 @@ export class AgentPool {
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
-    const backend = getChatAgentBackend(chatJid);
-    if (backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
-    if (backend === "claude-agent-sdk") return getClaudeAgentSdkModelLabel(chatJid);
-    return this.runtimeFacade.getCurrentModelLabel(chatJid);
+    return getNativeCurrentModelLabel(chatJid, this.runtimeFacade);
   }
 
   async runSidePrompt(chatJid: string, prompt: string, options: SidePromptOptions = {}): Promise<SidePromptResult> {
@@ -549,66 +355,7 @@ export class AgentPool {
 
   /** Return available model labels and current model for a chat session. */
   async getAvailableModels(chatJid: string): Promise<AvailableModelsResult> {
-    const backend = getChatAgentBackend(chatJid);
-    const eagerWarmup = getEagerWarmupConfig();
-    if (backend === "codex-app-server") {
-      const models = await listCodexAppServerModels();
-      const current = getCodexAppServerDisplayModelLabel(chatJid, models);
-      const thinking = getCodexAppServerThinkingLevel(chatJid);
-      const providerUsage = eagerWarmup.enabled
-        ? await withWarmupTimeout(warmCodexAppServerProviderUsage(), eagerWarmup.providerUsageTimeoutMs)
-        : peekCodexAppServerProviderUsage();
-      if (!eagerWarmup.enabled) void warmCodexAppServerProviderUsage();
-      return {
-        current,
-        models: models.map((model) => model.label),
-        model_options: models.map((model) => ({
-          label: model.label,
-          provider: "codex",
-          id: model.id,
-          name: model.name,
-          context_window: model.contextWindow ?? getCodexAppServerContextUsage(chatJid)?.contextWindow ?? null,
-          reasoning: true,
-        })),
-        thinking_level: thinking,
-        thinking_level_label: thinking,
-        fast_mode: getCodexAppServerFastMode(chatJid),
-        supports_thinking: true,
-        available_thinking_levels: ["off", "minimal", "low", "medium", "high", "xhigh"],
-        provider_usage: providerUsage,
-      };
-    }
-    if (backend === "claude-agent-sdk") {
-      const current = getClaudeAgentSdkModelLabel(chatJid);
-      const usage = getClaudeAgentSdkContextUsage(chatJid);
-      const models = listClaudeAgentSdkModels();
-      const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
-      const providerUsage = eagerWarmup.enabled
-        ? (await withWarmupTimeout(warmProviderUsage(this.authStorage, "anthropic"), eagerWarmup.providerUsageTimeoutMs)
-          ?? peekProviderUsage("anthropic", { allowStale: true })
-          ?? getClaudeAgentSdkProviderUsage(chatJid))
-        : (peekProviderUsage("anthropic", { allowStale: true }) ?? getClaudeAgentSdkProviderUsage(chatJid));
-      if (!eagerWarmup.enabled) void warmProviderUsage(this.authStorage, "anthropic");
-      return {
-        current,
-        models: models.map((model) => model.label),
-        model_options: models.map((model) => ({
-          label: model.label,
-          provider: "claude",
-          id: model.id,
-          name: model.name,
-          context_window: model.contextWindow ?? usage?.contextWindow ?? null,
-          reasoning: true,
-        })),
-        thinking_level: thinking,
-        thinking_level_label: thinking,
-        fast_mode: null,
-        supports_thinking: true,
-        available_thinking_levels: ["off", "low", "medium", "high", "xhigh", "max"],
-        provider_usage: providerUsage as any,
-      };
-    }
-    return this.runtimeFacade.getAvailableModels(chatJid);
+    return getNativeAvailableModels(chatJid, this.authStorage, this.runtimeFacade);
   }
 
   /** Return the current context token usage for a chat session, or null if unknown. */
@@ -617,173 +364,25 @@ export class AgentPool {
     contextWindow: number;
     percent: number | null;
   } | null> {
-    if (getChatAgentBackend(chatJid) === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
-    if (getChatAgentBackend(chatJid) === "codex-app-server") return getCodexAppServerContextUsage(chatJid);
-    return this.runtimeFacade.getContextUsageForChat(chatJid);
+    return getNativeContextUsageForChat(chatJid, this.runtimeFacade);
   }
 
   scheduleRecentChatWarmup(options: { limit?: number; excludeChatJids?: string[] } = {}): string[] {
-    if (this.shuttingDown) return [];
-    const targetCount = Math.max(1, Math.min(8, Math.trunc(options.limit ?? 3) || 3));
-    const excluded = new Set(
-      Array.isArray(options.excludeChatJids)
-        ? options.excludeChatJids.map((jid) => String(jid || "").trim()).filter(Boolean)
-        : [],
-    );
-    const cooldownByChat = ((this as any).__piclawRecentWarmupCooldownByChat ||= new Map<string, number>()) as Map<string, number>;
-    const now = Date.now();
-    for (const [chatJid, lastQueuedAt] of cooldownByChat) {
-      if (now - lastQueuedAt >= 30_000) {
-        cooldownByChat.delete(chatJid);
-      }
-    }
-
-    const scheduled: string[] = [];
-    const seen = new Set<string>();
-    let fetchLimit = Math.min(100, Math.max(targetCount * 4, targetCount));
-
-    while (scheduled.length < targetCount) {
-      const candidates = listRecentChatJids(fetchLimit, {
-        excludeChatJids: [...excluded, ...seen],
-      });
-      for (const chatJid of candidates) {
-        if (seen.has(chatJid)) continue;
-        seen.add(chatJid);
-        if (excluded.has(chatJid)) continue;
-        if (this.pool.has(chatJid)) continue;
-        if (now - (cooldownByChat.get(chatJid) ?? 0) < 30_000) continue;
-        scheduled.push(chatJid);
-        if (scheduled.length >= targetCount) break;
-      }
-
-      if (scheduled.length >= targetCount || fetchLimit >= 100 || candidates.length < fetchLimit) {
-        break;
-      }
-
-      const nextFetchLimit = Math.min(100, fetchLimit * 2);
-      if (nextFetchLimit === fetchLimit) {
-        break;
-      }
-      fetchLimit = nextFetchLimit;
-    }
-
-    // Only record a cooldown / return chats that actually entered the prewarm
-    // queue. prewarm() may reject a candidate (already queued, in flight, or
-    // within its per-chat cooldown) and we must not consume a slot or suppress
-    // backfill for those.
-    const actuallyScheduled: string[] = [];
-    for (const chatJid of scheduled) {
-      if (this.sessionManager.prewarm(chatJid, { mode: this.config.eagerWarmup ? "full" : "lightweight" })) {
-        cooldownByChat.set(chatJid, now);
-        actuallyScheduled.push(chatJid);
-      }
-    }
-
-    return actuallyScheduled;
+    return scheduleRecentChatWarmupInternal(options, {
+      pool: this.pool,
+      sessionManager: this.sessionManager,
+      shuttingDown: this.shuttingDown,
+      eagerWarmup: this.config.eagerWarmup,
+      cooldownByChat: this.recentWarmupCooldownByChat,
+    });
   }
 
   scheduleChatWarmup(chatJid: string, options: { priority?: boolean } = {}): boolean {
     return this.sessionManager.prewarm(chatJid, options);
   }
 
-  getSessionTreeForChat(chatJid: string): { leafId: string | null; nodes: unknown[]; flat?: boolean; total?: number; capped?: boolean } | null {
-    return this.runtimeFacade.getSessionTreeForChat(chatJid);
-  }
-
-  /**
-   * Save the current session tree position so it can be restored later.
-   * Used by the scheduler to isolate task execution in a side branch.
-   */
-  async saveSessionPosition(chatJid: string): Promise<string | null> {
-    return this.runtimeFacade.saveSessionPosition(chatJid);
-  }
-
-  /**
-   * Restore the session tree to a previously saved position.
-   * Navigates back to the saved leaf, leaving the task's output in a side branch.
-   */
-  async restoreSessionPosition(chatJid: string, leafId: string | null): Promise<void> {
-    return this.runtimeFacade.restoreSessionPosition(chatJid, leafId);
-  }
-
   async disposeChatSession(chatJid: string): Promise<void> {
     await this.sessionManager.recreate(chatJid);
-  }
-
-  hasProviderModels(provider: string): boolean {
-    return this.runtimeFacade.hasProviderModels(provider);
-  }
-
-  registerModelProvider(
-    providerName: string,
-    config: Parameters<ModelRegistry["registerProvider"]>[1]
-  ): void {
-    this.runtimeFacade.registerModelProvider(providerName, config);
-  }
-
-  resolveModelInput(input: string): { model?: string; error?: string } {
-    return this.runtimeFacade.resolveModelInput(input);
-  }
-
-  isStreaming(chatJid: string): boolean {
-    return this.runtimeFacade.isStreaming(chatJid);
-  }
-
-  isActive(chatJid: string): boolean {
-    return this.runtimeFacade.isActive(chatJid);
-  }
-
-  private ensureBranchRegistration(chatJid: string, session?: AgentSession | null): ChatBranchRecord {
-    return this.branchManager.ensureBranchRegistration(chatJid, session);
-  }
-
-  async renameChatBranch(
-    chatJid: string,
-    options: { agentName?: string | null } = {},
-  ): Promise<ChatBranchRecord> {
-    return this.branchManager.renameChatBranch(chatJid, options);
-  }
-
-  async pruneChatBranch(chatJid: string): Promise<ChatBranchRecord> {
-    return this.branchManager.pruneChatBranch(chatJid);
-  }
-
-  async renameChatJid(
-    oldJid: string,
-    newJid: string,
-  ): Promise<{ oldJid: string; newJid: string; branch: ChatBranchRecord }> {
-    return this.branchManager.renameChatJid(oldJid, newJid);
-  }
-
-  async restoreChatBranch(
-    chatJid: string,
-    options: { agentName?: string | null } = {},
-  ): Promise<ChatBranchRecord> {
-    return this.branchManager.restoreChatBranch(chatJid, options);
-  }
-
-  async permanentPurgeChatBranch(
-    chatJid: string,
-  ): Promise<{ branch: ChatBranchRecord; removedSessionArtifacts: string[] }> {
-    return this.branchManager.permanentPurgeChatBranch(chatJid);
-  }
-
-  async createForkedChatBranch(
-    sourceChatJid: string,
-    options: { agentName?: string | null } = {},
-  ): Promise<ChatBranchRecord> {
-    return this.branchManager.createForkedChatBranch(sourceChatJid, options);
-  }
-
-  listActiveChats(): ActiveChatAgent[] {
-    return this.branchManager.listActiveChats();
-  }
-
-  listKnownChats(
-    rootChatJid?: string | null,
-    options?: { includeArchived?: boolean }
-  ): ActiveChatAgent[] {
-    return this.branchManager.listKnownChats(rootChatJid, options);
   }
 
   getMemoryInstrumentationSnapshot(): AgentPoolMemoryInstrumentationSnapshot {
@@ -797,59 +396,19 @@ export class AgentPool {
     };
   }
 
-  findActiveChatByAgentName(agentName: string): ActiveChatAgent | null {
-    return this.branchManager.findActiveChatByAgentName(agentName);
-  }
-
-  findChatByAgentName(agentName: string): { chat_jid: string; agent_name: string } | null {
-    return this.branchManager.findChatByAgentName(agentName);
-  }
-
-  getAgentHandleForChat(chatJid: string): string {
-    return this.branchManager.getAgentHandleForChat(chatJid);
-  }
-
-  async queueStreamingMessage(
-    chatJid: string,
-    text: string,
-    behavior: "steer" | "followUp"
-  ): Promise<{ queued: boolean; error?: string }> {
-    return this.runtimeFacade.queueStreamingMessage(chatJid, text, behavior);
-  }
-
-  /** Remove one queued follow-up message (first content match) from an active session queue. */
-  async removeQueuedFollowupMessage(chatJid: string, queuedContent?: string): Promise<boolean> {
-    return this.runtimeFacade.removeQueuedFollowupMessage(chatJid, queuedContent);
-  }
-
-  /** Execute a raw slash command in the AgentSession (extension commands). */
-  async applySlashCommand(chatJid: string, rawText: string): Promise<AgentControlResult> {
-    return this.runtimeFacade.applySlashCommand(chatJid, rawText);
-  }
-
   getSshConfig(chatJid: string): SshConfig | null {
-    return getSshConfig(chatJid);
+    return getPoolSshConfig(chatJid);
   }
 
   async setSshConfig(
     chatJid: string,
     config: Omit<SshConfig, "chat_jid" | "created_at" | "updated_at" | "last_used_at">,
   ): Promise<SshConfigSetResult> {
-    const apply_timing: SshConfigApplyTiming = hasLiveChatSshSession(chatJid) ? "immediate" : "next_session";
-    if (apply_timing === "immediate") {
-      await applyLiveSshConfig(chatJid, resolveSshCoreConfigFromChatConfig(config));
-    }
-    const next = upsertSshConfig({ chat_jid: chatJid, ...config });
-    return { config: next, apply_timing };
+    return setPoolSshConfig(chatJid, config);
   }
 
   async clearSshConfig(chatJid: string): Promise<SshConfigClearResult> {
-    const apply_timing: SshConfigApplyTiming = hasLiveChatSshSession(chatJid) ? "immediate" : "next_session";
-    const deleted = deleteSshConfig(chatJid);
-    if (apply_timing === "immediate") {
-      await clearLiveSshConfig(chatJid);
-    }
-    return { deleted, apply_timing };
+    return clearPoolSshConfig(chatJid);
   }
 
   /** Gracefully shut down all sessions. */
