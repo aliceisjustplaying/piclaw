@@ -1,10 +1,63 @@
 import { expect, test } from "bun:test";
 
 import {
+  compactCodexAppServerChat,
+  getCodexAppServerFastMode,
+  hasCodexAppServerThread,
   isCodexBridgeToolAllowed,
   listCodexBridgeDynamicToolsForTests,
+  resolveCodexAppServerApprovalForTests,
+  runCodexAppServerPrompt,
+  setCodexAppServerFastMode,
+  setCodexAppServerClientFactoryForTests,
+  stopCodexAppServerBackend,
   type PiclawBridgeSession,
 } from "../../src/agent-pool/codex-app-server-backend.js";
+
+type NotificationHandler = (message: Record<string, unknown>) => void;
+
+class StubCodexClient {
+  requests: Array<{ method: string; params: any }> = [];
+  handlers = new Set<NotificationHandler>();
+  rejectTurnStart = false;
+  rejectCompactStart = false;
+  stopped = false;
+
+  async ready() {}
+
+  async request(method: string, params: unknown): Promise<unknown> {
+    this.requests.push({ method, params });
+    if (method === "thread/start") return { thread: { id: "thread-1" } };
+    if (method === "turn/start") {
+      if (this.rejectTurnStart) throw new Error("turn start failed");
+      queueMicrotask(() => this.emit({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } }));
+      return { turn: { id: "turn-1" } };
+    }
+    if (method === "thread/compact/start") {
+      if (this.rejectCompactStart) throw new Error("compact start failed");
+      queueMicrotask(() => this.emit({ method: "thread/compacted", params: { threadId: "thread-1" } }));
+      return {};
+    }
+    return {};
+  }
+
+  onNotification(handler: NotificationHandler): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
+  }
+
+  emit(message: Record<string, unknown>) {
+    for (const handler of [...this.handlers]) handler(message);
+  }
+
+  stop() {
+    this.stopped = true;
+  }
+}
+
+function useStubClient(client: StubCodexClient): void {
+  setCodexAppServerClientFactoryForTests(() => client);
+}
 
 test("Codex bridge filters native Pi tools and exposes Piclaw extension tools", () => {
   expect(isCodexBridgeToolAllowed("bash")).toBe(false);
@@ -34,6 +87,14 @@ test("Codex bridge filters native Pi tools and exposes Piclaw extension tools", 
       inputSchema: { type: "object" },
     },
   ]);
+});
+
+test("Codex fast mode persists per chat", () => {
+  setCodexAppServerFastMode("web:codex-fast-a", true);
+  setCodexAppServerFastMode("web:codex-fast-b", false);
+
+  expect(getCodexAppServerFastMode("web:codex-fast-a")).toBe(true);
+  expect(getCodexAppServerFastMode("web:codex-fast-b")).toBe(false);
 });
 
 test("Codex bridge exposes extension runner registered tools", () => {
@@ -75,4 +136,87 @@ test("Codex bridge exposes extension runner registered tools", () => {
       inputSchema: { type: "object" },
     },
   ]);
+});
+
+test("Codex app-server registers bridge tools on thread start and compacts existing thread", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    const session: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+
+    await runCodexAppServerPrompt("hello", "web:codex-stub", { timeoutMs: 1000 }, session);
+    expect(hasCodexAppServerThread("web:codex-stub")).toBe(true);
+    expect(client.requests.filter((request) => request.method === "thread/start").length).toBe(1);
+    expect(client.requests.find((request) => request.method === "thread/start")?.params.dynamicTools.some((tool: any) => tool.name === "google_calendar")).toBe(true);
+
+    await compactCodexAppServerChat("web:codex-stub");
+    expect(client.requests.filter((request) => request.method === "thread/start").length).toBe(1);
+    expect(client.requests.some((request) => request.method === "thread/compact/start")).toBe(true);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server removes notification handlers when start requests fail", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    client.rejectTurnStart = true;
+    const output = await runCodexAppServerPrompt("hello", "web:codex-fail-turn", { timeoutMs: 1000 });
+    expect(output.status).toBe("error");
+    expect(client.handlers.size).toBe(0);
+
+    client.rejectTurnStart = false;
+    await runCodexAppServerPrompt("hello", "web:codex-fail-compact", { timeoutMs: 1000 });
+    client.rejectCompactStart = true;
+    await expect(compactCodexAppServerChat("web:codex-fail-compact")).rejects.toThrow("compact start failed");
+    expect(client.handlers.size).toBe(0);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server denies command and file approvals for untrusted external content", () => {
+  expect(resolveCodexAppServerApprovalForTests(
+    "item/commandExecution/requestApproval",
+    { threadId: "thread-1" },
+    true,
+  )).toEqual({ decision: "reject" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "item/fileChange/requestApproval",
+    { threadId: "thread-1" },
+    true,
+  )).toEqual({ decision: "reject" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "execCommandApproval",
+    { conversationId: "thread-1" },
+    true,
+  )).toEqual({ decision: "denied" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "applyPatchApproval",
+    { conversationId: "thread-1" },
+    true,
+  )).toEqual({ decision: "denied" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "item/permissions/requestApproval",
+    { threadId: "thread-1", permissions: { sandbox: "danger-full-access" } },
+    true,
+  )).toEqual({ permissions: {}, scope: "turn" });
+});
+
+test("Codex app-server accepts approvals for normal local-user turns", () => {
+  expect(resolveCodexAppServerApprovalForTests(
+    "item/commandExecution/requestApproval",
+    { threadId: "thread-1" },
+    false,
+  )).toEqual({ decision: "accept" });
+  expect(resolveCodexAppServerApprovalForTests(
+    "item/permissions/requestApproval",
+    { threadId: "thread-1", permissions: { sandbox: "danger-full-access" } },
+    false,
+  )).toEqual({ permissions: { sandbox: "danger-full-access" }, scope: "turn" });
 });
