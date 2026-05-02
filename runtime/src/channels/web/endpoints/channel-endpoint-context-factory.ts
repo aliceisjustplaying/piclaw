@@ -3,7 +3,7 @@
  */
 
 import { getDb, replaceMessageContent } from "../../../db.js";
-import { getAgentBackendConfig } from "../../../core/config.js";
+import { getChatAgentBackend } from "../../../agent-pool/backend-state.js";
 import { resolveAvatarUrl } from "../media/avatar-service.js";
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import type { AuthEndpointsContext } from "../auth/auth-endpoints.js";
@@ -124,7 +124,7 @@ export function createWebChannelEndpointContexts(
           getBuffer: (turnId, panel) => channel.getBuffer(turnId, panel),
           getContextUsageForChat: async (chatJid) => {
             const liveUsage = await channel.agentPool.getContextUsageForChat(chatJid);
-            if (getAgentBackendConfig().backend === "codex-app-server") return liveUsage;
+            if (getChatAgentBackend(chatJid) === "codex-app-server") return liveUsage;
             return liveUsage ?? normalizeContextUsageSnapshot(channel.getContextUsage(chatJid));
           },
           getAvailableModels: (chatJid) => channel.agentPool.getAvailableModels(chatJid),

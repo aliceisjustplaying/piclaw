@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import "../helpers.js";
 
 import {
   getClaudeAgentSdkContextUsage,
   getClaudeAgentSdkProviderUsage,
   hasClaudeAgentSdkSession,
+  listClaudeAgentSdkModels,
   resetClaudeAgentSdkBackendForTests,
   runClaudeAgentSdkPrompt,
   setClaudeAgentSdkOAuthTokenResolverForTests,
@@ -66,6 +68,10 @@ test("Claude Agent SDK backend stores rate limit events for status UI", async ()
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
   expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.primary?.remaining_percent).toBe(75);
+});
+
+test("Claude Agent SDK backend exposes Opus 4.6 one-million-context option", () => {
+  expect(listClaudeAgentSdkModels().map((model) => model.id)).toContain("claude-opus-4.6[1m]");
 });
 
 function makeQuery(messages: unknown[]) {

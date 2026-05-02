@@ -20,7 +20,7 @@ import {
   type RecoveryClassifier,
   type RecoveryStrategy,
 } from "./automatic-recovery.js";
-import { getAgentBackendConfig, getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
+import { getAgentRuntimeConfig, getSessionStorageConfig, getToolUseMessageBudget } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
 import { writeAgentLog } from "./logging.js";
@@ -51,8 +51,9 @@ import {
 } from "./blank-turn-detection.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
-import { runCodexAppServerPrompt, willCodexAppServerStartNewThread, type PiclawBridgeSession } from "./codex-app-server-backend.js";
+import { getCodexAppServerModelLabel, runCodexAppServerPrompt, willCodexAppServerStartNewThread, type PiclawBridgeSession } from "./codex-app-server-backend.js";
 import { getClaudeAgentSdkModelLabel, hasClaudeAgentSdkSession, runClaudeAgentSdkPrompt } from "./claude-agent-sdk-backend.js";
+import { getChatAgentBackend } from "./backend-state.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -813,11 +814,11 @@ export async function runAgentPrompt(
       cancelScheduledIdleAutoCompaction(chatJid);
     }
 
-    if (getAgentBackendConfig().backend === "codex-app-server") {
+    const backend = getChatAgentBackend(chatJid);
+
+    if (backend === "codex-app-server") {
       const runtime = await options.getOrCreateRuntime(chatJid);
-      modelLabel = getAgentBackendConfig().codexAppServerModel
-        ? `codex/${getAgentBackendConfig().codexAppServerModel}`
-        : "codex/default";
+      modelLabel = getCodexAppServerModelLabel(chatJid);
       updateSessionModel(chatJid, modelLabel, null);
       beginTrackedPhase(chatJid, "prompt", { source: "run_agent.codex_app_server" });
       options.onInfo?.("Using experimental Codex app-server backend", {
@@ -845,7 +846,7 @@ export async function runAgentPrompt(
       return output;
     }
 
-    if (getAgentBackendConfig().backend === "claude-agent-sdk") {
+    if (backend === "claude-agent-sdk") {
       const runtime = await options.getOrCreateRuntime(chatJid);
       modelLabel = getClaudeAgentSdkModelLabel(chatJid);
       updateSessionModel(chatJid, modelLabel, null);
