@@ -134,7 +134,7 @@ try {
     body: JSON.stringify({
       model: OPENCODE_MODEL,
       messages: [{ role: "user", content: "Say hello in one sentence." }],
-      max_tokens: 100,
+      max_tokens: 500,
     }),
   });
 
