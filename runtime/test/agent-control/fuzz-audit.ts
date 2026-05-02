@@ -16,6 +16,8 @@ const ROUTING_SAMPLES: Record<string, string> = {
   "/model": "/model",
   "/cycle-model": "/cycle-model",
   "/fast": "/fast",
+  "/backend": "/backend codex",
+  "/proactive": "/proactive status",
   "/thinking": "/thinking",
   "/cycle-thinking": "/cycle-thinking",
   "/state": "/state",
