@@ -101,6 +101,7 @@
     "vnc:harness:report": "bun run runtime/scripts/playwright/vnc-harness-report.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.126",
     "@fontsource-variable/inter": "^5.2.8",
     "@lezer/highlight": "1.2.3",
     "@mariozechner/pi-coding-agent": "0.72.1",

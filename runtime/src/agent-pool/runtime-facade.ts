@@ -17,6 +17,7 @@ import { detectChannel } from "../router.js";
 import { executeSlashCommand } from "./slash-command.js";
 import { peekProviderUsage, warmProviderUsage } from "./provider-usage.js";
 import { getCodexAppServerContextUsage } from "./codex-app-server-backend.js";
+import { getClaudeAgentSdkContextUsage } from "./claude-agent-sdk-backend.js";
 import { resolveModelLabel } from "../utils/model-utils.js";
 import { createLogger } from "../utils/logger.js";
 import { withChatContext } from "../core/chat-context.js";
@@ -589,6 +590,9 @@ export class AgentRuntimeFacade {
     const codexUsage = getCodexAppServerContextUsage(chatJid);
     if (codexUsage) return codexUsage;
     if (getAgentBackendConfig().backend === "codex-app-server") return null;
+    const claudeUsage = getClaudeAgentSdkContextUsage(chatJid);
+    if (claudeUsage) return claudeUsage;
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") return null;
     const entry = this.options.pool.get(chatJid);
     if (!entry) return null;
     return entry.runtime.session.getContextUsage() ?? null;

@@ -63,6 +63,12 @@ import {
   setCodexAppServerThinkingLevel,
   warmCodexAppServerProviderUsage,
 } from "./agent-pool/codex-app-server-backend.js";
+import {
+  abortClaudeAgentSdkChat,
+  getClaudeAgentSdkContextUsage,
+  getClaudeAgentSdkModelLabel,
+  listClaudeAgentSdkModels,
+} from "./agent-pool/claude-agent-sdk-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
@@ -487,11 +493,47 @@ export class AgentPool {
         return { status: "success", message: `**Context usage**\n\n| Metric | Value |\n|---|---:|\n| Used | ${used} / ${total} tokens |\n| Percent | ${percent} |` };
       }
     }
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") {
+      if (command.type === "model") {
+        const current = getClaudeAgentSdkModelLabel();
+        const models = listClaudeAgentSdkModels();
+        if (command.modelId || command.provider) {
+          return {
+            status: "error",
+            message: "Claude Agent SDK model switching requires restarting with PICLAW_CLAUDE_AGENT_SDK_MODEL for this spike.",
+            model_label: current,
+            supports_thinking: true,
+          };
+        }
+        const rows = models.map((model) => `| ${model.label} | ${model.label === current ? "current" : ""} |`);
+        return {
+          status: "success",
+          message: ["**Available Claude models**", "", "| Model | Status |", "|---|---|", ...rows].join("\n"),
+          model_label: current,
+          thinking_level: null,
+          thinking_level_label: null,
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "abort") {
+        const aborted = await abortClaudeAgentSdkChat(chatJid);
+        return { status: "success", message: aborted ? "Aborted current Claude response." : "No active Claude response to abort." };
+      }
+      if (command.type === "context") {
+        const usage = await this.getContextUsageForChat(chatJid);
+        if (!usage) return { status: "error", message: "Context usage unavailable for Claude Agent SDK until the first result usage update." };
+        const used = usage.tokens == null ? "?" : Math.round(usage.tokens).toLocaleString();
+        const total = Math.round(usage.contextWindow).toLocaleString();
+        const percent = usage.percent == null ? "?" : `${usage.percent.toFixed(1)}%`;
+        return { status: "success", message: `**Context usage**\n\n| Metric | Value |\n|---|---:|\n| Used | ${used} / ${total} tokens |\n| Percent | ${percent} |` };
+      }
+    }
     return this.runtimeFacade.applyControlCommand(chatJid, command);
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
     if (getAgentBackendConfig().backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") return getClaudeAgentSdkModelLabel();
     return this.runtimeFacade.getCurrentModelLabel(chatJid);
   }
 
@@ -533,6 +575,29 @@ export class AgentPool {
         provider_usage: providerUsage,
       };
     }
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") {
+      const current = getClaudeAgentSdkModelLabel();
+      const usage = getClaudeAgentSdkContextUsage(chatJid);
+      const models = listClaudeAgentSdkModels();
+      return {
+        current,
+        models: models.map((model) => model.label),
+        model_options: models.map((model) => ({
+          label: model.label,
+          provider: "claude",
+          id: model.id,
+          name: model.name,
+          context_window: model.contextWindow ?? usage?.contextWindow ?? null,
+          reasoning: true,
+        })),
+        thinking_level: null,
+        thinking_level_label: null,
+        fast_mode: null,
+        supports_thinking: true,
+        available_thinking_levels: [],
+        provider_usage: null,
+      };
+    }
     return this.runtimeFacade.getAvailableModels(chatJid);
   }
 
@@ -542,6 +607,7 @@ export class AgentPool {
     contextWindow: number;
     percent: number | null;
   } | null> {
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
     return this.runtimeFacade.getContextUsageForChat(chatJid);
   }
 
