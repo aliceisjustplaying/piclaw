@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -89,6 +89,7 @@ const store = join(temp, "store");
 mkdirSync(workspace, { recursive: true });
 mkdirSync(data, { recursive: true });
 mkdirSync(store, { recursive: true });
+writeFileSync(join(workspace, "smoke-output.txt"), "codex smoke attachment\n");
 
 const port = await freePort();
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -146,6 +147,11 @@ const child = spawn(process.execPath, [resolve(RUNTIME, "src/index.ts")], {
 });
 
 let stderr = "";
+let stdout = "";
+child.stdout.on("data", (chunk) => {
+  stdout += String(chunk);
+  if (stdout.length > 16000) stdout = stdout.slice(-16000);
+});
 child.stderr.on("data", (chunk) => {
   stderr += String(chunk);
   if (stderr.length > 12000) stderr = stderr.slice(-12000);
@@ -180,11 +186,21 @@ try {
   });
   requireStatus(message.status, 201, "agent message", message.body);
 
-  await poll("Codex smoke response in timeline", async () => {
+  await poll("Codex smoke response with attachment in timeline", async () => {
     const timeline = await fetchJson(baseUrl, `/timeline?limit=20&chat_jid=${encodeURIComponent(CHAT_JID)}`, cookie);
     requireStatus(timeline.status, 200, "timeline", timeline.body);
     const posts = readPosts(timeline.body);
-    return posts.some((post) => String(readRecord(post.data).content || "").includes("codex smoke ok")) ? posts : null;
+    return posts.some((post) => {
+      const data = readRecord(post.data);
+      const blocks = Array.isArray(data.content_blocks) ? data.content_blocks : [];
+      const mediaIds = Array.isArray(data.media_ids) ? data.media_ids : [];
+      return String(data.content || "").includes("codex smoke ok") &&
+        mediaIds.length > 0 &&
+        blocks.some((block) => readRecord(block).name === "smoke-output.txt");
+    }) ? posts : null;
+  }).catch(async (error) => {
+    const timeline = await fetchJson(baseUrl, `/timeline?limit=20&chat_jid=${encodeURIComponent(CHAT_JID)}`, cookie);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; latest timeline=${JSON.stringify(timeline.body)}; stdout=${stdout}; stderr=${stderr}`);
   });
 
   const contextAfter = await poll("Codex context usage update", async () => {
