@@ -146,6 +146,12 @@ test("Codex app-server normalizes smushed bullet output", () => {
   ].join("\n"));
 });
 
+test("Codex app-server normalizes smushed dates in prose", () => {
+  expect(normalizeCodexAppServerAssistantTextForTests(
+    "I’ll keep Barcelona-until-May10 as context.",
+  )).toBe("I’ll keep Barcelona until May 10 as context.");
+});
+
 test("Codex bridge exposes extension runner registered tools", () => {
   const session: PiclawBridgeSession = {
     extensionRunner: {
