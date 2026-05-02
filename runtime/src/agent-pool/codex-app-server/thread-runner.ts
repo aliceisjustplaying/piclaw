@@ -1,6 +1,14 @@
 import { getAgentBackendConfig, getCompactionRuntimeConfig } from "../../core/config.js";
-import { getAttachmentRegistry } from "../attachments.js";
 import type { AgentOutput, RunAgentOptions } from "../contracts.js";
+import { withScopedChatRunLock } from "../chat-run-lock.js";
+import {
+  createNativeStreamState,
+  emitNativeMessageEnd,
+  emitNativeTextDelta,
+  emitNativeThinkingDelta,
+  finishNativeStreams,
+  nativeOutputWithAttachments,
+} from "../native-stream.js";
 import {
   buildUserInput,
   dynamicToolsConfig,
@@ -31,25 +39,6 @@ import {
 import { emit, log } from "./telemetry.js";
 import type { CodexAppServerClientLike, CodexContextUsage, CodexThreadState, JsonObject, PiclawBridgeSession } from "./types.js";
 import { asError, readString, workspaceCwd } from "./utils.js";
-
-const runLocksByChat = new Map<string, Promise<unknown>>();
-
-async function withCodexChatRunLock<T>(chatJid: string, fn: () => Promise<T>): Promise<T> {
-  const previous = runLocksByChat.get(chatJid) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const current = previous.catch(() => undefined).then(() => gate);
-  runLocksByChat.set(chatJid, current);
-  await previous.catch(() => undefined);
-  try {
-    return await fn();
-  } finally {
-    release();
-    if (runLocksByChat.get(chatJid) === current) runLocksByChat.delete(chatJid);
-  }
-}
 
 function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, threadId: string, turnId: string): void {
   void nextClient.request("turn/interrupt", { threadId, turnId }).catch((err) => {
@@ -96,7 +85,7 @@ export async function abortCodexAppServerChat(chatJid: string): Promise<boolean>
 }
 
 export async function compactCodexAppServerChat(chatJid: string): Promise<void> {
-  return withCodexChatRunLock(chatJid, () => compactCodexAppServerChatUnlocked(chatJid));
+  return withScopedChatRunLock("codex-app-server", chatJid, () => compactCodexAppServerChatUnlocked(chatJid));
 }
 
 async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void> {
@@ -236,7 +225,7 @@ export async function runCodexAppServerPrompt(
   runOptions: RunAgentOptions,
   bridgeSession?: PiclawBridgeSession | null,
 ): Promise<AgentOutput> {
-  return withCodexChatRunLock(chatJid, () => runCodexAppServerPromptUnlocked(prompt, chatJid, runOptions, bridgeSession));
+  return withScopedChatRunLock("codex-app-server", chatJid, () => runCodexAppServerPromptUnlocked(prompt, chatJid, runOptions, bridgeSession));
 }
 
 async function runCodexAppServerPromptUnlocked(
@@ -255,10 +244,7 @@ async function runCodexAppServerPromptUnlocked(
   const abortController = new AbortController();
   toolAbortControllersByThread.set(thread.threadId, abortController);
   let turnId: string | null = null;
-  let finalText = "";
-  let textStarted = false;
-  let thinkingStarted = false;
-  let thinkingText = "";
+  const streamState = createNativeStreamState();
   let completed = false;
   let completionErrorMessage: string | null = null;
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -344,35 +330,13 @@ async function runCodexAppServerPromptUnlocked(
             msSinceTurnStartRequest: turnStartRequestedAt ? Date.now() - turnStartRequestedAt : null,
           });
         }
-        if (!textStarted) {
-          textStarted = true;
-          emit(runOptions.onEvent, {
-            type: "message_update",
-            assistantMessageEvent: { type: "text_start", contentIndex: 0, partial: { type: "text", text: "" } },
-          });
-        }
-        finalText += delta;
-        emit(runOptions.onEvent, {
-          type: "message_update",
-          assistantMessageEvent: { type: "text_delta", delta, contentIndex: 0, partial: { type: "text", text: finalText } },
-        });
+        emitNativeTextDelta(runOptions, delta, streamState);
         return;
       }
       if (method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") {
         const delta = readString(params.delta);
         if (delta) {
-          if (!thinkingStarted) {
-            thinkingStarted = true;
-            emit(runOptions.onEvent, {
-              type: "message_update",
-              assistantMessageEvent: { type: "thinking_start", contentIndex: 0, partial: { type: "thinking", thinking: "" } },
-            });
-          }
-          thinkingText += delta;
-          emit(runOptions.onEvent, {
-            type: "message_update",
-            assistantMessageEvent: { type: "thinking_delta", delta, contentIndex: 0, partial: { type: "thinking", thinking: thinkingText } },
-          });
+          emitNativeThinkingDelta(runOptions, delta, streamState);
         }
         return;
       }
@@ -384,7 +348,7 @@ async function runCodexAppServerPromptUnlocked(
         }
         if (method === "item/completed" && item?.type === "agentMessage") {
           const text = readString(item.text);
-          if (text !== null) finalText = text;
+          if (text !== null) streamState.text = text;
           return;
         }
         if (!item || !isToolItem(item)) return;
@@ -464,34 +428,9 @@ async function runCodexAppServerPromptUnlocked(
   } catch (err) {
     if (timeout) clearTimeout(timeout);
     const error = asError(err);
-    if (textStarted) {
-      emit(runOptions.onEvent, {
-        type: "message_update",
-        assistantMessageEvent: { type: "text_end", contentIndex: 0, partial: { type: "text", text: finalText } },
-      });
-    }
-    if (thinkingStarted) {
-      emit(runOptions.onEvent, {
-        type: "message_update",
-        assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: thinkingText },
-      });
-    }
-    const attachments = getAttachmentRegistry().take(chatJid);
-    emit(runOptions.onEvent, {
-      type: "message_end",
-      message: {
-        role: "assistant",
-        content: finalText ? [{ type: "text", text: finalText }] : [],
-        stopReason: "error",
-        errorMessage: error.message,
-      },
-    });
-    return {
-      status: "error",
-      result: finalText || null,
-      error: error.message,
-      ...(attachments.length ? { attachments } : {}),
-    };
+    finishNativeStreams(runOptions, streamState);
+    emitNativeMessageEnd(runOptions, streamState.text, error.message);
+    return nativeOutputWithAttachments(chatJid, "error", streamState.text || null, error.message);
   } finally {
     const cleanup = unsubscribe as (() => void) | null;
     cleanup?.();
@@ -504,33 +443,8 @@ async function runCodexAppServerPromptUnlocked(
     if (settleTimer) clearTimeout(settleTimer);
   }
 
-  if (textStarted) {
-    emit(runOptions.onEvent, {
-      type: "message_update",
-      assistantMessageEvent: { type: "text_end", contentIndex: 0, partial: { type: "text", text: finalText } },
-    });
-  }
-  if (thinkingStarted) {
-    emit(runOptions.onEvent, {
-      type: "message_update",
-      assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: thinkingText },
-    });
-  }
-  emit(runOptions.onEvent, {
-    type: "message_end",
-    message: {
-      role: "assistant",
-      content: finalText ? [{ type: "text", text: finalText }] : [],
-      stopReason: completed ? "stop" : "error",
-      ...(completionErrorMessage ? { errorMessage: completionErrorMessage } : {}),
-    },
-  });
-
-  const attachments = getAttachmentRegistry().take(chatJid);
-  if (!completed) return { status: "error", result: finalText || null, error: completionErrorMessage || "Codex turn failed" };
-  return {
-    status: "success",
-    result: finalText || null,
-    ...(attachments.length ? { attachments } : {}),
-  };
+  finishNativeStreams(runOptions, streamState);
+  emitNativeMessageEnd(runOptions, streamState.text, completionErrorMessage);
+  if (!completed) return nativeOutputWithAttachments(chatJid, "error", streamState.text || null, completionErrorMessage || "Codex turn failed");
+  return nativeOutputWithAttachments(chatJid, "success", streamState.text || null);
 }
