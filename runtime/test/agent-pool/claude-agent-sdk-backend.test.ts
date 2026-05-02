@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import "../helpers.js";
 
+import { getAttachmentRegistry } from "../../src/agent-pool/attachments.js";
 import {
   getClaudeAgentSdkContextUsage,
   getClaudeAgentSdkProviderUsage,
@@ -141,6 +142,48 @@ test("Claude Agent SDK backend emits assistant text and records usage", async ()
   expect(hasClaudeAgentSdkSession("web:test")).toBe(true);
   expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: 21, contextWindow: 200000, percent: 0.0105 });
   expect(events.some((event: any) => event.type === "message_end" && event.message?.content?.[0]?.text === "hi there")).toBe(true);
+});
+
+test("Claude Agent SDK backend returns attachments registered during the turn", async () => {
+  const chatJid = "web:claude-attachment-output";
+  const attachments = getAttachmentRegistry();
+  attachments.clear(chatJid);
+  setClaudeAgentSdkQueryFactoryForTests(() => {
+    attachments.register(chatJid, {
+      id: 77,
+      name: "claude-report.txt",
+      contentType: "text/plain",
+      size: 5,
+      kind: "file",
+      sourcePath: "/workspace/tmp/claude-report.txt",
+    });
+    return makeQuery([
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-attachment",
+        result: "attached report",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  const output = await runClaudeAgentSdkPrompt("attach", chatJid, {});
+
+  expect(output).toMatchObject({
+    status: "success",
+    result: "attached report",
+    attachments: [{
+      id: 77,
+      name: "claude-report.txt",
+      contentType: "text/plain",
+      size: 5,
+      kind: "file",
+      sourcePath: "/workspace/tmp/claude-report.txt",
+    }],
+  });
+  expect(attachments.take(chatJid)).toEqual([]);
 });
 
 test("Claude Agent SDK backend resumes an existing chat session", async () => {

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 
 import { WORKSPACE_DIR, getAgentBackendConfig } from "../core/config.js";
 import { extensionKvGet, extensionKvSet } from "../db.js";
+import { getAttachmentRegistry } from "./attachments.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
 import type { PiclawBridgeSession } from "./codex-app-server-backend.js";
@@ -424,6 +425,11 @@ export async function runClaudeAgentSdkPrompt(
     },
   } as AgentSessionEvent);
 
+  const attachments = getAttachmentRegistry().take(chatJid);
   if (errorMessage) return { status: "error", result: finalText || null, error: errorMessage };
-  return { status: "success", result: finalText };
+  return {
+    status: "success",
+    result: finalText,
+    ...(attachments.length ? { attachments } : {}),
+  };
 }
