@@ -10,7 +10,6 @@ import {
   isCodexBridgeToolAllowed,
   listCodexBridgeDynamicToolsForTests,
   markCodexAppServerThreadUntrustedForTests,
-  normalizeCodexAppServerAssistantTextForTests,
   resolveCodexAppServerApprovalForTests,
   runCodexAppServerPrompt,
   setCodexAppServerFastMode,
@@ -128,30 +127,6 @@ test("Codex fast mode persists per chat", () => {
   expect(getCodexAppServerFastMode("web:codex-fast-b")).toBe(false);
 });
 
-test("Codex app-server normalizes smushed bullet output", () => {
-  const raw = [
-    "last few items:",
-    "- you asked whether I can send proactive push notifications- a delayed push test didn’t land- an untrusted receipt came in",
-    "- Pix asked whether to add that to calendar or just keep it as contextNo calendar event was created yet.",
-  ].join("\n");
-
-  expect(normalizeCodexAppServerAssistantTextForTests(raw)).toBe([
-    "last few items:",
-    "- you asked whether I can send proactive push notifications",
-    "- a delayed push test didn’t land",
-    "- an untrusted receipt came in",
-    "- Pix asked whether to add that to calendar or just keep it as context",
-    "",
-    "No calendar event was created yet.",
-  ].join("\n"));
-});
-
-test("Codex app-server normalizes smushed dates in prose", () => {
-  expect(normalizeCodexAppServerAssistantTextForTests(
-    "I’ll keep Barcelona-until-May10 as context.",
-  )).toBe("I’ll keep Barcelona until May 10 as context.");
-});
-
 test("Codex bridge exposes extension runner registered tools", () => {
   const session: PiclawBridgeSession = {
     extensionRunner: {
@@ -217,6 +192,45 @@ test("Codex app-server registers bridge tools on thread start and compacts exist
       contextWindow: 128000,
       percent: (4321 / 128000) * 100,
     });
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server uses completed agent message text as final output", async () => {
+  const client = new StubCodexClient();
+  client.holdTurn = true;
+  useStubClient(client);
+  try {
+    const run = runCodexAppServerPrompt("hello", "web:codex-final-item", { timeoutMs: 1000 });
+    await Bun.sleep(0);
+    client.emit({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "item-1",
+        delta: "Barcelona-until-May10",
+      },
+    });
+    client.emit({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          type: "agentMessage",
+          id: "item-1",
+          text: "Barcelona until May 10",
+          phase: null,
+          memoryCitation: null,
+        },
+      },
+    });
+    client.emit({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } });
+
+    const output = await run;
+    expect(output).toMatchObject({ status: "success", result: "Barcelona until May 10" });
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }
