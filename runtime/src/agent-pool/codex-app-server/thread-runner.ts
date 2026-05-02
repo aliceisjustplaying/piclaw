@@ -43,6 +43,22 @@ function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, 
   });
 }
 
+const SENTENCE_STARTERS_AFTER_LIST = "(?:No|The|This|That|There|It|I|We|You|A|An)";
+
+function normalizeCodexAppServerAssistantText(text: string): string {
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const bulletFixed = normalized.replace(/([^\s\n])(-\s+(?=[A-Za-z0-9]))/g, "$1\n$2");
+  if (!bulletFixed.includes("\n- ")) return bulletFixed;
+  return bulletFixed.replace(
+    new RegExp(`([a-z0-9.!?])(${SENTENCE_STARTERS_AFTER_LIST}\\s+)`, "g"),
+    "$1\n\n$2",
+  );
+}
+
+export function normalizeCodexAppServerAssistantTextForTests(text: string): string {
+  return normalizeCodexAppServerAssistantText(text);
+}
+
 export function getCodexAppServerContextUsage(chatJid: string): CodexContextUsage | null {
   return contextUsageByChat.get(chatJid) ?? null;
 }
@@ -224,6 +240,7 @@ export async function runCodexAppServerPrompt(
   toolAbortControllersByThread.set(thread.threadId, abortController);
   let turnId: string | null = null;
   let finalText = "";
+  let emittedText = "";
   let textStarted = false;
   let thinkingStarted = false;
   let thinkingText = "";
@@ -290,9 +307,13 @@ export async function runCodexAppServerPrompt(
           });
         }
         finalText += delta;
+        const displayText = normalizeCodexAppServerAssistantText(finalText);
+        const canStreamNormalizedDelta = displayText.startsWith(emittedText);
+        const displayDelta = canStreamNormalizedDelta ? displayText.slice(emittedText.length) : delta;
+        emittedText = canStreamNormalizedDelta ? displayText : `${emittedText}${delta}`;
         emit(runOptions.onEvent, {
           type: "message_update",
-          assistantMessageEvent: { type: "text_delta", delta, contentIndex: 0, partial: { type: "text", text: finalText } },
+          assistantMessageEvent: { type: "text_delta", delta: displayDelta, contentIndex: 0, partial: { type: "text", text: displayText } },
         });
         return;
       }
@@ -406,6 +427,7 @@ export async function runCodexAppServerPrompt(
     if (settleTimer) clearTimeout(settleTimer);
   }
 
+  finalText = normalizeCodexAppServerAssistantText(finalText);
   if (textStarted) {
     emit(runOptions.onEvent, {
       type: "message_update",
