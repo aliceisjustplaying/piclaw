@@ -33,6 +33,7 @@
         "typebox": "1.1.37",
         "web-push": "3.6.7",
         "xlsx": "^0.18.5",
+        "zod": "4.3.6",
       },
       "devDependencies": {
         "@assemblyscript/loader": "0.28.17",

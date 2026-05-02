@@ -65,9 +65,15 @@ import {
 } from "./agent-pool/codex-app-server-backend.js";
 import {
   abortClaudeAgentSdkChat,
+  compactClaudeAgentSdkChat,
+  cycleClaudeAgentSdkThinkingLevel,
   getClaudeAgentSdkContextUsage,
   getClaudeAgentSdkModelLabel,
+  getClaudeAgentSdkProviderUsage,
+  getClaudeAgentSdkThinkingLevel,
   listClaudeAgentSdkModels,
+  setClaudeAgentSdkModel,
+  setClaudeAgentSdkThinkingLevel,
 } from "./agent-pool/claude-agent-sdk-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
@@ -495,25 +501,83 @@ export class AgentPool {
     }
     if (getAgentBackendConfig().backend === "claude-agent-sdk") {
       if (command.type === "model") {
-        const current = getClaudeAgentSdkModelLabel();
+        const current = getClaudeAgentSdkModelLabel(chatJid);
         const models = listClaudeAgentSdkModels();
         if (command.modelId || command.provider) {
-          return {
-            status: "error",
-            message: "Claude Agent SDK model switching requires restarting with PICLAW_CLAUDE_AGENT_SDK_MODEL for this spike.",
-            model_label: current,
-            supports_thinking: true,
-          };
+          try {
+            const modelLabel = await setClaudeAgentSdkModel(chatJid, command.provider ? `${command.provider}/${command.modelId || "default"}` : command.modelId);
+            const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
+            return {
+              status: "success",
+              message: `Model set to ${modelLabel}. Thinking level: ${thinking}.`,
+              model_label: modelLabel,
+              thinking_level: thinking,
+              thinking_level_label: thinking,
+              supports_thinking: true,
+            };
+          } catch (err) {
+            return { status: "error", message: err instanceof Error ? err.message : String(err) };
+          }
         }
         const rows = models.map((model) => `| ${model.label} | ${model.label === current ? "current" : ""} |`);
         return {
           status: "success",
           message: ["**Available Claude models**", "", "| Model | Status |", "|---|---|", ...rows].join("\n"),
           model_label: current,
-          thinking_level: null,
-          thinking_level_label: null,
+          thinking_level: getClaudeAgentSdkThinkingLevel(chatJid),
+          thinking_level_label: getClaudeAgentSdkThinkingLevel(chatJid),
           supports_thinking: true,
         };
+      }
+      if (command.type === "thinking") {
+        if (!command.level) {
+          const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
+          return {
+            status: "success",
+            message: `Current model: ${getClaudeAgentSdkModelLabel(chatJid)}.\nCurrent thinking level: ${thinking}.\nAvailable levels: off, low, medium, high, xhigh, max.`,
+            model_label: getClaudeAgentSdkModelLabel(chatJid),
+            thinking_level: thinking,
+            thinking_level_label: thinking,
+            supports_thinking: true,
+            available_thinking_levels: ["off", "low", "medium", "high", "xhigh", "max"],
+          };
+        }
+        const thinking = setClaudeAgentSdkThinkingLevel(chatJid, command.level);
+        if (!thinking) return { status: "error", message: "Unknown thinking level. Available: off, low, medium, high, xhigh, max." };
+        return {
+          status: "success",
+          message: `Thinking level set to ${thinking}.`,
+          model_label: getClaudeAgentSdkModelLabel(chatJid),
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "cycle_thinking") {
+        const thinking = cycleClaudeAgentSdkThinkingLevel(chatJid);
+        return {
+          status: "success",
+          message: `Thinking level set to ${thinking}.`,
+          model_label: getClaudeAgentSdkModelLabel(chatJid),
+          thinking_level: thinking,
+          thinking_level_label: thinking,
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "fast") {
+        return {
+          status: "success",
+          message: "Claude Agent SDK does not expose Codex Fast mode. Use `/thinking off` or `/thinking low` for faster Claude turns.",
+          model_label: getClaudeAgentSdkModelLabel(chatJid),
+          thinking_level: getClaudeAgentSdkThinkingLevel(chatJid),
+          thinking_level_label: getClaudeAgentSdkThinkingLevel(chatJid),
+          fast_mode: null,
+          supports_thinking: true,
+        };
+      }
+      if (command.type === "compact") {
+        const compacted = await compactClaudeAgentSdkChat(chatJid);
+        return { status: compacted ? "success" : "error", message: compacted ? "Claude native compaction complete." : "No active Claude session to compact yet." };
       }
       if (command.type === "abort") {
         const aborted = await abortClaudeAgentSdkChat(chatJid);
@@ -533,7 +597,7 @@ export class AgentPool {
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
     if (getAgentBackendConfig().backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
-    if (getAgentBackendConfig().backend === "claude-agent-sdk") return getClaudeAgentSdkModelLabel();
+    if (getAgentBackendConfig().backend === "claude-agent-sdk") return getClaudeAgentSdkModelLabel(chatJid);
     return this.runtimeFacade.getCurrentModelLabel(chatJid);
   }
 
@@ -576,9 +640,10 @@ export class AgentPool {
       };
     }
     if (getAgentBackendConfig().backend === "claude-agent-sdk") {
-      const current = getClaudeAgentSdkModelLabel();
+      const current = getClaudeAgentSdkModelLabel(chatJid);
       const usage = getClaudeAgentSdkContextUsage(chatJid);
       const models = listClaudeAgentSdkModels();
+      const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
       return {
         current,
         models: models.map((model) => model.label),
@@ -590,12 +655,12 @@ export class AgentPool {
           context_window: model.contextWindow ?? usage?.contextWindow ?? null,
           reasoning: true,
         })),
-        thinking_level: null,
-        thinking_level_label: null,
+        thinking_level: thinking,
+        thinking_level_label: thinking,
         fast_mode: null,
         supports_thinking: true,
-        available_thinking_levels: [],
-        provider_usage: null,
+        available_thinking_levels: ["off", "low", "medium", "high", "xhigh", "max"],
+        provider_usage: getClaudeAgentSdkProviderUsage(chatJid) as any,
       };
     }
     return this.runtimeFacade.getAvailableModels(chatJid);

@@ -846,7 +846,8 @@ export async function runAgentPrompt(
     }
 
     if (getAgentBackendConfig().backend === "claude-agent-sdk") {
-      modelLabel = getClaudeAgentSdkModelLabel();
+      const runtime = await options.getOrCreateRuntime(chatJid);
+      modelLabel = getClaudeAgentSdkModelLabel(chatJid);
       updateSessionModel(chatJid, modelLabel, null);
       beginTrackedPhase(chatJid, "prompt", { source: "run_agent.claude_agent_sdk" });
       options.onInfo?.("Using experimental Claude Agent SDK backend", {
@@ -857,7 +858,7 @@ export async function runAgentPrompt(
         ...getRunObservabilityDetails(runOptions),
       });
       const promptForClaude = hasClaudeAgentSdkSession(chatJid) ? prompt : (runOptions.codexReplayPrompt || prompt);
-      const output = await runClaudeAgentSdkPrompt(promptForClaude, chatJid, runOptions);
+      const output = await runClaudeAgentSdkPrompt(promptForClaude, chatJid, runOptions, runtime.session as unknown as PiclawBridgeSession);
       const duration = Date.now() - startTime;
       writeAgentLog(
         options.logsDir,

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 
 import {
   getClaudeAgentSdkContextUsage,
+  getClaudeAgentSdkProviderUsage,
   hasClaudeAgentSdkSession,
   resetClaudeAgentSdkBackendForTests,
   runClaudeAgentSdkPrompt,
@@ -11,6 +12,60 @@ import {
 
 afterEach(() => {
   resetClaudeAgentSdkBackendForTests();
+});
+
+test("Claude Agent SDK backend maps partial text and thinking stream events", async () => {
+  setClaudeAgentSdkQueryFactoryForTests(() => {
+    return makeQuery([
+      {
+        type: "stream_event",
+        session_id: "claude-session-1",
+        event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "pondering" } },
+      },
+      {
+        type: "stream_event",
+        session_id: "claude-session-1",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "hello" } },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-1",
+        result: "hello",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  const events: any[] = [];
+  const output = await runClaudeAgentSdkPrompt("hello", "web:test", { onEvent: (event) => events.push(event) });
+
+  expect(output).toEqual({ status: "success", result: "hello" });
+  expect(events.some((event) => event.assistantMessageEvent?.type === "thinking_delta")).toBe(true);
+  expect(events.some((event) => event.assistantMessageEvent?.type === "text_delta")).toBe(true);
+});
+
+test("Claude Agent SDK backend stores rate limit events for status UI", async () => {
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "rate_limit_event",
+      session_id: "claude-session-1",
+      rate_limit_info: { utilization: 0.25, rateLimitType: "five_hour", resetsAt: Date.UTC(2026, 0, 1) },
+    },
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-1",
+      result: "ok",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+    },
+  ]));
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+  expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.primary?.remaining_percent).toBe(75);
 });
 
 function makeQuery(messages: unknown[]) {
@@ -39,7 +94,8 @@ function makeQuery(messages: unknown[]) {
 test("Claude Agent SDK backend emits assistant text and records usage", async () => {
   setClaudeAgentSdkOAuthTokenResolverForTests(async () => "oauth-token");
   setClaudeAgentSdkQueryFactoryForTests((params: any) => {
-    expect(params.prompt).toBe("hello");
+    expect(params.prompt).toContain("hello");
+    expect(params.options.mcpServers.piclaw).toBeTruthy();
     expect(params.options.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oauth-token");
     return makeQuery([
       {
