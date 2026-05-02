@@ -335,7 +335,7 @@ test('formatCompactModelUsageLabel renders provider limits without window names'
     primary: { remaining_percent: 98 },
     secondary: { remaining_percent: 47 },
     hint_short: '5h 98% • wk 47%',
-  })).toBe('98% - 47%');
+  })).toBe('98% • 47%');
 
   expect(formatCompactModelUsageLabel({
     primary: { remaining_percent: 67.2 },
@@ -344,7 +344,7 @@ test('formatCompactModelUsageLabel renders provider limits without window names'
 
   expect(formatCompactModelUsageLabel({
     hint_short: '5h 98% • wk 47%',
-  })).toBe('98% - 47%');
+  })).toBe('98% • 47%');
 });
 
 test('shouldOpenModelPickerCommand only intercepts bare /model', () => {
