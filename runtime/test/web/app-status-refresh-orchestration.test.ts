@@ -142,7 +142,7 @@ test('refreshContextUsageForChat ignores stale chat responses', async () => {
   expect(contextState).toBeNull();
 });
 
-test('refreshContextUsageForChat does not overwrite cached state with null-percent API response', async () => {
+test('refreshContextUsageForChat keeps cached state with null-percent API response', async () => {
   const activeChatJidRef = { current: 'chat:alpha' };
   let contextState: any = { tokens: 5000, contextWindow: 128000, percent: 3.9 };
 
@@ -155,8 +155,6 @@ test('refreshContextUsageForChat does not overwrite cached state with null-perce
     },
   });
 
-  // The null-percent response from inactive pools must not overwrite
-  // the previously cached/restored context usage.
   expect(contextState).toEqual({ tokens: 5000, contextWindow: 128000, percent: 3.9 });
 });
 

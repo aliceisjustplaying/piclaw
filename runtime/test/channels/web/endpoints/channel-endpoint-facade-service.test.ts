@@ -136,7 +136,13 @@ describe("web channel endpoint facade service", () => {
 
     const avatarResponse = await facade.handleAvatar("agent", new Request("https://example.com/avatar/agent"));
     expect(avatarResponse.status).toBe(200);
-    expect(avatarResponse.headers.get("Content-Type")).toBe("image/webp");
+    let sharpAvailable = true;
+    try {
+      await import("sharp");
+    } catch {
+      sharpAvailable = false;
+    }
+    expect(avatarResponse.headers.get("Content-Type")).toBe(sharpAvailable ? "image/webp" : "image/png");
 
     identity = createIdentitySnapshot({
       assistantName: "Nova",

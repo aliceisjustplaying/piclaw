@@ -184,8 +184,6 @@ async function executeImageProcess(
   _update?: unknown,
   ctx?: ImageProcessUiContext,
 ): Promise<AgentToolResult<Record<string, unknown>>> {
-  const sharp = (await import("sharp")).default;
-
   const action = (params.action || "").toLowerCase().trim();
   const inputPath = resolveWorkspacePath(params.input);
   const showUiProgress = action !== "info";
@@ -198,6 +196,7 @@ async function executeImageProcess(
         details: { error: "not_found", input: params.input },
       };
     }
+    const sharp = (await import("sharp")).default;
     // Info action: return metadata without processing
     if (action === "info") {
       const meta = await sharp(inputPath).metadata();

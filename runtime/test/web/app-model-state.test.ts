@@ -18,6 +18,8 @@ test('resolveModelStateUpdate normalizes model/thinking/supports/provider fields
     supportsThinking: true,
     hasProviderUsage: true,
     providerUsage: { input_tokens: 10 },
+    hasFastMode: false,
+    fastMode: null,
   });
 });
 
@@ -32,6 +34,8 @@ test('resolveModelStateUpdate preserves nullish fallback semantics from app.ts',
     supportsThinking: false,
     hasProviderUsage: false,
     providerUsage: null,
+    hasFastMode: false,
+    fastMode: null,
   });
 
   expect(resolveModelStateUpdate({ current: null, thinking_level: null, supports_thinking: 0, provider_usage: null })).toEqual({
@@ -44,6 +48,8 @@ test('resolveModelStateUpdate preserves nullish fallback semantics from app.ts',
     supportsThinking: false,
     hasProviderUsage: true,
     providerUsage: null,
+    hasFastMode: false,
+    fastMode: null,
   });
 
   expect(resolveModelStateUpdate(undefined)).toEqual({
@@ -56,5 +62,7 @@ test('resolveModelStateUpdate preserves nullish fallback semantics from app.ts',
     supportsThinking: false,
     hasProviderUsage: false,
     providerUsage: null,
+    hasFastMode: false,
+    fastMode: null,
   });
 });

@@ -5,11 +5,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
-import sharp from "sharp";
 import "../helpers.js";
 import { createTempWorkspace, setEnv } from "../helpers.js";
 
-describe("image_process tool", () => {
+let sharp: typeof import("sharp").default | null = null;
+try {
+  sharp = (await import("sharp")).default;
+} catch {
+  sharp = null;
+}
+
+const describeWithSharp = sharp ? describe : describe.skip;
+
+describeWithSharp("image_process tool", () => {
   let ws: ReturnType<typeof createTempWorkspace>;
   let restoreEnv: (() => void) | null = null;
 
@@ -48,7 +56,7 @@ describe("image_process tool", () => {
   async function createTestImage(dir: string, name: string, options: { width: number; height: number; channels?: 3 | 4; alpha?: boolean } = { width: 100, height: 100 }) {
     const { width, height, channels = 4 } = options;
     const filePath = join(dir, name);
-    const img = await sharp({
+    const img = await sharp!({
       create: { width, height, channels, background: { r: 255, g: 0, b: 0, alpha: channels === 4 ? 0.5 : 1 } },
     }).png().toBuffer();
     writeFileSync(filePath, img);
@@ -122,7 +130,7 @@ describe("image_process tool", () => {
     expect(result.details.mimeType).toBe("image/webp");
 
     // Verify transparency preserved
-    const meta = await sharp(join(ws.workspace, "output.webp")).metadata();
+    const meta = await sharp!(join(ws.workspace, "output.webp")).metadata();
     expect(meta.hasAlpha).toBe(true);
   });
 
@@ -131,7 +139,7 @@ describe("image_process tool", () => {
     restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace });
 
     // Create a larger image that benefits from optimization
-    const largePng = await sharp({
+    const largePng = await sharp!({
       create: { width: 500, height: 500, channels: 3, background: { r: 128, g: 64, b: 200 } },
     }).png({ compressionLevel: 0 }).toBuffer();
     writeFileSync(join(ws.workspace, "unoptimized.png"), largePng);
@@ -152,10 +160,10 @@ describe("image_process tool", () => {
     restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace });
 
     // Create image with transparent padding
-    const img = await sharp({
+    const img = await sharp!({
       create: { width: 200, height: 200, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
     }).composite([{
-      input: await sharp({
+      input: await sharp!({
         create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } },
       }).png().toBuffer(),
       left: 75,
@@ -193,13 +201,13 @@ test("spritesheet_to_gif creates an animated GIF from a horizontal strip", async
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws2.workspace });
 
   // Create a 150x50 horizontal strip (3 frames of 50x50)
-  const strip = await sharp({
+  const strip = await sharp!({
     create: { width: 150, height: 50, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
   .composite([
-    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer(), left: 0, top: 0 },
-    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } } }).png().toBuffer(), left: 50, top: 0 },
-    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } } }).png().toBuffer(), left: 100, top: 0 },
+    { input: await sharp!({ create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer(), left: 0, top: 0 },
+    { input: await sharp!({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } } }).png().toBuffer(), left: 50, top: 0 },
+    { input: await sharp!({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } } }).png().toBuffer(), left: 100, top: 0 },
   ])
   .png().toFile(join(ws2.workspace, "strip.png"));
 
@@ -223,7 +231,7 @@ test("spritesheet_to_gif creates an animated GIF from a horizontal strip", async
   expect(result.details.format).toBe("gif");
 
   // Verify with sharp that it's actually animated
-  const gifMeta = await sharp(result.details.output.startsWith("/") ? result.details.output : join(ws2.workspace, result.details.output), { animated: true }).metadata();
+  const gifMeta = await sharp!(result.details.output.startsWith("/") ? result.details.output : join(ws2.workspace, result.details.output), { animated: true }).metadata();
   expect(gifMeta.pages).toBe(3);
 
   ws2.cleanup();
@@ -234,12 +242,12 @@ test("spritesheet_to_gif supports vertical strips", async () => {
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws2.workspace });
 
   // Create a 50x100 vertical strip (2 frames of 50x50)
-  const strip = await sharp({
+  const strip = await sharp!({
     create: { width: 50, height: 100, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
   .composite([
-    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 255, b: 0, alpha: 1 } } }).png().toBuffer(), left: 0, top: 0 },
-    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 255, b: 255, alpha: 1 } } }).png().toBuffer(), left: 0, top: 50 },
+    { input: await sharp!({ create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 255, b: 0, alpha: 1 } } }).png().toBuffer(), left: 0, top: 0 },
+    { input: await sharp!({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 255, b: 255, alpha: 1 } } }).png().toBuffer(), left: 0, top: 50 },
   ])
   .png().toFile(join(ws2.workspace, "vstrip.png"));
 
