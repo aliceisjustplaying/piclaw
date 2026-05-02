@@ -59,7 +59,7 @@ export const sel = {
   recoveryChip: '.recovery-chip',
 
   // Hamburger
-  hamburgerMenu: '[data-testid="hamburger"], .hamburger-menu',
+  hamburgerMenu: '[data-testid="hamburger"], .hamburger-menu, .timeline-menu-btn',
 
   // Favicon (for assertion)
   favicon: 'link[rel="icon"]',

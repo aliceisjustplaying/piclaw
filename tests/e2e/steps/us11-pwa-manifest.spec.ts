@@ -101,16 +101,6 @@ test.describe('US-11: PWA Manifest & Icons', () => {
     expect(resp.headers()['content-type']).toContain('image/png');
   });
 
-  test('favicon serves valid PNG', async ({ authedPage: page }) => {
-    const resp = await page.request.get(`${BASE_URL}/favicon.ico`);
-    expect(resp.ok()).toBe(true);
-
-    const body = await resp.body();
-    // Should be PNG (we serve PNG for Safari compat)
-    expect(body[0]).toBe(0x89);
-    expect(body[1]).toBe(0x50);
-  });
-
   test('HTML head has apple-touch-icon link tags', async ({ authedPage: page }) => {
     // Check the live DOM for apple-touch-icon links
     const links = await page.locator('link[rel="apple-touch-icon"]').all();

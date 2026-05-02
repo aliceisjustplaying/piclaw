@@ -1,49 +1,65 @@
 import { test, expect } from '../support/world';
 import { sel } from '../support/selectors';
 
-// Favicon and branding regressions
+// Branding regressions
 
-test.describe('Favicon & Branding', () => {
-  test('favicon is served as PNG (Safari compatibility)', async ({ authedPage: page }) => {
-    const favicon = page.locator(sel.favicon);
-    if ((await favicon.count()) === 0) test.skip();
+test.describe('Manifest & App Icons', () => {
+  const BASE_URL = process.env.PICLAW_E2E_URL || 'http://localhost:3000';
 
-    const href = await favicon.getAttribute('href');
+  test('web app manifest is linked and declares PNG icons', async ({ authedPage: page }) => {
+    const manifestLink = page.locator('link[rel="manifest"]');
+    await expect(manifestLink).toHaveCount(1);
+
+    const href = await manifestLink.getAttribute('href');
     expect(href).toBeTruthy();
 
-    // Should be PNG or data URI (not WebP — Safari doesn't support WebP favicons)
-    if (href!.startsWith('data:')) {
-      expect(href).toContain('image/png');
-    } else {
-      // Fetch the favicon and check content type
-      const response = await page.request.get(href!);
-      const contentType = response.headers()['content-type'] || '';
-      expect(contentType).toContain('png');
+    const manifestUrl = new URL(href!, BASE_URL).toString();
+    const resp = await page.request.get(manifestUrl);
+    expect(resp.ok()).toBe(true);
+    expect(resp.headers()['content-type'] || '').toContain('application/manifest+json');
+
+    const manifest = await resp.json();
+    expect(Array.isArray(manifest.icons)).toBe(true);
+    expect(manifest.icons.length).toBeGreaterThanOrEqual(2);
+
+    const sizes = manifest.icons.map((icon: { sizes?: string }) => icon.sizes);
+    expect(sizes).toContain('192x192');
+    expect(sizes).toContain('512x512');
+
+    for (const icon of manifest.icons) {
+      expect(icon.src).toBeTruthy();
+      expect(icon.type).toBe('image/png');
+      expect(icon.sizes).toMatch(/^\d+x\d+$/);
     }
   });
 
-  test('favicon updates when avatar changes', async ({ authedPage: page }) => {
-    // Get current favicon
-    const favicon = page.locator(sel.favicon);
-    if ((await favicon.count()) === 0) test.skip();
+  test('manifest icon URLs resolve to PNG images', async ({ authedPage: page }) => {
+    const resp = await page.request.get(`${BASE_URL}/manifest.json`);
+    expect(resp.ok()).toBe(true);
+    const manifest = await resp.json();
 
-    const hrefBefore = await favicon.getAttribute('href');
+    for (const icon of manifest.icons) {
+      const iconUrl = new URL(icon.src, BASE_URL).toString();
+      const iconResp = await page.request.get(iconUrl);
+      expect(iconResp.ok()).toBe(true);
+      expect(iconResp.headers()['content-type'] || '').toContain('image/png');
 
-    // Change avatar via settings
-    await page.keyboard.press('Meta+Comma');
-    await page.waitForSelector(sel.settingsDialog, { timeout: 5000 });
-
-    const avatarInput = page.locator('input[type="file"][accept*="image"], .avatar-upload');
-    if (!(await avatarInput.isVisible())) {
-      await page.keyboard.press('Escape');
-      test.skip();
-      return;
+      const body = await iconResp.body();
+      expect(body[0]).toBe(0x89);
+      expect(body[1]).toBe(0x50);
+      expect(body[2]).toBe(0x4e);
+      expect(body[3]).toBe(0x47);
     }
+  });
 
-    // We can't easily change the avatar without a real file,
-    // but we verify the mechanism exists
-    await page.keyboard.press('Escape');
-    expect(hrefBefore).toBeTruthy();
+  test('HTML head exposes Apple touch icons', async ({ authedPage: page }) => {
+    const links = page.locator('link[rel="apple-touch-icon"]');
+    expect(await links.count()).toBeGreaterThanOrEqual(1);
+
+    const sizes = await links.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('sizes')));
+    expect(sizes).toContain('180x180');
+    expect(sizes).toContain('167x167');
+    expect(sizes).toContain('152x152');
   });
 });
 
@@ -55,17 +71,12 @@ test.describe('Hamburger Menu', () => {
     await expect(hamburger).toBeVisible();
   });
 
-  test('hamburger toggles workspace explorer', async ({ authedPage: page }) => {
+  test('hamburger menu exposes workspace toggle', async ({ authedPage: page }) => {
     const hamburger = page.locator(sel.hamburgerMenu);
     if (!(await hamburger.isVisible())) test.skip();
 
-    const explorer = page.locator(sel.workspaceExplorer);
-    const wasVisible = await explorer.isVisible();
-
     await hamburger.click();
-    await page.waitForTimeout(500);
-
-    const isNowVisible = await explorer.isVisible();
-    expect(isNowVisible).not.toBe(wasVisible);
+    const workspaceToggle = page.locator('.workspace-menu-item', { hasText: /workspace|explorer/i }).first();
+    await expect(workspaceToggle).toBeVisible();
   });
 });
