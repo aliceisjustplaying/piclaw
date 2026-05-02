@@ -265,6 +265,7 @@ function updateProviderUsage(chatJid: string, message: SDKMessage): void {
   const utilization = readNumber(info.utilization);
   const usedPercent = utilization == null ? null : utilization <= 1 ? utilization * 100 : utilization;
   const remainingPercent = usedPercent == null ? null : Math.max(0, 100 - usedPercent);
+  if (remainingPercent == null) return;
   const resetAt = typeof info.resetsAt === "number" && Number.isFinite(info.resetsAt)
     ? new Date(info.resetsAt).toISOString()
     : null;
@@ -286,7 +287,7 @@ function updateProviderUsage(chatJid: string, message: SDKMessage): void {
     credits_remaining: null,
     credits_unlimited: false,
     extra_usage: null,
-    hint_short: remainingPercent == null ? "" : `${Math.round(remainingPercent)}%`,
+    hint_short: `${Math.round(remainingPercent)}%`,
   });
 }
 
