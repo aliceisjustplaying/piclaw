@@ -188,6 +188,52 @@ test("runScheduledTask records recovery summaries in task logs without polluting
   expect(logs[0].result).toContain("Automatic recovery succeeded after 1 attempt");
 });
 
+test("runScheduledTask passes configured timeout to agent tasks", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../src/db.js");
+  db.initDatabase();
+
+  const scheduler = await import("../../src/task-scheduler.js");
+  scheduler.resetSchedulerMetricsForTests();
+
+  const taskId = `task-timeout-${Date.now()}`;
+  db.createTask({
+    id: taskId,
+    chat_jid: "web:default",
+    prompt: "say hi",
+    timeout_sec: 20,
+    schedule_type: "interval",
+    schedule_value: "60000",
+    next_run: new Date(Date.now() - 1000).toISOString(),
+    status: "active",
+    created_at: new Date().toISOString(),
+  });
+
+  const calls: any[] = [];
+  const deps = {
+    queue: { enqueueTask: (_id: string, fn: () => Promise<void>) => fn() } as any,
+    agentPool: {
+      runAgent: async (...args: any[]) => {
+        calls.push(args);
+        return { status: "success", result: "Hello" };
+      },
+      saveSessionPosition: async () => "leaf-timeout",
+      restoreSessionPosition: async () => {},
+      getCurrentModelLabel: async () => null,
+      applyControlCommand: async () => ({ status: "success", message: "" }),
+    } as any,
+    sendMessage: async () => {},
+  };
+
+  const task = db.getTaskById(taskId)!;
+  await scheduler.runScheduledTask(task, deps as any);
+
+  expect(calls.length).toBe(1);
+  expect(calls[0][2]).toMatchObject({ timeoutMs: 20_000, skipBackendHandoff: true });
+});
+
 test("runScheduledTask still logs and advances the task after an early execution throw", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });

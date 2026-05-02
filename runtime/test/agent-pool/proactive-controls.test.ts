@@ -38,6 +38,7 @@ describe("proactive agent controls", () => {
     expect(task.status).toBe("active");
     expect(task.schedule_type).toBe("interval");
     expect(task.schedule_value).toBe(String(15 * 60 * 1000));
+    expect(task.timeout_sec).toBe(20);
     expect(task.model).toBe("claude/default");
     expect(task.prompt).toContain("Gmail and Google Calendar tools");
     expect(task.prompt).toContain("Do not send email");
@@ -54,6 +55,7 @@ describe("proactive agent controls", () => {
     expect(resumed.status).toBe("success");
     expect(extensionKvGet<{ id: string }>("proactive-agent", "task", "chat", chatJid)?.id).toBe(task.id);
     expect(getTaskById(task.id)?.status).toBe("active");
+    expect(getTaskById(task.id)?.timeout_sec).toBe(20);
 
     expect(getDb().prepare("SELECT COUNT(*) as count FROM scheduled_tasks WHERE chat_jid = ?").get(chatJid)).toEqual({ count: 1 });
   });

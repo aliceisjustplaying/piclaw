@@ -120,6 +120,7 @@ const log = createLogger("agent-pool");
 const PROACTIVE_EXTENSION_ID = "proactive-agent";
 const PROACTIVE_TASK_KEY = "task";
 const PROACTIVE_INTERVAL_MS = 15 * 60 * 1000;
+const PROACTIVE_TIMEOUT_SEC = 20;
 const PROACTIVE_PROMPT = [
   "Proactive check-in task.",
   "Use available Gmail and Google Calendar tools to inspect recent unread or important email and upcoming calendar events.",
@@ -433,6 +434,7 @@ export class AgentPool {
       updateTask(existing.id, {
         prompt: PROACTIVE_PROMPT,
         model,
+        timeout_sec: PROACTIVE_TIMEOUT_SEC,
         schedule_type: "interval",
         schedule_value: String(PROACTIVE_INTERVAL_MS),
         next_run: nextRun,
@@ -450,7 +452,7 @@ export class AgentPool {
       task_kind: "agent",
       command: null,
       cwd: null,
-      timeout_sec: null,
+      timeout_sec: PROACTIVE_TIMEOUT_SEC,
       schedule_type: "interval",
       schedule_value: String(PROACTIVE_INTERVAL_MS),
       next_run: nextRun,

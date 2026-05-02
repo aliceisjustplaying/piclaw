@@ -76,6 +76,12 @@ const schedulerMetrics: SchedulerMetrics = {
   lastPollAt: null,
 };
 
+function getAgentTaskTimeoutMs(task: ScheduledTask): number | undefined {
+  const timeoutSec = Number(task.timeout_sec);
+  if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) return undefined;
+  return Math.max(1, Math.trunc(timeoutSec)) * 1000;
+}
+
 /** Return an immutable snapshot of scheduler metrics counters. */
 export function getSchedulerMetrics(): SchedulerMetrics {
   return { ...schedulerMetrics };
@@ -331,7 +337,10 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
         }
 
         if (!error) {
-          const out = await deps.agentPool.runAgent(task.prompt, task.chat_jid);
+          const out = await deps.agentPool.runAgent(task.prompt, task.chat_jid, {
+            timeoutMs: getAgentTaskTimeoutMs(task),
+            skipBackendHandoff: true,
+          });
           const recoverySummary = formatRecoverySummary(out.recovery);
           if (out.status === "error") {
             error = out.error || "Unknown";
