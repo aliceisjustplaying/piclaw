@@ -1155,16 +1155,15 @@ export function ComposeBox({
     const modelHintLabel = modelPickerState.label;
     const fastMode = typeof agentModelsPayload?.fast_mode === 'boolean' ? agentModelsPayload.fast_mode : null;
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
-    const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}${fastMode === true ? '⚡' : ''}` : '';
+    const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
     const modelFastLabel = fastMode === true ? 'Fast on' : null;
     const modelUsageLabel = formatCompactModelUsageLabel(modelUsage);
     const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
         ? modelUsage.extra_usage.reset_description.trim()
         : '';
-    const modelUsageSectionLabel = [
-        modelThinkingLabel || null,
-        modelUsageLabel || null,
-    ].filter(Boolean).join(' - ');
+    const showFastIndicator = fastMode === true && Boolean(modelThinkingLabel);
+    const showModelUsageSeparator = Boolean((modelThinkingLabel || showFastIndicator) && modelUsageLabel);
+    const showModelUsageSection = Boolean(modelThinkingLabel || showFastIndicator || modelUsageLabel);
     const modelUsageTitleParts = [
         activeModel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
         modelUsage?.plan ? `Plan: ${modelUsage.plan}` : null,
@@ -2876,9 +2875,9 @@ export function ComposeBox({
                                     ${switchingModel ? 'Switching…' : modelHintLabel}
                                 </button>
                                 <div class="compose-model-meta-subline">
-                                    ${!switchingModel && modelUsageSectionLabel && html`
+                                    ${!switchingModel && showModelUsageSection && html`
                                         <span class="compose-model-usage-hint" title=${modelHintTitle}>
-                                            ${modelUsageSectionLabel}
+                                            ${modelThinkingLabel}${showFastIndicator && html`<span class="compose-model-fast-glyph" aria-label="Fast mode on">↯</span>`}${showModelUsageSeparator ? ' - ' : ''}${modelUsageLabel}
                                         </span>
                                     `}
                                 </div>

@@ -885,6 +885,17 @@
     flex: 0 1 auto;
 }
 
+.compose-model-fast-glyph {
+    display: inline-block;
+    margin-left: 2px;
+    color: var(--accent-color, currentColor);
+    font-family: var(--font-family, system-ui, sans-serif);
+    font-size: 1.25em;
+    font-weight: 900;
+    line-height: 0;
+    vertical-align: -0.04em;
+}
+
 .compose-model-popup {
     position: absolute;
     left: 0;
