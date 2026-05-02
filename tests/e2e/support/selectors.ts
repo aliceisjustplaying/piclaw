@@ -7,7 +7,7 @@
 export const sel = {
   // Compose
   composeBox: '[data-testid="compose-box"], .compose-editor',
-  composeInput: '[data-testid="compose-input"], .compose-editor [contenteditable]',
+  composeInput: '[data-testid="compose-input"], .compose-editor [contenteditable], .compose-box textarea',
   sendButton: '[data-testid="send-button"], .compose-send',
   stopButton: '[data-testid="stop-button"], .compose-stop',
   typeaheadPopup: '[data-testid="typeahead"], .typeahead-popup',
@@ -59,6 +59,12 @@ export const sel = {
   agentStatus: '[data-testid="agent-status"], .agent-status',
   reconnectHint: '.reconnect-hint',
   recoveryChip: '.recovery-chip',
+
+  // System meters
+  systemMetersHud: '.system-meters-hud',
+  systemMetersCard: '.system-meters-card',
+  systemMetersCpuRow: '.system-meters-row.cpu',
+  systemMetersCollapsed: '.system-meters-hud.is-collapsed',
 
   // Hamburger
   hamburgerMenu: '[data-testid="hamburger"], .hamburger-menu, .timeline-menu-btn',
