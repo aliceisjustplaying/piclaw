@@ -91,7 +91,15 @@ export function buildProactivePrompt(task: ScheduledTask): string {
 }
 
 export function shouldSuppressProactiveOutput(result: string): boolean {
-  return result.trim() === PROACTIVE_NO_UPDATE;
+  const normalized = result
+    .trim()
+    .replace(/^```(?:text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .replace(/^`+|`+$/g, "")
+    .trim()
+    .replace(/[.。!！]+$/g, "")
+    .toUpperCase();
+  return normalized === PROACTIVE_NO_UPDATE;
 }
 
 export function recordProactiveResult(task: ScheduledTask, result: string): ProactiveRecordResult {

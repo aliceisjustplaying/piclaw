@@ -56,6 +56,9 @@ describe("proactive state", () => {
     const t = task("web:proactive-dedupe");
 
     expect(shouldSuppressProactiveOutput(PROACTIVE_NO_UPDATE)).toBe(true);
+    expect(shouldSuppressProactiveOutput("no_proactive_update")).toBe(true);
+    expect(shouldSuppressProactiveOutput("`NO_PROACTIVE_UPDATE`")).toBe(true);
+    expect(shouldSuppressProactiveOutput("```text\nNO_PROACTIVE_UPDATE\n```")).toBe(true);
     expect(recordProactiveResult(t, PROACTIVE_NO_UPDATE)).toEqual({ shouldNotify: false, reason: "no_update" });
     expect(recordProactiveResult(t, "Calendar: dentist at 3pm.")).toEqual({ shouldNotify: true, reason: "new" });
     expect(recordProactiveResult(t, "Calendar: dentist at 3pm.")).toEqual({ shouldNotify: false, reason: "duplicate" });
