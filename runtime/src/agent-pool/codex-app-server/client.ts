@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 
+import { buildAgentChildEnv } from "../child-env.js";
 import { handleDynamicToolCall } from "./bridge-tools.js";
 import { resolveApprovalResponse, isUntrustedThread } from "./notifications.js";
 import {
@@ -27,7 +28,7 @@ class CodexAppServerClient implements CodexAppServerClientLike {
     const { command, args } = appServerCommand();
     this.child = spawn(command, args, {
       cwd: workspaceCwd(),
-      env: process.env,
+      env: buildAgentChildEnv("codex"),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -142,11 +143,13 @@ class CodexAppServerClient implements CodexAppServerClientLike {
       try {
         handler(message);
       } catch (err) {
+        const error = asError(err);
         log.warn("Codex app-server notification handler failed", {
           operation: "codex_app_server.notification_handler",
           method: message.method,
-          err,
+          err: error,
         });
+        this.failAll(error);
       }
     }
   }

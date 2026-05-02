@@ -8,7 +8,8 @@ import { getAttachmentRegistry } from "./attachments.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
 import type { PiclawBridgeSession } from "./codex-app-server-backend.js";
-import { buildClaudePrompt, createPiclawMcpServer } from "./claude-agent-sdk/bridge.js";
+import { buildAgentChildEnv } from "./child-env.js";
+import { buildClaudePrompt, createPiclawMcpServer, type ClaudeBridgeTrustState } from "./claude-agent-sdk/bridge.js";
 
 const log = createLogger("agent-pool.claude-agent-sdk");
 const DEFAULT_CONTEXT_WINDOW = 200_000;
@@ -40,6 +41,7 @@ const CLAUDE_MODEL_ALIASES: Record<string, string> = {
 type PersistedClaudeState = {
   model?: string | null;
   thinking?: ClaudeThinkingLevel;
+  providerUsage?: unknown;
 };
 
 function readPersistedState(chatJid: string): PersistedClaudeState {
@@ -115,7 +117,7 @@ export function getClaudeAgentSdkContextUsage(chatJid: string): {
 }
 
 export function getClaudeAgentSdkProviderUsage(chatJid: string): unknown | null {
-  return providerUsageByChat.get(chatJid) ?? null;
+  return providerUsageByChat.get(chatJid) ?? readPersistedState(chatJid).providerUsage ?? null;
 }
 
 export function hasClaudeAgentSdkSession(chatJid: string): boolean {
@@ -291,6 +293,7 @@ function updateProviderUsage(chatJid: string, message: SDKMessage): void {
     extra_usage: null,
     hint_short: `${Math.round(remainingPercent)}%`,
   });
+  writePersistedState(chatJid, { providerUsage: providerUsageByChat.get(chatJid) });
 }
 
 function readNumber(value: unknown): number | null {
@@ -309,9 +312,9 @@ function sumNumbers(values: unknown[]): number | null {
   return saw ? total : null;
 }
 
-function createPermissionHandler(runOptions: RunAgentOptions): CanUseTool {
+function createPermissionHandler(runOptions: RunAgentOptions, trustState: ClaudeBridgeTrustState): CanUseTool {
   return async (toolName, _input, options): Promise<PermissionResult> => {
-    if (runOptions.hasUntrustedExternalContent && isMutatingClaudeTool(toolName)) {
+    if ((runOptions.hasUntrustedExternalContent || trustState.hasUntrustedExternalContent) && isMutatingClaudeTool(toolName)) {
       return {
         behavior: "deny",
         message: "Denied because this turn contains untrusted external content.",
@@ -394,22 +397,22 @@ async function runClaudeAgentSdkPromptUnlocked(
   const sessionId = sessionIdByChat.get(chatJid);
   const selectedModel = normalizeClaudeModelId(modelByChat.get(chatJid)) || normalizeClaudeModelId(readPersistedState(chatJid).model) || normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel) || undefined;
   const promptWithAttachments = buildClaudePrompt(chatJid, prompt, runOptions.inputMediaIds, bridgeSession);
+  const bridgeTrustState: ClaudeBridgeTrustState = { hasUntrustedExternalContent: runOptions.hasUntrustedExternalContent === true };
   const options: Options & { getOAuthToken?: (options: { signal: AbortSignal }) => Promise<string | null> } = {
     abortController: controller,
     cwd: WORKSPACE_DIR,
     pathToClaudeCodeExecutable: resolveClaudeCodeExecutable(),
-    env: {
-      ...process.env,
+    env: buildAgentChildEnv("claude", {
       CLAUDE_AGENT_SDK_CLIENT_APP: "piclaw/2.1.0",
       ...(token ? { CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH: "1" } : {}),
-    },
+    }),
     ...(token ? { getOAuthToken: async () => (await resolveOAuthToken()) ?? token } : {}),
     ...(selectedModel ? { model: selectedModel } : {}),
     ...(sessionId ? { resume: sessionId } : {}),
     ...thinkingOptions(getClaudeAgentSdkThinkingLevel(chatJid)),
     tools: { type: "preset", preset: "claude_code" },
-    mcpServers: { piclaw: createPiclawMcpServer(chatJid, bridgeSession, () => contextUsageByChat.get(chatJid) ?? null) },
-    canUseTool: createPermissionHandler(runOptions),
+    mcpServers: { piclaw: createPiclawMcpServer(chatJid, bridgeSession, () => contextUsageByChat.get(chatJid) ?? null, bridgeTrustState) },
+    canUseTool: createPermissionHandler(runOptions, bridgeTrustState),
     permissionMode: runOptions.hasUntrustedExternalContent ? "default" : "bypassPermissions",
     includePartialMessages: true,
   };
