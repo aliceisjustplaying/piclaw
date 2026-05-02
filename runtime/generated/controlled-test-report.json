@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-02T05:00:03.927Z",
+  "generated_at": "2026-05-02T05:16:50.964Z",
   "package_dir": "/workspace/piclaw",
   "runtime_dir": "/workspace/piclaw/runtime",
   "stage_size": 25,
@@ -10,9 +10,9 @@
   ],
   "total_files": 500,
   "stages_completed": 20,
-  "elapsed_ms": 134230,
-  "max_peak_process_tree_rss_kb": 533252,
-  "max_peak_cgroup_memory_bytes": 859185152,
+  "elapsed_ms": 122226,
+  "max_peak_process_tree_rss_kb": 541264,
+  "max_peak_cgroup_memory_bytes": 1669906432,
   "failed_stage_index": null,
   "exit_code": 0,
   "stages": [
@@ -46,13 +46,13 @@
         "test/agent-pool/branch-manager.test.ts",
         "test/agent-pool/installed-addons.test.ts"
       ],
-      "elapsed_ms": 27038,
+      "elapsed_ms": 28033,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 196700,
-      "peak_cgroup_memory_bytes": 595021824,
-      "peak_process_tree_at_ms": 19028,
-      "peak_cgroup_at_ms": 19028,
-      "samples": 28
+      "peak_process_tree_rss_kb": 205012,
+      "peak_cgroup_memory_bytes": 1450266624,
+      "peak_process_tree_at_ms": 16020,
+      "peak_cgroup_at_ms": 23027,
+      "samples": 29
     },
     {
       "index": 2,
@@ -84,13 +84,13 @@
         "test/channels/web/agent-message-handler.test.ts",
         "test/channels/web/agent-message-store.test.ts"
       ],
-      "elapsed_ms": 32044,
+      "elapsed_ms": 33035,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 189084,
-      "peak_cgroup_memory_bytes": 588996608,
-      "peak_process_tree_at_ms": 16017,
-      "peak_cgroup_at_ms": 12012,
-      "samples": 33
+      "peak_process_tree_rss_kb": 203072,
+      "peak_cgroup_memory_bytes": 1437638656,
+      "peak_process_tree_at_ms": 7007,
+      "peak_cgroup_at_ms": 15015,
+      "samples": 34
     },
     {
       "index": 3,
@@ -122,13 +122,13 @@
         "test/channels/web/chat-isolation.test.ts",
         "test/channels/web/core/web-channel-constructor-wiring-factory.test.ts"
       ],
-      "elapsed_ms": 5007,
+      "elapsed_ms": 4004,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 178508,
-      "peak_cgroup_memory_bytes": 578785280,
-      "peak_process_tree_at_ms": 4006,
-      "peak_cgroup_at_ms": 4006,
-      "samples": 6
+      "peak_process_tree_rss_kb": 185948,
+      "peak_cgroup_memory_bytes": 1401716736,
+      "peak_process_tree_at_ms": 2001,
+      "peak_cgroup_at_ms": 2001,
+      "samples": 5
     },
     {
       "index": 4,
@@ -160,13 +160,13 @@
         "test/channels/web/interaction-broadcaster.test.ts",
         "test/channels/web/lazy-viewer-routes.test.ts"
       ],
-      "elapsed_ms": 4005,
+      "elapsed_ms": 3003,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 86616,
-      "peak_cgroup_memory_bytes": 482631680,
-      "peak_process_tree_at_ms": 3004,
-      "peak_cgroup_at_ms": 3004,
-      "samples": 5
+      "peak_process_tree_rss_kb": 90828,
+      "peak_cgroup_memory_bytes": 1309900800,
+      "peak_process_tree_at_ms": 2001,
+      "peak_cgroup_at_ms": 2001,
+      "samples": 4
     },
     {
       "index": 5,
@@ -198,13 +198,13 @@
         "test/channels/web/runtime/followup-placeholders.test.ts",
         "test/channels/web/runtime/queued-followup-lifecycle-service.test.ts"
       ],
-      "elapsed_ms": 2003,
+      "elapsed_ms": 1002,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 116804,
-      "peak_cgroup_memory_bytes": 496574464,
-      "peak_process_tree_at_ms": 1001,
+      "peak_process_tree_rss_kb": 868,
+      "peak_cgroup_memory_bytes": 1255788544,
+      "peak_process_tree_at_ms": 0,
       "peak_cgroup_at_ms": 1001,
-      "samples": 3
+      "samples": 2
     },
     {
       "index": 6,
@@ -236,13 +236,13 @@
         "test/channels/web/web-channel-message-processing-storage-delegation.test.ts",
         "test/channels/web/web-channel-message-write-delegation.test.ts"
       ],
-      "elapsed_ms": 16026,
+      "elapsed_ms": 9012,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 533252,
-      "peak_cgroup_memory_bytes": 859185152,
-      "peak_process_tree_at_ms": 8015,
-      "peak_cgroup_at_ms": 8015,
-      "samples": 17
+      "peak_process_tree_rss_kb": 541264,
+      "peak_cgroup_memory_bytes": 1669906432,
+      "peak_process_tree_at_ms": 4006,
+      "peak_cgroup_at_ms": 4006,
+      "samples": 10
     },
     {
       "index": 7,
@@ -269,18 +269,18 @@
         "test/channels/web/workspace-handlers.test.ts",
         "test/channels/web/workspace-service.test.ts",
         "test/channels/whatsapp-presence.test.ts",
-        "test/channels/whatsapp.test.ts",
+        "test/channels/whatsapp.optional.test.ts",
         "test/cli-keychain.test.ts",
         "test/cli-post.test.ts",
         "test/config/config-coverage-import.test.ts"
       ],
-      "elapsed_ms": 6013,
+      "elapsed_ms": 8010,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 237316,
-      "peak_cgroup_memory_bytes": 640811008,
-      "peak_process_tree_at_ms": 4008,
-      "peak_cgroup_at_ms": 4008,
-      "samples": 7
+      "peak_process_tree_rss_kb": 236396,
+      "peak_cgroup_memory_bytes": 1463283712,
+      "peak_process_tree_at_ms": 6007,
+      "peak_cgroup_at_ms": 6007,
+      "samples": 9
     },
     {
       "index": 8,
@@ -312,13 +312,13 @@
         "test/extensions/azure-openai-session.test.ts",
         "test/extensions/azure-openai-streaming.test.ts"
       ],
-      "elapsed_ms": 6012,
+      "elapsed_ms": 5010,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 286516,
-      "peak_cgroup_memory_bytes": 664326144,
-      "peak_process_tree_at_ms": 1002,
-      "peak_cgroup_at_ms": 1002,
-      "samples": 7
+      "peak_process_tree_rss_kb": 326756,
+      "peak_cgroup_memory_bytes": 1516998656,
+      "peak_process_tree_at_ms": 1006,
+      "peak_cgroup_at_ms": 1006,
+      "samples": 6
     },
     {
       "index": 9,
@@ -350,13 +350,13 @@
         "test/extensions/m365-todo.test.ts",
         "test/extensions/messages-crud.test.ts"
       ],
-      "elapsed_ms": 6009,
+      "elapsed_ms": 5008,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 276804,
-      "peak_cgroup_memory_bytes": 654221312,
-      "peak_process_tree_at_ms": 5008,
-      "peak_cgroup_at_ms": 5008,
-      "samples": 7
+      "peak_process_tree_rss_kb": 246720,
+      "peak_cgroup_memory_bytes": 1443917824,
+      "peak_process_tree_at_ms": 3005,
+      "peak_cgroup_at_ms": 3005,
+      "samples": 6
     },
     {
       "index": 10,
@@ -388,13 +388,13 @@
         "test/keychain.test.ts",
         "test/overlay-workspace.test.ts"
       ],
-      "elapsed_ms": 6009,
+      "elapsed_ms": 5006,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 182836,
-      "peak_cgroup_memory_bytes": 585863168,
-      "peak_process_tree_at_ms": 5008,
-      "peak_cgroup_at_ms": 5008,
-      "samples": 7
+      "peak_process_tree_rss_kb": 192972,
+      "peak_cgroup_memory_bytes": 1391603712,
+      "peak_process_tree_at_ms": 4005,
+      "peak_cgroup_at_ms": 4005,
+      "samples": 6
     },
     {
       "index": 11,
@@ -426,12 +426,12 @@
         "test/runtime/provider-bootstrap.test.ts",
         "test/runtime/readme-docker-run.test.ts"
       ],
-      "elapsed_ms": 4007,
+      "elapsed_ms": 4005,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 169672,
-      "peak_cgroup_memory_bytes": 578596864,
-      "peak_process_tree_at_ms": 3005,
-      "peak_cgroup_at_ms": 3005,
+      "peak_process_tree_rss_kb": 177184,
+      "peak_cgroup_memory_bytes": 1377787904,
+      "peak_process_tree_at_ms": 2002,
+      "peak_cgroup_at_ms": 2002,
       "samples": 5
     },
     {
@@ -464,12 +464,12 @@
         "test/scripts/silent-swallow-metrics.test.ts",
         "test/scripts/supervisor-run-piclaw.test.ts"
       ],
-      "elapsed_ms": 7028,
+      "elapsed_ms": 7080,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 344884,
-      "peak_cgroup_memory_bytes": 726720512,
-      "peak_process_tree_at_ms": 6026,
-      "peak_cgroup_at_ms": 6026,
+      "peak_process_tree_rss_kb": 345028,
+      "peak_cgroup_memory_bytes": 1521561600,
+      "peak_process_tree_at_ms": 4076,
+      "peak_cgroup_at_ms": 4076,
       "samples": 8
     },
     {
@@ -502,13 +502,13 @@
         "test/utils/totp-qr.test.ts",
         "test/web/adaptive-card-input-lock.test.ts"
       ],
-      "elapsed_ms": 4009,
+      "elapsed_ms": 3004,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 171704,
-      "peak_cgroup_memory_bytes": 580562944,
-      "peak_process_tree_at_ms": 1002,
-      "peak_cgroup_at_ms": 1002,
-      "samples": 5
+      "peak_process_tree_rss_kb": 196288,
+      "peak_cgroup_memory_bytes": 1386008576,
+      "peak_process_tree_at_ms": 2002,
+      "peak_cgroup_at_ms": 1001,
+      "samples": 4
     },
     {
       "index": 14,
@@ -540,13 +540,13 @@
         "test/web/app-chat-refresh-lifecycle.test.ts",
         "test/web/app-compose-reference-orchestration.test.ts"
       ],
-      "elapsed_ms": 2004,
+      "elapsed_ms": 1002,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 83596,
-      "peak_cgroup_memory_bytes": 494047232,
-      "peak_process_tree_at_ms": 1002,
-      "peak_cgroup_at_ms": 1002,
-      "samples": 3
+      "peak_process_tree_rss_kb": 1064,
+      "peak_cgroup_memory_bytes": 1236783104,
+      "peak_process_tree_at_ms": 1,
+      "peak_cgroup_at_ms": 1,
+      "samples": 2
     },
     {
       "index": 15,
@@ -578,12 +578,12 @@
         "test/web/app-model-state.test.ts",
         "test/web/app-pane-mode-render.test.ts"
       ],
-      "elapsed_ms": 1002,
+      "elapsed_ms": 1001,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 3492,
-      "peak_cgroup_memory_bytes": 440971264,
+      "peak_process_tree_rss_kb": 636,
+      "peak_cgroup_memory_bytes": 1236647936,
       "peak_process_tree_at_ms": 0,
-      "peak_cgroup_at_ms": 0,
+      "peak_cgroup_at_ms": 1001,
       "samples": 2
     },
     {
@@ -616,12 +616,12 @@
         "test/web/app-view-refresh-lifecycle.test.ts",
         "test/web/app-window-actions.test.ts"
       ],
-      "elapsed_ms": 1003,
+      "elapsed_ms": 1002,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 512,
-      "peak_cgroup_memory_bytes": 439869440,
-      "peak_process_tree_at_ms": 0,
-      "peak_cgroup_at_ms": 0,
+      "peak_process_tree_rss_kb": 576,
+      "peak_cgroup_memory_bytes": 1236959232,
+      "peak_process_tree_at_ms": 1,
+      "peak_cgroup_at_ms": 1002,
       "samples": 2
     },
     {
@@ -654,13 +654,13 @@
         "test/web/input-focus-safety.test.ts",
         "test/web/login-safety.test.ts"
       ],
-      "elapsed_ms": 2004,
+      "elapsed_ms": 1003,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 69068,
-      "peak_cgroup_memory_bytes": 479535104,
-      "peak_process_tree_at_ms": 1002,
-      "peak_cgroup_at_ms": 1002,
-      "samples": 3
+      "peak_process_tree_rss_kb": 488,
+      "peak_cgroup_memory_bytes": 1237221376,
+      "peak_process_tree_at_ms": 0,
+      "peak_cgroup_at_ms": 0,
+      "samples": 2
     },
     {
       "index": 18,
@@ -692,10 +692,10 @@
         "test/web/popup-typeahead.test.ts",
         "test/web/post-copy-markdown.test.ts"
       ],
-      "elapsed_ms": 1003,
+      "elapsed_ms": 1002,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 768,
-      "peak_cgroup_memory_bytes": 440209408,
+      "peak_process_tree_rss_kb": 41252,
+      "peak_cgroup_memory_bytes": 1237319680,
       "peak_process_tree_at_ms": 0,
       "peak_cgroup_at_ms": 0,
       "samples": 2
@@ -730,12 +730,12 @@
         "test/web/tab-strip.test.ts",
         "test/web/terminal-lifecycle-runtime.test.ts"
       ],
-      "elapsed_ms": 1001,
+      "elapsed_ms": 1002,
       "exit_code": 0,
-      "peak_process_tree_rss_kb": 1000,
-      "peak_cgroup_memory_bytes": 440074240,
-      "peak_process_tree_at_ms": 0,
-      "peak_cgroup_at_ms": 0,
+      "peak_process_tree_rss_kb": 852,
+      "peak_cgroup_memory_bytes": 1237397504,
+      "peak_process_tree_at_ms": 1,
+      "peak_cgroup_at_ms": 1,
       "samples": 2
     },
     {
@@ -771,9 +771,9 @@
       "elapsed_ms": 1002,
       "exit_code": 0,
       "peak_process_tree_rss_kb": 860,
-      "peak_cgroup_memory_bytes": 439853056,
-      "peak_process_tree_at_ms": 0,
-      "peak_cgroup_at_ms": 0,
+      "peak_cgroup_memory_bytes": 1237094400,
+      "peak_process_tree_at_ms": 1,
+      "peak_cgroup_at_ms": 1,
       "samples": 2
     }
   ]
