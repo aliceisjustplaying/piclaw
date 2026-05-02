@@ -57,8 +57,7 @@ describe("provider usage", () => {
       expect(usage?.primary?.remaining_percent).toBe(62);
       expect(usage?.secondary?.label).toBe("week");
       expect(usage?.credits_remaining).toBe(123);
-      expect(usage?.hint_short).toContain("5h 62%");
-      expect(usage?.hint_short).toContain("wk 41%");
+      expect(usage?.hint_short).toBe("62% • 41%");
       expect(usage?.hint_short).not.toContain("credits");
     } finally {
       globalThis.fetch = previousFetch;
@@ -241,8 +240,7 @@ describe("provider usage", () => {
       expect(usage?.secondary?.label).toBe("week");
       expect(usage?.secondary?.remaining_percent).toBe(42);
       expect(usage?.extra_usage?.hint_short).toBe("extra $5/$20");
-      expect(usage?.hint_short).toContain("5h 65%");
-      expect(usage?.hint_short).toContain("wk 42%");
+      expect(usage?.hint_short).toContain("65% • 42%");
       expect(usage?.hint_short).toContain("extra $5/$20");
     } finally {
       globalThis.fetch = previousFetch;

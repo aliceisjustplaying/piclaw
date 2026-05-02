@@ -301,8 +301,8 @@ test('model picker helpers expose searchable names, formatted context windows, a
   };
 
   expect(formatModelPickerContextWindow(200000)).toBe('200K ctx');
-  expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4', 200000)).toBe('anthropic/claude-sonnet-4 • 200K ctx');
-  expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4', null)).toBe('anthropic/claude-sonnet-4');
+  expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4', 200000)).toBe('claude-sonnet-4 • 200K ctx');
+  expect(formatModelPickerDisplayLabel('claude/claude-opus-4-6[1m]', null)).toBe('claude-opus-4-6[1m]');
   expect(formatModelPickerDisplayLabel('codex/gpt-5.5', 400000)).toBe('gpt-5.5 • 400K ctx');
   expect(getModelPickerOptionSearchLabel(option)).toContain('anthropic/claude-sonnet-4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('Claude Sonnet 4');
