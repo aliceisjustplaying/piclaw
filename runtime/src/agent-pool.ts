@@ -180,6 +180,12 @@ const DEFAULT_MEMORY_PRESSURE_RSS_BYTES = 512 * 1024 * 1024;
 // immediately recreated, causing high churn with no net memory benefit.
 const DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL = 60 * 1000;
 const DEFAULT_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE = 1;
+const EAGER_MAIN_IDLE_TTL = 60 * 60 * 1000;
+const EAGER_SIDE_IDLE_TTL = 30 * 60 * 1000;
+const EAGER_MAIN_SESSION_POOL_MAX_SIZE = 16;
+const EAGER_MEMORY_PRESSURE_RSS_BYTES = 4 * 1024 * 1024 * 1024;
+const EAGER_MEMORY_PRESSURE_MAIN_IDLE_TTL = 15 * 60 * 1000;
+const EAGER_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE = 8;
 
 function parsePositiveMs(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value || "").trim(), 10);
@@ -192,30 +198,31 @@ function parseNonNegativeInt(value: string | undefined, fallback: number): numbe
 }
 
 function loadAgentPoolConfig() {
+  const eagerWarmup = getEagerWarmupConfig().enabled;
   const mainIdleTtlMs = parsePositiveMs(
     process.env.PICLAW_MAIN_SESSION_IDLE_TTL_MS ?? process.env.PICLAW_SESSION_IDLE_TTL_MS,
-    DEFAULT_MAIN_IDLE_TTL,
+    eagerWarmup ? EAGER_MAIN_IDLE_TTL : DEFAULT_MAIN_IDLE_TTL,
   );
   const sideIdleTtlMs = parsePositiveMs(
     process.env.PICLAW_SIDE_SESSION_IDLE_TTL_MS ?? process.env.PICLAW_SESSION_IDLE_TTL_MS,
-    DEFAULT_SIDE_IDLE_TTL,
+    eagerWarmup ? EAGER_SIDE_IDLE_TTL : DEFAULT_SIDE_IDLE_TTL,
   );
   const cleanupIntervalMs = parsePositiveMs(process.env.PICLAW_SESSION_CLEANUP_INTERVAL_MS, DEFAULT_CLEANUP_INTERVAL);
   const mainSessionPoolMaxSize = parseNonNegativeInt(
     process.env.PICLAW_MAIN_SESSION_POOL_MAX_SIZE ?? process.env.PICLAW_SESSION_POOL_MAX_SIZE,
-    DEFAULT_MAIN_SESSION_POOL_MAX_SIZE,
+    eagerWarmup ? EAGER_MAIN_SESSION_POOL_MAX_SIZE : DEFAULT_MAIN_SESSION_POOL_MAX_SIZE,
   );
   const memoryPressureRssBytes = parseNonNegativeInt(
     process.env.PICLAW_MAIN_SESSION_PRESSURE_RSS_BYTES,
-    DEFAULT_MEMORY_PRESSURE_RSS_BYTES,
+    eagerWarmup ? EAGER_MEMORY_PRESSURE_RSS_BYTES : DEFAULT_MEMORY_PRESSURE_RSS_BYTES,
   );
   const memoryPressureMainIdleTtlMs = parsePositiveMs(
     process.env.PICLAW_MAIN_SESSION_PRESSURE_IDLE_TTL_MS,
-    DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL,
+    eagerWarmup ? EAGER_MEMORY_PRESSURE_MAIN_IDLE_TTL : DEFAULT_MEMORY_PRESSURE_MAIN_IDLE_TTL,
   );
   const memoryPressureMainSessionPoolMaxSize = parseNonNegativeInt(
     process.env.PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE,
-    DEFAULT_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE,
+    eagerWarmup ? EAGER_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE : DEFAULT_MEMORY_PRESSURE_MAIN_SESSION_POOL_MAX_SIZE,
   );
 
   return {
@@ -226,6 +233,7 @@ function loadAgentPoolConfig() {
     memoryPressureRssBytes,
     memoryPressureMainIdleTtlMs,
     memoryPressureMainSessionPoolMaxSize,
+    eagerWarmup,
   };
 }
 const DEFAULT_PROVIDER_RATE_LIMIT_MAX_RETRIES = 5;
@@ -928,7 +936,7 @@ export class AgentPool {
     // backfill for those.
     const actuallyScheduled: string[] = [];
     for (const chatJid of scheduled) {
-      if (this.sessionManager.prewarm(chatJid, { mode: "lightweight" })) {
+      if (this.sessionManager.prewarm(chatJid, { mode: this.config.eagerWarmup ? "full" : "lightweight" })) {
         cooldownByChat.set(chatJid, now);
         actuallyScheduled.push(chatJid);
       }
