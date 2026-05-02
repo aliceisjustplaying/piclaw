@@ -46,6 +46,7 @@ import {
 } from "./agent-pool/contracts.js";
 import { runSidePrompt as runSidePromptInternal } from "./agent-pool/side-prompt-runner.js";
 import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
+import { withAgentChatRunLock } from "./agent-pool/chat-run-lock.js";
 import {
   PROACTIVE_EXTENSION_ID,
   PROACTIVE_INTERVAL_MS,
@@ -402,7 +403,7 @@ export class AgentPool {
         codexReplayPrompt: options.codexReplayPrompt ? `${handoffPrompt}\n\n${options.codexReplayPrompt}` : undefined,
       }
       : options;
-    const output = await runAgentPrompt(effectivePrompt, chatJid, runOptions, {
+    const output = await withAgentChatRunLock(chatJid, () => runAgentPrompt(effectivePrompt, chatJid, runOptions, {
       getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
       turnCoordinator: this.turnCoordinator,
       clearAttachments: (nextChatJid) => this.attachments.clear(nextChatJid),
@@ -415,7 +416,7 @@ export class AgentPool {
       onInfo: (message, details) => log.info(message, details),
       onWarn: (message, details) => log.warn(message, details),
       onError: (message, details) => log.error(message, details),
-    });
+    }));
 
     const recovery = output.recovery;
     if (recovery) {
@@ -423,7 +424,7 @@ export class AgentPool {
       if (recovery.recovered) this.recoveryStats.recoveredRuns += 1;
       if (recovery.exhausted) this.recoveryStats.exhaustedRuns += 1;
     }
-    if (pendingHandoff) markBackendHandoffUsed(chatJid);
+    if (pendingHandoff && output.status === "success") markBackendHandoffUsed(chatJid);
 
     return output;
   }
@@ -449,11 +450,10 @@ export class AgentPool {
     }
 
     const nextRun = new Date(Date.now() + PROACTIVE_INTERVAL_MS).toISOString();
-    const model = await this.getCurrentModelLabel(chatJid) ?? getClaudeAgentSdkModelLabel(chatJid);
     if (existing) {
       updateTask(existing.id, {
         prompt: PROACTIVE_PROMPT,
-        model,
+        model: null,
         timeout_sec: PROACTIVE_TIMEOUT_SEC,
         schedule_type: "interval",
         schedule_value: String(PROACTIVE_INTERVAL_MS),
@@ -468,7 +468,7 @@ export class AgentPool {
       id,
       chat_jid: chatJid,
       prompt: PROACTIVE_PROMPT,
-      model,
+      model: null,
       task_kind: "agent",
       command: null,
       cwd: null,
@@ -522,6 +522,7 @@ export class AgentPool {
       if (!normalizedTarget) {
         setChatAgentBackend(chatJid, command.backend);
       }
+      if (normalizedTarget && normalizedTarget !== previous) await this.abortBackendTurnForSwitch(chatJid, previous);
       const handoff = normalizedTarget && normalizedTarget !== previous
         ? await this.captureBackendHandoff(chatJid, previous, normalizedTarget)
         : false;
@@ -537,7 +538,10 @@ export class AgentPool {
       const provider = command.provider || (command.modelId?.startsWith("claude-") ? "claude" : undefined);
       if (provider === "claude") {
         const target: AgentBackend = "claude-agent-sdk";
-        if (target !== backend) await this.captureBackendHandoff(chatJid, backend, target);
+        if (target !== backend) {
+          await this.abortBackendTurnForSwitch(chatJid, backend);
+          await this.captureBackendHandoff(chatJid, backend, target);
+        }
         setChatAgentBackend(chatJid, "claude");
         const modelLabel = await setClaudeAgentSdkModel(chatJid, command.modelId || "default");
         const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
@@ -552,7 +556,10 @@ export class AgentPool {
       }
       if (provider === "codex") {
         const target: AgentBackend = "codex-app-server";
-        if (target !== backend) await this.captureBackendHandoff(chatJid, backend, target);
+        if (target !== backend) {
+          await this.abortBackendTurnForSwitch(chatJid, backend);
+          await this.captureBackendHandoff(chatJid, backend, target);
+        }
         setChatAgentBackend(chatJid, "codex");
         const modelLabel = await setCodexAppServerModel(chatJid, command.modelId || "default");
         const thinking = getCodexAppServerThinkingLevel(chatJid);
@@ -799,6 +806,28 @@ export class AgentPool {
     }
   }
 
+  private async abortBackendTurnForSwitch(chatJid: string, backend: AgentBackend): Promise<void> {
+    try {
+      if (backend === "codex-app-server") {
+        await abortCodexAppServerChat(chatJid);
+        return;
+      }
+      if (backend === "claude-agent-sdk") {
+        await abortClaudeAgentSdkChat(chatJid);
+        return;
+      }
+      const runtime = this.pool.get(chatJid)?.runtime;
+      await runtime?.session.abort?.();
+    } catch (error) {
+      log.warn("Failed to abort active backend turn before switch", {
+        operation: "agent_backend.abort_before_switch_failed",
+        chatJid,
+        backend,
+        err: error,
+      });
+    }
+  }
+
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
     const backend = getChatAgentBackend(chatJid);
     if (backend === "codex-app-server") return getCodexAppServerDisplayModelLabel(chatJid, await listCodexAppServerModels());
@@ -888,6 +917,7 @@ export class AgentPool {
     percent: number | null;
   } | null> {
     if (getChatAgentBackend(chatJid) === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
+    if (getChatAgentBackend(chatJid) === "codex-app-server") return getCodexAppServerContextUsage(chatJid);
     return this.runtimeFacade.getContextUsageForChat(chatJid);
   }
 

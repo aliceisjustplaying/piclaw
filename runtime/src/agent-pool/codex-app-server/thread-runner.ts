@@ -110,6 +110,7 @@ async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void>
   let timeout: ReturnType<typeof setTimeout> | null = null;
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let compactTurnId: string | null = null;
+  let completionError: Error | null = null;
   let unsubscribe: Function | null = null;
   let usageUpdatedDuringCompaction = false;
   const compacted = new Promise<void>((resolve, reject) => {
@@ -155,12 +156,9 @@ async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void>
         if (!compactTurnId || turnId !== compactTurnId) return;
         const status = readString(turn?.status);
         if (status && status !== "completed") {
-          unsubscribe?.();
-          unsubscribe = null;
-          if (timeout) clearTimeout(timeout);
-          if (settleTimer) clearTimeout(settleTimer);
           const error = turn?.error && typeof turn.error === "object" ? turn.error as JsonObject : null;
-          reject(new Error(readString(error?.message) || `Codex compaction turn ${status}`));
+          completionError = new Error(readString(error?.message) || `Codex compaction turn ${status}`);
+          resolveAfterTrailingEvents();
         } else {
           resolveAfterTrailingEvents();
         }
@@ -176,6 +174,7 @@ async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void>
   try {
     await nextClient.request("thread/compact/start", { threadId: thread.threadId });
     await compacted;
+    if (completionError) throw completionError;
   } catch (error) {
     if (!usageUpdatedDuringCompaction) {
       if (previousUsage) contextUsageByChat.set(chatJid, previousUsage);
@@ -301,6 +300,7 @@ async function runCodexAppServerPromptUnlocked(
       if (method === "turn/started") {
         const turn = params.turn && typeof params.turn === "object" ? params.turn as JsonObject : null;
         if (turn?.id) turnId = String(turn.id);
+        if (turnId) activeTurnByChat.set(chatJid, { threadId: thread.threadId, turnId });
         log.info("Codex app-server turn started", {
           operation: "codex_app_server.turn_started",
           chatJid,
@@ -404,12 +404,7 @@ async function runCodexAppServerPromptUnlocked(
         completed = status === "completed";
         if (!completed) completionErrorMessage = readString(error?.message) || `Codex turn ${status || "did not complete"}`;
         if (completed) resolveAfterTrailingEvents();
-        else {
-          unsubscribe?.();
-          unsubscribe = null;
-          if (timeout) clearTimeout(timeout);
-          resolve();
-        }
+        else resolveAfterTrailingEvents();
       }
     });
 
@@ -428,7 +423,9 @@ async function runCodexAppServerPromptUnlocked(
       hasGmailFetch: dynamicToolNames.includes("gmail_fetch_email"),
       names: dynamicToolNames.slice(0, 80),
     });
+    if (runOptions.signal?.aborted) await finish;
     turnStartRequestedAt = Date.now();
+    if (runOptions.signal?.aborted) await finish;
     const response = await nextClient.request("turn/start", {
       threadId: thread.threadId,
       cwd: workspaceCwd(),
