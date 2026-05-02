@@ -13,6 +13,7 @@ export type SendMessageOptions =
       forceRoot?: boolean;
       source?: string;
       asUser?: boolean;
+      untrustedExternalContent?: boolean;
       mediaIds?: number[];
       contentBlocks?: Array<Record<string, unknown>>;
     };
@@ -61,6 +62,7 @@ interface NormalizedSendMessageOptions {
   threadId: number | null;
   forceRoot: boolean;
   asUser: boolean;
+  untrustedExternalContent: boolean;
   mediaIds: number[];
   contentBlocks: Array<Record<string, unknown>> | undefined;
 }
@@ -79,13 +81,21 @@ function normalizeSendMessageOptions(options?: SendMessageOptions): NormalizedSe
     Array.isArray(normalized.contentBlocks)
       ? normalized.contentBlocks.filter((block) => block && typeof block === "object")
       : undefined;
+  const untrustedExternalContent = Boolean(normalized.untrustedExternalContent);
+  const finalContentBlocks = untrustedExternalContent
+    ? [
+        ...(contentBlocks ?? []),
+        { type: "piclaw_metadata", untrusted_external_content: true },
+      ]
+    : contentBlocks;
 
   return {
     threadId: normalized.threadId ?? null,
     forceRoot: Boolean(normalized.forceRoot),
     asUser: Boolean(normalized.asUser),
     mediaIds: mediaIds,
-    contentBlocks,
+    untrustedExternalContent,
+    contentBlocks: finalContentBlocks,
   };
 }
 

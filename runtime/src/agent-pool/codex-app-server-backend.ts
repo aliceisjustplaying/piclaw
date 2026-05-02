@@ -65,7 +65,6 @@ export interface CodexProviderUsageSnapshot {
 let client: CodexAppServerClientLike | null = null;
 const threadsByChat = new Map<string, CodexThreadState>();
 const chatByThread = new Map<string, string>();
-const bridgeSessionByChat = new Map<string, PiclawBridgeSession>();
 const contextUsageByChat = new Map<string, CodexContextUsage>();
 const untrustedExternalContentByThread = new Map<string, boolean>();
 const modelByChat = new Map<string, string | null>();
@@ -632,6 +631,14 @@ function isUntrustedThread(threadId: string | null): boolean {
   return Boolean(threadId && untrustedExternalContentByThread.get(threadId));
 }
 
+function markThreadUntrusted(threadId: string | null): void {
+  if (threadId) untrustedExternalContentByThread.set(threadId, true);
+}
+
+function isExternalDataTool(toolName: string): boolean {
+  return toolName.startsWith("gmail_") || toolName === "google_calendar";
+}
+
 export function resolveCodexAppServerApprovalForTests(method: string, params: JsonObject, threadIsUntrusted: boolean): unknown | null {
   return resolveApprovalResponse(method, params, threadIsUntrusted);
 }
@@ -646,6 +653,9 @@ function resolveApprovalResponse(method: string, params: JsonObject, threadIsUnt
   if (method === "item/permissions/requestApproval") {
     return { permissions: threadIsUntrusted ? {} : params.permissions || {}, scope: "turn" };
   }
+  if (/approval/i.test(method) || /requestApproval/i.test(method)) {
+    return { decision: "denied" };
+  }
   return null;
 }
 
@@ -658,6 +668,7 @@ async function handleDynamicToolCall(params: JsonObject): Promise<{ contentItems
 
   if (namespace !== "piclaw" && namespace !== "piclaw_tool") return contentItemsFrom(`Unknown dynamic tool namespace: ${namespace}`, false);
   if (!chatJid) return contentItemsFrom("Unknown Piclaw chat for this Codex thread.", false);
+  if (!tool) return contentItemsFrom("Missing Piclaw dynamic tool name.", false);
 
   if (namespace === "piclaw_tool") {
     const session = threadId ? bridgeSessionByThread.get(threadId) : null;
@@ -666,6 +677,7 @@ async function handleDynamicToolCall(params: JsonObject): Promise<{ contentItems
       return contentItemsFrom(`Piclaw tool is not available to Codex: ${tool || "(missing)"}`, false);
     }
     try {
+      if (isExternalDataTool(tool)) markThreadUntrusted(threadId);
       const result = await bridgeTool.execute(
         `codex-bridge-${Date.now().toString(36)}`,
         args,
@@ -752,13 +764,19 @@ class CodexAppServerClient {
     stdout.on("line", (line) => this.handleLine(line));
     this.child.stderr.on("data", (chunk) => {
       const text = String(chunk).trim();
-      if (text) log.info("Codex app-server stderr", { operation: "codex_app_server.stderr", text });
+      if (text) log.warn("Codex app-server stderr", { operation: "codex_app_server.stderr", text });
     });
     this.child.on("exit", (code, signal) => {
       const error = new Error(`codex app-server exited (${code ?? signal ?? "unknown"})`);
       for (const pending of this.pending.values()) pending.reject(error);
       this.pending.clear();
       threadsByChat.clear();
+      chatByThread.clear();
+      bridgeSessionByThread.clear();
+      untrustedExternalContentByThread.clear();
+      contextUsageByChat.clear();
+      providerUsageCache = null;
+      providerUsageInFlight = null;
       if (client === this) client = null;
       log.warn("Codex app-server exited", { operation: "codex_app_server.exit", code, signal });
     });
@@ -900,7 +918,6 @@ export function stopCodexAppServerBackend(): void {
   client = null;
   threadsByChat.clear();
   chatByThread.clear();
-  bridgeSessionByChat.clear();
   bridgeSessionByThread.clear();
   untrustedExternalContentByThread.clear();
   contextUsageByChat.clear();
@@ -914,6 +931,12 @@ export function getCodexAppServerContextUsage(chatJid: string): CodexContextUsag
 
 export function hasCodexAppServerThread(chatJid: string): boolean {
   return threadsByChat.has(chatJid);
+}
+
+export function willCodexAppServerStartNewThread(chatJid: string, bridgeSession?: PiclawBridgeSession | null): boolean {
+  const existing = threadsByChat.get(chatJid);
+  if (!existing) return true;
+  return existing.dynamicToolSignature !== dynamicToolSignature(dynamicToolsConfig(bridgeSession));
 }
 
 export function getCodexAppServerModelLabel(chatJid?: string): string {
@@ -1110,7 +1133,6 @@ async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, 
   threadsByChat.set(chatJid, state);
   chatByThread.set(threadId, chatJid);
   if (bridgeSession) {
-    bridgeSessionByChat.set(chatJid, bridgeSession);
     bridgeSessionByThread.set(threadId, bridgeSession);
   }
   return state;
@@ -1125,7 +1147,6 @@ export async function runCodexAppServerPrompt(
   const nextClient = await getClient();
   const thread = await getThread(nextClient, chatJid, bridgeSession);
   if (bridgeSession) {
-    bridgeSessionByChat.set(chatJid, bridgeSession);
     bridgeSessionByThread.set(thread.threadId, bridgeSession);
   }
   untrustedExternalContentByThread.set(thread.threadId, runOptions.hasUntrustedExternalContent === true);

@@ -23,8 +23,11 @@ function truncate(value: string, max = 12000): string {
 }
 
 export function resolveMemoryFileForTests(file: string, root = MEMORY_DIR): string {
-  const name = path.basename(file);
-  if (!name.endsWith(".md")) throw new Error("memory file must be a .md file");
+  if (file.includes("/") || file.includes("\\") || file.includes("..")) {
+    throw new Error("memory file must be a filename inside the memory directory");
+  }
+  if (!file.endsWith(".md")) throw new Error("memory file must be a .md file");
+  const name = file;
   const resolved = path.resolve(root, name);
   const rootResolved = path.resolve(root);
   if (!resolved.startsWith(`${rootResolved}${path.sep}`)) throw new Error("memory file must be inside the memory directory");
@@ -83,7 +86,7 @@ export default function register(pi: ExtensionAPI) {
     label: "Personal Memory",
     description:
       "Read the curated personal memory index at ~/newmem/memory. " +
-      "Actions: index, search, read. Does not access therapy-session exports or raw conversation dumps.",
+      "Actions: index, search, read. Reads only markdown filenames directly inside the configured memory directory.",
     promptSnippet: "personal_memory: index/search/read curated personal memory files.",
     parameters: {
       type: "object",

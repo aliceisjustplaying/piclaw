@@ -3,6 +3,6 @@ import { resolveMemoryFileForTests } from "../../extensions/integrations/persona
 
 test("personal_memory only resolves markdown files under the memory root", () => {
   expect(resolveMemoryFileForTests("identity.md", "/tmp/newmem/memory")).toBe("/tmp/newmem/memory/identity.md");
-  expect(resolveMemoryFileForTests("../therapy-sessions/session.md", "/tmp/newmem/memory")).toBe("/tmp/newmem/memory/session.md");
+  expect(() => resolveMemoryFileForTests("../therapy-sessions/session.md", "/tmp/newmem/memory")).toThrow("filename");
   expect(() => resolveMemoryFileForTests("identity.txt", "/tmp/newmem/memory")).toThrow(".md");
 });

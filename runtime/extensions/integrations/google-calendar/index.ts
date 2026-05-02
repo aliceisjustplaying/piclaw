@@ -35,6 +35,10 @@ function isConfirmed(value: unknown): boolean {
   return value === true || value === "true" || value === "yes";
 }
 
+function isSafeEventId(value: string): boolean {
+  return /^[A-Za-z0-9_@.]+$/.test(value);
+}
+
 export function buildGoogleCalendarArgsForTests(params: GoogleCalendarParams): string[] {
   const action = readString(params.action) as GoogleCalendarAction | null;
   if (action !== "calendars" && action !== "list" && action !== "create" && action !== "delete") {
@@ -77,6 +81,7 @@ export function buildGoogleCalendarArgsForTests(params: GoogleCalendarParams): s
 
   const eventId = readString(params.eventId);
   if (!eventId) throw new Error("eventId is required for delete");
+  if (!isSafeEventId(eventId)) throw new Error("eventId contains unsupported characters");
   args.push(eventId, "--calendar", calendar);
   return args;
 }
