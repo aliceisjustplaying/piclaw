@@ -389,7 +389,11 @@ export function formatModelPickerContextWindow(contextWindow) {
 
 export function stripCodexModelPrefix(label) {
     const value = typeof label === 'string' ? label.trim() : '';
-    return value.toLowerCase().startsWith('codex/') ? value.slice('codex/'.length) : value;
+    const lower = value.toLowerCase();
+    for (const prefix of ['codex/', 'claude/', 'anthropic/']) {
+        if (lower.startsWith(prefix)) return value.slice(prefix.length);
+    }
+    return value;
 }
 
 export function shouldOpenModelPickerCommand(value) {
