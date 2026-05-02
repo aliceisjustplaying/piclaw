@@ -14,6 +14,7 @@ import {
   STORE_DIR,
   WORKSPACE_DIR,
   getPushoverConfig,
+  getEagerWarmupConfig,
   getToolOutputConfig,
   getWhatsAppConfig,
 } from "../core/config.js";
@@ -174,9 +175,10 @@ export function resolveStartupSessionWarmupOptions(env: NodeJS.ProcessEnv = proc
   warmDefaultChat: boolean;
   recentLimit: number;
 } {
+  const eagerWarmup = getEagerWarmupConfig().enabled;
   return {
-    warmDefaultChat: parseStartupWarmupBoolean(env.PICLAW_STARTUP_WARM_DEFAULT_CHAT, false),
-    recentLimit: parseStartupWarmupLimit(env.PICLAW_STARTUP_WARMUP_RECENT_LIMIT, 0),
+    warmDefaultChat: parseStartupWarmupBoolean(env.PICLAW_STARTUP_WARM_DEFAULT_CHAT, eagerWarmup),
+    recentLimit: parseStartupWarmupLimit(env.PICLAW_STARTUP_WARMUP_RECENT_LIMIT, eagerWarmup ? 8 : 0),
   };
 }
 
