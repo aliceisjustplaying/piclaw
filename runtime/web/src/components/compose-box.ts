@@ -398,7 +398,7 @@ export function formatCompactModelUsageLabel(modelUsage) {
     const primary = formatUsagePercent(modelUsage?.primary?.remaining_percent);
     const secondary = formatUsagePercent(modelUsage?.secondary?.remaining_percent);
     const structured = [primary, secondary].filter(Boolean);
-    if (structured.length > 0) return structured.join(' - ');
+    if (structured.length > 0) return structured.join(' • ');
 
     const hint = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
     if (!hint) return '';
@@ -406,7 +406,7 @@ export function formatCompactModelUsageLabel(modelUsage) {
         .split('•')
         .map((part) => part.trim().split(/\s+/).slice(-1)[0] || '')
         .filter(Boolean)
-        .join(' - ');
+        .join(' • ');
 }
 
 export function stripCodexModelPrefix(label) {
@@ -3050,7 +3050,7 @@ export function ComposeBox({
                                 <div class="compose-model-meta-subline">
                                     ${!switchingModel && showModelUsageSection && html`
                                         <span class="compose-model-usage-hint" title=${modelHintTitle}>
-                                            ${modelThinkingLabel}${showFastIndicator && html`<span class="compose-model-fast-glyph" aria-label="Fast mode on">↯</span>`}${showModelUsageSeparator ? ' - ' : ''}${modelUsageLabel}
+                                            ${modelThinkingLabel}${showFastIndicator && html`<span class="compose-model-fast-glyph" aria-label="Fast mode on">↯</span>`}${showModelUsageSeparator ? ' • ' : ''}${modelUsageLabel}
                                         </span>
                                     `}
                                 </div>
