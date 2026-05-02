@@ -103,6 +103,21 @@ export function parseFast(args: string, raw: string): AgentControlCommand {
   };
 }
 
+export function parseBackend(args: string, raw: string): AgentControlCommand {
+  const backend = args.split(/\s+/).filter(Boolean)[0];
+  return { type: "backend", backend: backend || undefined, raw };
+}
+
+export function parseProactive(args: string, raw: string): AgentControlCommand {
+  const value = args.split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  const action = value === "off" || value === "disable" || value === "stop"
+    ? "off"
+    : value === "status"
+      ? "status"
+      : "on";
+  return { type: "proactive", action, raw };
+}
+
 /** Parse /shell arguments: optional command string. */
 export function parseShell(args: string, raw: string): AgentControlCommand {
   return {
@@ -522,6 +537,8 @@ export const COMMAND_PARSERS: Record<string, CommandParser> = {
   "/thinking": parseThinking,
   "/effort": parseThinking,
   "/fast": parseFast,
+  "/backend": parseBackend,
+  "/proactive": parseProactive,
   "/commands": simple("commands"),
   "/restart": simple("restart"),
   "/exit": simple("exit"),

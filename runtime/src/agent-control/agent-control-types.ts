@@ -31,6 +31,16 @@ export type AgentControlCommand =
       raw: string;
     }
   | {
+      type: "backend";
+      backend?: string;
+      raw: string;
+    }
+  | {
+      type: "proactive";
+      action?: "on" | "off" | "status";
+      raw: string;
+    }
+  | {
       type: "commands";
       raw: string;
     }
