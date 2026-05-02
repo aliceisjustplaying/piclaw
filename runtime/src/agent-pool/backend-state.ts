@@ -3,9 +3,19 @@ import { getAgentBackendConfig, type AgentBackend } from "../core/config.js";
 
 const EXTENSION_ID = "agent-backend";
 const STATE_KEY = "state";
+const HANDOFF_KEY = "handoff";
+const HANDOFF_MAX_CHARS = 16_000;
 
 export interface ChatBackendState {
   backend?: AgentBackend;
+}
+
+export interface BackendHandoffState {
+  from: AgentBackend;
+  to: AgentBackend;
+  summary: string;
+  createdAt: string;
+  usedAt?: string | null;
 }
 
 function normalizeBackend(value: string | undefined | null): AgentBackend | null {
@@ -27,6 +37,29 @@ export function setChatAgentBackend(chatJid: string, backend: string): AgentBack
   if (!normalized) throw new Error("Unknown backend. Available: codex, claude, pi.");
   extensionKvSet(EXTENSION_ID, STATE_KEY, { backend: normalized }, "chat", chatJid);
   return normalized;
+}
+
+export function setBackendHandoff(chatJid: string, handoff: Omit<BackendHandoffState, "createdAt" | "usedAt">): BackendHandoffState {
+  const state: BackendHandoffState = {
+    ...handoff,
+    summary: handoff.summary.slice(0, HANDOFF_MAX_CHARS),
+    createdAt: new Date().toISOString(),
+    usedAt: null,
+  };
+  extensionKvSet(EXTENSION_ID, HANDOFF_KEY, state, "chat", chatJid);
+  return state;
+}
+
+export function getPendingBackendHandoff(chatJid: string, backend: AgentBackend): BackendHandoffState | null {
+  const state = extensionKvGet<BackendHandoffState>(EXTENSION_ID, HANDOFF_KEY, "chat", chatJid);
+  if (!state || state.to !== backend || state.usedAt) return null;
+  return state;
+}
+
+export function markBackendHandoffUsed(chatJid: string): void {
+  const state = extensionKvGet<BackendHandoffState>(EXTENSION_ID, HANDOFF_KEY, "chat", chatJid);
+  if (!state || state.usedAt) return;
+  extensionKvSet(EXTENSION_ID, HANDOFF_KEY, { ...state, usedAt: new Date().toISOString() }, "chat", chatJid);
 }
 
 export function formatBackendLabel(backend: AgentBackend): string {

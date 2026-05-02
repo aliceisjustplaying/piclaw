@@ -33,7 +33,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { type AgentControlCommand, type AgentControlResult } from "./agent-control/index.js";
-import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig } from "./core/config.js";
+import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig, type AgentBackend } from "./core/config.js";
 import { getChatChannel, getChatJid } from "./core/chat-context.js";
 import { createTrackedBashOperations } from "./tools/tracked-bash.js";
 import { type ActiveChatAgent } from "./agent-pool/branch-manager.js";
@@ -77,7 +77,14 @@ import {
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
-import { formatBackendLabel, getChatAgentBackend, setChatAgentBackend } from "./agent-pool/backend-state.js";
+import {
+  formatBackendLabel,
+  getChatAgentBackend,
+  getPendingBackendHandoff,
+  markBackendHandoffUsed,
+  setBackendHandoff,
+  setChatAgentBackend,
+} from "./agent-pool/backend-state.js";
 import {
   type ChatBranchRecord,
   type MergeChatBranchIntoParentResult,
@@ -119,6 +126,11 @@ const PROACTIVE_PROMPT = [
   "Use personal_memory when useful.",
   "Do not send email, create/delete/update calendar events, or modify external state without explicit user confirmation.",
   "Reply with a concise digest and suggested next actions only when there is something worth surfacing.",
+].join("\n");
+const BACKEND_HANDOFF_PROMPT = [
+  "Create a concise backend handoff state for continuing this Piclaw chat in another native agent backend.",
+  "Include: current goals, latest user intent, important decisions, files/commands touched, open tasks, constraints, tool/data caveats, and anything the next backend must preserve.",
+  "Do not include secrets. Keep it under 1200 words. Return only the handoff state.",
 ].join("\n");
 
 export type {
@@ -351,7 +363,25 @@ export class AgentPool {
 
   /** Run a prompt against the persistent session for `chatJid`. */
   async runAgent(prompt: string, chatJid: string, options: RunAgentOptions = {}): Promise<AgentOutput> {
-    const output = await runAgentPrompt(prompt, chatJid, options, {
+    const backend = getChatAgentBackend(chatJid);
+    const pendingHandoff = options.skipBackendHandoff ? null : getPendingBackendHandoff(chatJid, backend);
+    const handoffPrompt = pendingHandoff
+      ? [
+        "Backend handoff state from the previous native agent backend.",
+        `From: ${formatBackendLabel(pendingHandoff.from)}. To: ${formatBackendLabel(pendingHandoff.to)}. Created: ${pendingHandoff.createdAt}.`,
+        "Use this as working continuity for the current turn. Piclaw transcript/search tools remain available if details are missing.",
+        "",
+        pendingHandoff.summary,
+      ].join("\n")
+      : null;
+    const effectivePrompt = handoffPrompt ? `${handoffPrompt}\n\n${prompt}` : prompt;
+    const runOptions = handoffPrompt
+      ? {
+        ...options,
+        codexReplayPrompt: options.codexReplayPrompt ? `${handoffPrompt}\n\n${options.codexReplayPrompt}` : undefined,
+      }
+      : options;
+    const output = await runAgentPrompt(effectivePrompt, chatJid, runOptions, {
       getOrCreateRuntime: (nextChatJid) => this.getOrCreateRuntime(nextChatJid),
       turnCoordinator: this.turnCoordinator,
       clearAttachments: (nextChatJid) => this.attachments.clear(nextChatJid),
@@ -372,6 +402,7 @@ export class AgentPool {
       if (recovery.recovered) this.recoveryStats.recoveredRuns += 1;
       if (recovery.exhausted) this.recoveryStats.exhaustedRuns += 1;
     }
+    if (pendingHandoff) markBackendHandoffUsed(chatJid);
 
     return output;
   }
@@ -458,13 +489,33 @@ export class AgentPool {
       if (!command.backend) {
         return { status: "success", message: `Current backend: ${formatBackendLabel(backend)}.` };
       }
+      const previous = backend;
+      const normalizedTarget = (() => {
+        const raw = command.backend.trim().toLowerCase();
+        if (raw === "pi") return "pi";
+        if (raw === "codex" || raw === "codex-app-server") return "codex-app-server";
+        if (raw === "claude" || raw === "claude-sdk" || raw === "claude-agent-sdk") return "claude-agent-sdk";
+        return null;
+      })();
+      if (!normalizedTarget) {
+        setChatAgentBackend(chatJid, command.backend);
+      }
+      const handoff = normalizedTarget && normalizedTarget !== previous
+        ? await this.captureBackendHandoff(chatJid, previous, normalizedTarget)
+        : false;
       const next = setChatAgentBackend(chatJid, command.backend);
+      if (next !== previous) {
+        const handoffNote = handoff ? " Handoff state captured for the next turn." : " Handoff state capture was unavailable; recent transcript replay will still be used.";
+        return { status: "success", message: `Backend set to ${formatBackendLabel(next)} for ${chatJid}.${handoffNote}` };
+      }
       return { status: "success", message: `Backend set to ${formatBackendLabel(next)} for ${chatJid}.` };
     }
     if (command.type === "proactive") return this.applyProactiveCommand(chatJid, command);
     if (command.type === "model") {
       const provider = command.provider || (command.modelId?.startsWith("claude-") ? "claude" : undefined);
       if (provider === "claude") {
+        const target: AgentBackend = "claude-agent-sdk";
+        if (target !== backend) await this.captureBackendHandoff(chatJid, backend, target);
         setChatAgentBackend(chatJid, "claude");
         const modelLabel = await setClaudeAgentSdkModel(chatJid, command.modelId || "default");
         const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
@@ -478,6 +529,8 @@ export class AgentPool {
         };
       }
       if (provider === "codex") {
+        const target: AgentBackend = "codex-app-server";
+        if (target !== backend) await this.captureBackendHandoff(chatJid, backend, target);
         setChatAgentBackend(chatJid, "codex");
         const modelLabel = await setCodexAppServerModel(chatJid, command.modelId || "default");
         const thinking = getCodexAppServerThinkingLevel(chatJid);
@@ -697,6 +750,31 @@ export class AgentPool {
       }
     }
     return this.runtimeFacade.applyControlCommand(chatJid, command);
+  }
+
+  private async captureBackendHandoff(chatJid: string, from: AgentBackend, to: AgentBackend): Promise<boolean> {
+    if (from === to) return false;
+    try {
+      const output = await this.runAgent(BACKEND_HANDOFF_PROMPT, chatJid, {
+        timeoutMs: 120_000,
+        skipPrePromptCompaction: true,
+        skipBackendHandoff: true,
+        scheduleIdleAutoCompaction: false,
+      });
+      const summary = output.status === "success" ? output.result?.trim() : "";
+      if (!summary) return false;
+      setBackendHandoff(chatJid, { from, to, summary });
+      return true;
+    } catch (error) {
+      log.warn("Failed to capture backend handoff", {
+        operation: "agent_backend.capture_handoff_failed",
+        chatJid,
+        from,
+        to,
+        err: error,
+      });
+      return false;
+    }
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
