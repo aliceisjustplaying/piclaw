@@ -1,10 +1,12 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 
 import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 
 import { getAttachmentRegistry } from "../../src/agent-pool/attachments.js";
+import { setChatAgentBackend } from "../../src/agent-pool/backend-state.js";
 import { AgentTurnCoordinator } from "../../src/agent-pool/turn-coordinator.js";
 import { runAgentPrompt } from "../../src/agent-pool/run-agent-orchestrator.js";
+import { initDatabase } from "../../src/db.js";
 import { setEnv } from "../helpers.js";
 
 function createRuntime(session: any, retrySettings?: { enabled?: boolean; maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number }): AgentSessionRuntime {
@@ -30,6 +32,11 @@ function createRuntime(session: any, retrySettings?: { enabled?: boolean; maxRet
     dispose: async () => {},
   } as any;
 }
+
+beforeEach(() => {
+  initDatabase();
+  setChatAgentBackend("web:default", "pi");
+});
 
 test("runAgentPrompt retries a blank user-only session delta and returns the recovered reply", async () => {
   const restoreEnv = setEnv({

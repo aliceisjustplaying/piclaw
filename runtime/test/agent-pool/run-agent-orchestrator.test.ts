@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +9,11 @@ import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 
 import { ensureSessionDir } from "../../src/agent-pool/session.js";
 import { getAttachmentRegistry } from "../../src/agent-pool/attachments.js";
+import { setChatAgentBackend } from "../../src/agent-pool/backend-state.js";
 import { AgentTurnCoordinator } from "../../src/agent-pool/turn-coordinator.js";
 import { createToolExecutionWatchdogHeartbeatController, runAgentPrompt } from "../../src/agent-pool/run-agent-orchestrator.js";
 import { getToolUseMessageBudget, setToolUseMessageBudget } from "../../src/core/config.js";
+import { initDatabase } from "../../src/db.js";
 import { setEnv } from "../helpers.js";
 
 function createRuntime(session: any, retrySettings?: { enabled?: boolean; maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number }): AgentSessionRuntime {
@@ -52,6 +54,11 @@ afterEach(() => {
     if (!logsDir) continue;
     rmSync(logsDir, { recursive: true, force: true });
   }
+});
+
+beforeEach(() => {
+  initDatabase();
+  setChatAgentBackend("web:default", "pi");
 });
 
 test("tool-execution watchdog heartbeat controller keeps pulsing while tools remain active", async () => {
