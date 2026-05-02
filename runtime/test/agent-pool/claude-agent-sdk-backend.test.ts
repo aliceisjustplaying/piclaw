@@ -71,6 +71,29 @@ test("Claude Agent SDK backend stores rate limit events for status UI", async ()
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
   expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.primary?.remaining_percent).toBe(75);
+  expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.hint_short).toBe("75%");
+});
+
+test("Claude Agent SDK backend omits unknown rate limit hints", async () => {
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "rate_limit_event",
+      session_id: "claude-session-1",
+      rate_limit_info: { rateLimitType: "five_hour", resetsAt: Date.UTC(2026, 0, 1) },
+    },
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-1",
+      result: "ok",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+    },
+  ]));
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+  expect((getClaudeAgentSdkProviderUsage("web:test") as any)?.hint_short).toBe("");
 });
 
 test("Claude Agent SDK backend exposes Opus 4.6 one-million-context option", () => {
