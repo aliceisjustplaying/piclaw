@@ -40,7 +40,6 @@ export {
   hasCodexAppServerThread,
   isCodexAppServerThreadUntrustedForTests,
   markCodexAppServerThreadUntrustedForTests,
-  normalizeCodexAppServerAssistantTextForTests,
   runCodexAppServerPrompt,
   willCodexAppServerStartNewThread,
 } from "./codex-app-server/thread-runner.js";
