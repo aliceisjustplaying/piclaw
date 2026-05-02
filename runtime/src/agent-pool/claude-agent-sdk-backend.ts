@@ -12,6 +12,7 @@ import { buildClaudePrompt, createPiclawMcpServer } from "./claude-agent-sdk/bri
 
 const log = createLogger("agent-pool.claude-agent-sdk");
 const DEFAULT_CONTEXT_WINDOW = 200_000;
+const ONE_MILLION_CONTEXT_WINDOW = 1_000_000;
 const requireFromHere = createRequire(import.meta.url);
 const STATE_EXTENSION_ID = "claude-agent-sdk";
 const STATE_KEY = "state";
@@ -55,6 +56,10 @@ function normalizeClaudeModelId(value: string | null | undefined): string | null
   return CLAUDE_MODEL_ALIASES[raw] ?? raw;
 }
 
+function contextWindowForClaudeModel(id: string | null | undefined): number {
+  return normalizeClaudeModelId(id)?.includes("[1m]") ? ONE_MILLION_CONTEXT_WINDOW : DEFAULT_CONTEXT_WINDOW;
+}
+
 export function setClaudeAgentSdkQueryFactoryForTests(factory: ClaudeQueryFactory | null): void {
   queryFactory = factory ?? claudeQuery;
 }
@@ -95,7 +100,7 @@ export function listClaudeAgentSdkModels(): { label: string; provider: string; i
     provider: "claude",
     id,
     name: id,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
+    contextWindow: contextWindowForClaudeModel(id),
   }));
 }
 
@@ -232,7 +237,8 @@ function updateContextUsage(chatJid: string, message: SDKMessage): void {
   const modelWindows = Object.values(modelUsage)
     .map((entry: any) => (typeof entry?.contextWindow === "number" ? entry.contextWindow : null))
     .filter((value): value is number => value != null && Number.isFinite(value) && value > 0);
-  const contextWindow = modelWindows[0] ?? DEFAULT_CONTEXT_WINDOW;
+  const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
+  const contextWindow = modelWindows[0] ?? contextWindowForClaudeModel(selectedModel);
   const totalTokens =
     readNumber(usage.total_tokens) ??
     readNumber(usage.totalTokens) ??

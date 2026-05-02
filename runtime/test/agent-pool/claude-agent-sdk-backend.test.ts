@@ -74,13 +74,37 @@ test("Claude Agent SDK backend stores rate limit events for status UI", async ()
 });
 
 test("Claude Agent SDK backend exposes Opus 4.6 one-million-context option", () => {
-  expect(listClaudeAgentSdkModels().map((model) => model.id)).toContain("claude-opus-4-6[1m]");
+  const model = listClaudeAgentSdkModels().find((candidate) => candidate.id === "claude-opus-4-6[1m]");
+
+  expect(model?.contextWindow).toBe(1_000_000);
 });
 
 test("Claude Agent SDK backend normalizes the old dotted Opus 4.6 model id", async () => {
   const label = await setClaudeAgentSdkModel("web:test", "claude-opus-4.6[1m]");
 
   expect(label).toBe("claude/claude-opus-4-6[1m]");
+});
+
+test("Claude Agent SDK backend uses one-million context fallback for Opus 4.6 1m usage", async () => {
+  await setClaudeAgentSdkModel("web:test", "claude-opus-4-6[1m]");
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-1m",
+      result: "ok",
+      usage: { input_tokens: 10, output_tokens: 5 },
+      modelUsage: {},
+    },
+  ]));
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
+    tokens: 15,
+    contextWindow: 1_000_000,
+    percent: 0.0015,
+  });
 });
 
 test("Claude Agent SDK prompt advertises bridged Gmail and calendar tools", () => {
