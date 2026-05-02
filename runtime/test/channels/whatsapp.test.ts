@@ -1,13 +1,43 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 
-import { WhatsAppChannel } from "../../src/channels/whatsapp.js";
+mock.module("@whiskeysockets/baileys", () => ({
+  default: () => ({
+    ev: {
+      on: () => undefined,
+    },
+    sendMessage: async () => undefined,
+  }),
+  Browsers: {
+    macOS: () => ["Piclaw", "Chrome", "1.0"],
+  },
+  DisconnectReason: {},
+  makeCacheableSignalKeyStore: (keys: unknown) => keys,
+  useMultiFileAuthState: async () => ({
+    state: {
+      creds: {},
+      keys: {},
+    },
+    saveCreds: async () => undefined,
+  }),
+}));
 
-test("WhatsAppChannel.connect rejects when the first scheduled reconnect attempt throws", async () => {
-  const channel = new WhatsAppChannel({
+mock.module("qrcode-terminal", () => ({
+  default: {
+    generate: () => undefined,
+  },
+}));
+
+async function createWhatsAppChannel() {
+  const { WhatsAppChannel } = await import("../../src/channels/whatsapp.js");
+  return new WhatsAppChannel({
     onMessage: () => {},
     onChatMetadata: () => {},
     chatJids: () => new Set(),
   }) as any;
+}
+
+test("WhatsAppChannel.connect rejects when the first scheduled reconnect attempt throws", async () => {
+  const channel = await createWhatsAppChannel();
 
   let connectCalls = 0;
   channel.connectInternal = async (onFirstOpen?: () => void) => {
@@ -28,11 +58,7 @@ test("WhatsAppChannel.connect rejects when the first scheduled reconnect attempt
 });
 
 test("WhatsAppChannel re-kicks queue flushing after a reconnect races with a failing stale flush", async () => {
-  const channel = new WhatsAppChannel({
-    onMessage: () => {},
-    onChatMetadata: () => {},
-    chatJids: () => new Set(),
-  }) as any;
+  const channel = await createWhatsAppChannel();
 
   channel.connected = true;
   channel.outgoingQueue.push(
