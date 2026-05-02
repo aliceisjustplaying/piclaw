@@ -355,6 +355,22 @@ test("Codex app-server cancels active turns when the caller aborts", async () =>
   }
 });
 
+test("Codex app-server does not start a turn for a pre-aborted caller signal", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    const controller = new AbortController();
+    controller.abort();
+    const output = await runCodexAppServerPrompt("hello", "web:codex-pre-abort", { timeoutMs: 0, signal: controller.signal });
+
+    expect(output.status).toBe("error");
+    expect(output.error).toContain("aborted");
+    expect(client.requests.length).toBe(0);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
 test("Codex treats all bridged Piclaw tools as external data for approval safety", () => {
   expect(isCodexExternalDataToolForTests("gmail_fetch_email")).toBe(true);
   expect(isCodexExternalDataToolForTests("m365_mail")).toBe(true);
