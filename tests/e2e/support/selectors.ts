@@ -37,15 +37,17 @@ export const sel = {
 
   // Editor
   editorPane: '[data-testid="editor-pane"], .editor-pane',
-  editorTab: '.tab-strip .tab',
-  editorTabActive: '.tab-strip .tab.active',
-  editorDirtyIndicator: '.tab.dirty',
+  editorTab: '.tab-strip .tab, .tab-strip .tab-item',
+  editorTabActive: '.tab-strip .tab.active, .tab-strip .tab-item.active',
+  editorDirtyIndicator: '.tab.dirty, .tab-item.dirty',
   editorPreview: '.markdown-preview',
+  editorTabClose: '.tab-strip .tab .tab-close',
 
   // Workspace
-  workspaceExplorer: '[data-testid="workspace"], .workspace-explorer',
+  workspaceExplorer: '[data-testid="workspace"], .workspace-explorer, .workspace-sidebar',
   workspaceRow: '.workspace-row',
   workspaceActions: '.workspace-actions',
+  workspaceOpenEditorButton: 'button[title="Open in editor"], .workspace-edit, [role="menuitem"]:has-text("Open in editor")',
 
   // Panes
   popoutButton: '.pane-popout-btn',

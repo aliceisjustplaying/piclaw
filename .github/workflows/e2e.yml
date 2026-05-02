@@ -56,8 +56,9 @@ jobs:
           echo "PICLAW_WORKSPACE=$PICLAW_WORKSPACE" >> $GITHUB_ENV
           mkdir -p "$PICLAW_WORKSPACE/.piclaw"
 
-          # Write minimal config
+          # Write minimal config and seed one known root file for workspace/editor UX tests.
           echo '{"sessionAutoRotate":true}' > "$PICLAW_WORKSPACE/.piclaw/config.json"
+          cp AGENTS.md "$PICLAW_WORKSPACE/AGENTS.md"
 
           # Start server
           export PICLAW_WEB_PORT=3000

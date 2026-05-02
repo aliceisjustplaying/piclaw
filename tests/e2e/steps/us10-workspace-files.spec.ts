@@ -1,7 +1,43 @@
+import { Page } from '@playwright/test';
 import { test, expect } from '../support/world';
 import { sel } from '../support/selectors';
 
 // US-10: Workspace File Operations
+
+async function openWorkspaceExplorer(page: Page) {
+  const explorer = page.locator(sel.workspaceExplorer);
+  const rows = page.locator(sel.workspaceRow);
+  if ((await rows.count()) > 0 && await rows.first().isVisible()) return explorer;
+
+  const hamburger = page.locator(sel.hamburgerMenu);
+  await expect(hamburger).toBeVisible();
+  await hamburger.click();
+
+  const openWorkspace = page.locator('.workspace-menu-item', { hasText: /show workspace|open explorer/i }).first();
+  await expect(openWorkspace).toBeVisible({ timeout: 5000 });
+  await openWorkspace.click();
+
+  await expect(explorer).toBeVisible({ timeout: 5000 });
+  await expect(rows.first()).toBeVisible({ timeout: 5000 });
+  return explorer;
+}
+
+async function openAgentsMdInEditor(page: Page) {
+  await openWorkspaceExplorer(page);
+
+  const agentsRow = page.locator(`${sel.workspaceRow}[data-path="AGENTS.md"], ${sel.workspaceRow}`, { hasText: 'AGENTS.md' }).first();
+  await expect(agentsRow).toBeVisible({ timeout: 5000 });
+  await agentsRow.click();
+
+  const openEditor = page.locator(sel.workspaceOpenEditorButton).first();
+  await expect(openEditor).toBeVisible({ timeout: 5000 });
+  await openEditor.click();
+
+  const agentsTab = page.locator(sel.editorTab, { hasText: 'AGENTS.md' }).first();
+  await expect(agentsTab).toBeVisible({ timeout: 5000 });
+  await expect(page.locator(sel.editorPane)).toBeVisible();
+  return agentsTab;
+}
 
 test.describe('US-10: Workspace File Operations', () => {
   test('workspace explorer is visible and interactive', async ({ authedPage: page }) => {
@@ -22,6 +58,18 @@ test.describe('US-10: Workspace File Operations', () => {
       const count = await rows.count();
       expect(count).toBeGreaterThan(0);
     }
+  });
+
+  test('selecting AGENTS.md and clicking Open in editor opens the editor tab', async ({ authedPage: page }) => {
+    await openAgentsMdInEditor(page);
+  });
+
+  test('clicking the close icon on the editor tab closes the AGENTS.md tab', async ({ authedPage: page }) => {
+    const agentsTab = await openAgentsMdInEditor(page);
+    const close = agentsTab.locator('.tab-close');
+    await expect(close).toBeVisible();
+    await close.click();
+    await expect(page.locator(sel.editorTab, { hasText: 'AGENTS.md' })).toHaveCount(0);
   });
 
   test('double-click file opens in editor', async ({ authedPage: page }) => {
