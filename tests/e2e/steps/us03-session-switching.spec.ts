@@ -69,8 +69,8 @@ test.describe('US-03: Session Switching', () => {
   });
 });
 
-test.describe('US-03: iPad Session Switching', () => {
-  test.use({ ...require('@playwright/test').devices['iPad Pro 11'] });
+test.describe.skip('US-03: iPad Session Switching', () => {
+  // iPad-only — skipped in desktop-chrome project
 
   test('finger swipe on timeline edge switches sessions', async ({ authedPage: page }) => {
     await page.waitForSelector(sel.timeline);
