@@ -16,7 +16,7 @@ let ipc: typeof import("../../src/ipc.js");
 let config: typeof import("../../src/core/config.js");
 let deps: import("../../src/ipc.js").IpcDeps;
 
-const sentMessages: Array<{ jid: string; text: string; options?: { asUser?: boolean; mediaIds?: number[]; contentBlocks?: Array<Record<string, unknown>> } }> = [];
+const sentMessages: Array<{ jid: string; text: string; options?: { asUser?: boolean; untrustedExternalContent?: boolean; mediaIds?: number[]; contentBlocks?: Array<Record<string, unknown>> } }> = [];
 const sentNudges: string[] = [];
 const resumedChats: Array<Record<string, any>> = [];
 const resumePendingCalls: Array<Record<string, any> | undefined> = [];
@@ -139,6 +139,23 @@ test("IPC runAgent stores the message as user input", async () => {
   const msg = sentMessages[sentMessages.length - 1];
   expect(msg.options?.asUser).toBe(true);
   expect(resumedChats[resumedChats.length - 1]).toEqual({ chatJid: "web:default" });
+});
+
+test("IPC message can carry structured untrusted external content metadata", async () => {
+  const startMessages = sentMessages.length;
+  await ipc.processMessageCommand({
+    type: "message",
+    chatJid: "web:default",
+    text: "external mail",
+    runAgent: true,
+    untrustedExternalContent: true,
+    noNudge: true,
+  }, deps);
+  await waitFor(() => sentMessages.length > startMessages);
+
+  const msg = sentMessages[sentMessages.length - 1];
+  expect(msg.options?.asUser).toBe(true);
+  expect(msg.options?.untrustedExternalContent).toBe(true);
 });
 
 test("IPC message falls back to PICLAW_CHAT_JID when chatJid is omitted", async () => {

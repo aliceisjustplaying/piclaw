@@ -97,6 +97,8 @@ export interface RunAgentOptions {
   inputMediaIds?: number[];
   /** True when the run prompt includes external data that must not approve shell/file actions automatically. */
   hasUntrustedExternalContent?: boolean;
+  /** Full recent-history prompt to use when a Codex app-server thread has to be created or replaced. */
+  codexReplayPrompt?: string;
   /**
    * Skip Piclaw-managed pre-prompt compaction for this run.
    *
