@@ -387,6 +387,27 @@ export function formatModelPickerContextWindow(contextWindow) {
     return `${formatK(value)} ctx`;
 }
 
+function formatUsagePercent(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '';
+    return `${Math.max(0, Math.min(100, Math.round(num)))}%`;
+}
+
+export function formatCompactModelUsageLabel(modelUsage) {
+    const primary = formatUsagePercent(modelUsage?.primary?.remaining_percent);
+    const secondary = formatUsagePercent(modelUsage?.secondary?.remaining_percent);
+    const structured = [primary, secondary].filter(Boolean);
+    if (structured.length > 0) return structured.join(' - ');
+
+    const hint = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
+    if (!hint) return '';
+    return hint
+        .split('•')
+        .map((part) => part.trim().split(/\s+/).slice(-1)[0] || '')
+        .filter(Boolean)
+        .join(' - ');
+}
+
 export function stripCodexModelPrefix(label) {
     const value = typeof label === 'string' ? label.trim() : '';
     const lower = value.toLowerCase();
@@ -1134,17 +1155,16 @@ export function ComposeBox({
     const modelHintLabel = modelPickerState.label;
     const fastMode = typeof agentModelsPayload?.fast_mode === 'boolean' ? agentModelsPayload.fast_mode : null;
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
-    const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
-    const modelFastLabel = fastMode === null ? null : `Fast ${fastMode ? 'on' : 'off'}`;
-    const modelUsageLabel = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
+    const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}${fastMode === true ? '⚡' : ''}` : '';
+    const modelFastLabel = fastMode === true ? 'Fast on' : null;
+    const modelUsageLabel = formatCompactModelUsageLabel(modelUsage);
     const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
         ? modelUsage.extra_usage.reset_description.trim()
         : '';
     const modelUsageSectionLabel = [
         modelThinkingLabel || null,
-        modelFastLabel,
         modelUsageLabel || null,
-    ].filter(Boolean).join(' • ');
+    ].filter(Boolean).join(' - ');
     const modelUsageTitleParts = [
         activeModel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
         modelUsage?.plan ? `Plan: ${modelUsage.plan}` : null,
