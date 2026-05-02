@@ -286,7 +286,7 @@ function updateProviderUsage(chatJid: string, message: SDKMessage): void {
     credits_remaining: null,
     credits_unlimited: false,
     extra_usage: null,
-    hint_short: remainingPercent == null ? "?" : `${Math.round(remainingPercent)}%`,
+    hint_short: remainingPercent == null ? "" : `${Math.round(remainingPercent)}%`,
   });
 }
 
