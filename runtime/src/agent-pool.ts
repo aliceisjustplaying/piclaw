@@ -46,6 +46,13 @@ import {
 import { runSidePrompt as runSidePromptInternal } from "./agent-pool/side-prompt-runner.js";
 import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
 import {
+  PROACTIVE_EXTENSION_ID,
+  PROACTIVE_INTERVAL_MS,
+  PROACTIVE_PROMPT,
+  PROACTIVE_TASK_KEY,
+  PROACTIVE_TIMEOUT_SEC,
+} from "./agent-pool/proactive.js";
+import {
   abortCodexAppServerChat,
   compactCodexAppServerChat,
   cycleCodexAppServerThinkingLevel,
@@ -115,17 +122,6 @@ import { createUuid } from "./utils/ids.js";
 import { addLogSink, createLogger, removeLogSink } from "./utils/logger.js";
 
 const log = createLogger("agent-pool");
-const PROACTIVE_EXTENSION_ID = "proactive-agent";
-const PROACTIVE_TASK_KEY = "task";
-const PROACTIVE_INTERVAL_MS = 15 * 60 * 1000;
-const PROACTIVE_TIMEOUT_SEC = 20;
-const PROACTIVE_PROMPT = [
-  "Proactive check-in task.",
-  "Use available Gmail and Google Calendar tools to inspect recent unread or important email and upcoming calendar events.",
-  "Use personal_memory when useful.",
-  "Do not send email, create/delete/update calendar events, or modify external state without explicit user confirmation.",
-  "Reply with a concise digest and suggested next actions only when there is something worth surfacing.",
-].join("\n");
 const BACKEND_HANDOFF_PROMPT = [
   "Create a concise backend handoff state for continuing this Piclaw chat in another native agent backend.",
   "Include: current goals, latest user intent, important decisions, files/commands touched, open tasks, constraints, tool/data caveats, and anything the next backend must preserve.",
