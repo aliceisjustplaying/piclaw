@@ -233,6 +233,8 @@ export async function runCodexAppServerPrompt(
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let unsubscribe: Function | null = null;
   let abortHandler: (() => void) | null = null;
+  let turnStartRequestedAt = 0;
+  let firstDeltaLogged = false;
 
   const finish = new Promise<void>((resolve, reject) => {
     const resolveAfterTrailingEvents = () => {
@@ -266,6 +268,13 @@ export async function runCodexAppServerPrompt(
       if (method === "turn/started") {
         const turn = params.turn && typeof params.turn === "object" ? params.turn as JsonObject : null;
         if (turn?.id) turnId = String(turn.id);
+        log.info("Codex app-server turn started", {
+          operation: "codex_app_server.turn_started",
+          chatJid,
+          threadId: thread.threadId,
+          turnId,
+          msSinceTurnStartRequest: turnStartRequestedAt ? Date.now() - turnStartRequestedAt : null,
+        });
         return;
       }
       if (turnId && params.turnId && params.turnId !== turnId) return;
@@ -282,6 +291,16 @@ export async function runCodexAppServerPrompt(
       }
       if (method === "item/agentMessage/delta") {
         const delta = readString(params.delta) ?? "";
+        if (!firstDeltaLogged && delta.length > 0) {
+          firstDeltaLogged = true;
+          log.info("Codex app-server first text delta", {
+            operation: "codex_app_server.first_text_delta",
+            chatJid,
+            threadId: thread.threadId,
+            turnId,
+            msSinceTurnStartRequest: turnStartRequestedAt ? Date.now() - turnStartRequestedAt : null,
+          });
+        }
         if (!textStarted) {
           textStarted = true;
           emit(runOptions.onEvent, {
@@ -376,6 +395,7 @@ export async function runCodexAppServerPrompt(
       hasGmailFetch: dynamicToolNames.includes("gmail_fetch_email"),
       names: dynamicToolNames.slice(0, 80),
     });
+    turnStartRequestedAt = Date.now();
     const response = await nextClient.request("turn/start", {
       threadId: thread.threadId,
       cwd: workspaceCwd(),
@@ -390,6 +410,13 @@ export async function runCodexAppServerPrompt(
     if (response?.turn?.id) {
       turnId = String(response.turn.id);
       activeTurnByChat.set(chatJid, { threadId: thread.threadId, turnId });
+      log.info("Codex app-server turn/start accepted", {
+        operation: "codex_app_server.turn_start_accepted",
+        chatJid,
+        threadId: thread.threadId,
+        turnId,
+        msSinceTurnStartRequest: Date.now() - turnStartRequestedAt,
+      });
     }
     await finish;
   } catch (err) {
