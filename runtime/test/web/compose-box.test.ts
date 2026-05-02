@@ -17,6 +17,7 @@ import {
   resolveComposePrefillRequest,
   resolveComposeSubmitButtonState,
   resolveComposeAbortButtonState,
+  shouldOpenModelPickerCommand,
   isComposeSubmitAbortMode,
   resolveSessionPopupChats,
   isSessionPopupChatEmphasized,
@@ -349,6 +350,14 @@ test('resolveComposeRoutedModelStatus hides matching or stale routed model state
     latest_requested_model: 'openrouter/auto',
     latest_response_model: 'anthropic/claude-sonnet-4-5',
   })).toBeNull();
+});
+
+test('shouldOpenModelPickerCommand only intercepts bare /model', () => {
+  expect(shouldOpenModelPickerCommand('/model')).toBe(true);
+  expect(shouldOpenModelPickerCommand('  /model  ')).toBe(true);
+  expect(shouldOpenModelPickerCommand('/MODEL')).toBe(true);
+  expect(shouldOpenModelPickerCommand('/model claude/sonnet')).toBe(false);
+  expect(shouldOpenModelPickerCommand('/models')).toBe(false);
 });
 
 test('resolveComposeModelPickerState keeps the model picker visible for cold chats with available models', () => {

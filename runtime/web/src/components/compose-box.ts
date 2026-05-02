@@ -30,6 +30,8 @@ export const SLASH_COMMANDS = [
   { name: "/thinking", description: "Show or set thinking/effort level" },
   { name: "/effort", description: "Show or set thinking/effort level (alias for /thinking)" },
   { name: "/cycle-thinking", description: "Cycle thinking level" },
+  { name: "/backend", description: "Show or switch backend (codex|claude|pi)" },
+  { name: "/proactive", description: "Enable, disable, or show proactive Gmail/calendar checks" },
   { name: "/theme", description: "Set UI theme (no name to show available themes)" },
   { name: "/meters", description: "Toggle the top-right CPU/RAM HUD (/meters on|off|toggle)" },
   { name: "/tint", description: "Tint default light/dark UI (usage: /tint #hex or /tint off)" },
@@ -389,6 +391,10 @@ export function formatModelPickerContextWindow(contextWindow) {
 export function stripCodexModelPrefix(label) {
     const value = typeof label === 'string' ? label.trim() : '';
     return value.toLowerCase().startsWith('codex/') ? value.slice('codex/'.length) : value;
+}
+
+export function shouldOpenModelPickerCommand(value) {
+    return /^\/model\s*$/i.test(String(value || '').trim());
 }
 
 export function formatModelPickerDisplayLabel(label, contextWindow) {
@@ -1833,6 +1839,20 @@ export function ComposeBox({
             setContent('');
             requestAnimationFrame(() => resizeTextarea());
             requestOpenSettingsDialog({ section: 'keyboard' });
+            return;
+        }
+        if (shouldOpenModelPickerCommand(rawInput)) {
+            setContent('');
+            requestAnimationFrame(() => resizeTextarea());
+            popupTypeaheadRef.current = { value: '', updatedAt: 0 };
+            setShowSessionPopup(false);
+            setShowSlash(false);
+            setSlashMatches([]);
+            setShowMention(false);
+            setMentionMatches([]);
+            setSubmitError(null);
+            setSubmitNotice(null);
+            setShowModelPopup(true);
             return;
         }
 
