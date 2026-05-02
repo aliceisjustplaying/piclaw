@@ -91,6 +91,8 @@ export interface RunAgentOptions {
   sessionLeafId?: string;
   /** Override the default timeout (ms). Use 0 or a negative value to disable. */
   timeoutMs?: number;
+  /** Optional caller abort signal for cancelling the active run. */
+  signal?: AbortSignal;
   /** Abort after this many tool calls complete. Undefined means no cap. */
   maxToolCalls?: number;
   /** Media IDs from the user turn that should be forwarded to compatible backends. */
