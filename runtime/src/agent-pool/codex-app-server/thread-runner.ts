@@ -43,26 +43,6 @@ function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, 
   });
 }
 
-const SENTENCE_STARTERS_AFTER_LIST = "(?:No|The|This|That|There|It|I|We|You|A|An)";
-const MONTH_NAMES = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
-
-function normalizeCodexAppServerAssistantText(text: string): string {
-  const normalized = text.replace(/\r\n?/g, "\n");
-  const dateFixed = normalized
-    .replace(new RegExp(`\\b(${MONTH_NAMES})(\\d{1,2})(\\b)`, "g"), "$1 $2$3")
-    .replace(new RegExp(`([A-Za-z])-(until|through|before|after|since)-(?=${MONTH_NAMES}|\\d)`, "gi"), "$1 $2 ");
-  const bulletFixed = dateFixed.replace(/([^\s\n])(-\s+(?=[A-Za-z0-9]))/g, "$1\n$2");
-  if (!bulletFixed.includes("\n- ")) return bulletFixed;
-  return bulletFixed.replace(
-    new RegExp(`([a-z0-9.!?])(${SENTENCE_STARTERS_AFTER_LIST}\\s+)`, "g"),
-    "$1\n\n$2",
-  );
-}
-
-export function normalizeCodexAppServerAssistantTextForTests(text: string): string {
-  return normalizeCodexAppServerAssistantText(text);
-}
-
 export function getCodexAppServerContextUsage(chatJid: string): CodexContextUsage | null {
   return contextUsageByChat.get(chatJid) ?? null;
 }
@@ -244,7 +224,6 @@ export async function runCodexAppServerPrompt(
   toolAbortControllersByThread.set(thread.threadId, abortController);
   let turnId: string | null = null;
   let finalText = "";
-  let emittedText = "";
   let textStarted = false;
   let thinkingStarted = false;
   let thinkingText = "";
@@ -311,13 +290,9 @@ export async function runCodexAppServerPrompt(
           });
         }
         finalText += delta;
-        const displayText = normalizeCodexAppServerAssistantText(finalText);
-        const canStreamNormalizedDelta = displayText.startsWith(emittedText);
-        const displayDelta = canStreamNormalizedDelta ? displayText.slice(emittedText.length) : delta;
-        emittedText = canStreamNormalizedDelta ? displayText : `${emittedText}${delta}`;
         emit(runOptions.onEvent, {
           type: "message_update",
-          assistantMessageEvent: { type: "text_delta", delta: displayDelta, contentIndex: 0, partial: { type: "text", text: displayText } },
+          assistantMessageEvent: { type: "text_delta", delta, contentIndex: 0, partial: { type: "text", text: finalText } },
         });
         return;
       }
@@ -343,6 +318,11 @@ export async function runCodexAppServerPrompt(
         const item = params.item && typeof params.item === "object" ? params.item as JsonObject : null;
         if (item?.type === "contextCompaction") {
           emit(runOptions.onEvent, { type: method === "item/started" ? "compaction_start" : "compaction_end", source: "codex_app_server", threadId: thread.threadId });
+          return;
+        }
+        if (method === "item/completed" && item?.type === "agentMessage") {
+          const text = readString(item.text);
+          if (text !== null) finalText = text;
           return;
         }
         if (!item || !isToolItem(item)) return;
@@ -431,7 +411,6 @@ export async function runCodexAppServerPrompt(
     if (settleTimer) clearTimeout(settleTimer);
   }
 
-  finalText = normalizeCodexAppServerAssistantText(finalText);
   if (textStarted) {
     emit(runOptions.onEvent, {
       type: "message_update",
