@@ -54,6 +54,7 @@ import {
   getCodexAppServerDisplayModelLabel,
   getCodexAppServerModelLabel,
   getCodexAppServerThinkingLevel,
+  hasCodexAppServerThread,
   listCodexAppServerModels,
   peekCodexAppServerProviderUsage,
   setCodexAppServerFastMode,
@@ -346,6 +347,10 @@ export class AgentPool {
     }
 
     return output;
+  }
+
+  hasActiveCodexThread(chatJid: string): boolean {
+    return hasCodexAppServerThread(chatJid);
   }
 
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {

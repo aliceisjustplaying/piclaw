@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 
 import { DATA_DIR, WORKSPACE_DIR, getAgentBackendConfig, getCompactionRuntimeConfig } from "../core/config.js";
-import { getMediaById, getMediaInfoById, searchMessages } from "../db.js";
+import { getMediaByIdForChat, getMediaInfoByIdForChat, searchMessages } from "../db.js";
 import { createLogger } from "../utils/logger.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 
@@ -21,6 +21,13 @@ interface PendingRequest {
 
 type NotificationHandler = (message: JsonObject) => void;
 type CodexThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+type CodexAppServerClientLike = {
+  ready(): Promise<void>;
+  request(method: string, params: unknown): Promise<unknown>;
+  onNotification(handler: NotificationHandler): () => void;
+  stop(): void;
+};
 
 interface CodexThreadState {
   threadId: string;
@@ -55,10 +62,12 @@ export interface CodexProviderUsageSnapshot {
   hint_short: string;
 }
 
-let client: CodexAppServerClient | null = null;
+let client: CodexAppServerClientLike | null = null;
 const threadsByChat = new Map<string, CodexThreadState>();
 const chatByThread = new Map<string, string>();
+const bridgeSessionByChat = new Map<string, PiclawBridgeSession>();
 const contextUsageByChat = new Map<string, CodexContextUsage>();
+const untrustedExternalContentByThread = new Map<string, boolean>();
 const modelByChat = new Map<string, string | null>();
 const thinkingByChat = new Map<string, CodexThinkingLevel>();
 const fastByChat = new Map<string, boolean>();
@@ -66,6 +75,7 @@ let providerUsageCache: { expiresAt: number; value: CodexProviderUsageSnapshot |
 let providerUsageInFlight: Promise<CodexProviderUsageSnapshot | null> | null = null;
 let modelOptionsCache: CodexModelOption[] | null = null;
 let modelOptionsCacheAt = 0;
+let testClientFactory: (() => CodexAppServerClientLike) | null = null;
 
 export interface CodexModelOption {
   id: string;
@@ -81,7 +91,8 @@ export interface CodexModelOption {
 const THINKING_LEVELS: readonly CodexThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const DEFAULT_CODEX_THINKING_LEVEL: CodexThinkingLevel = "medium";
 const FAST_CONFIG_PATH = join(WORKSPACE_DIR, ".pi", "extensions", "pi-openai-fast.json");
-const PROVIDER_USAGE_TTL_MS = Number(process.env.PICLAW_PROVIDER_USAGE_TTL_MS || "60000");
+const PROVIDER_USAGE_TTL_MS = parsePositiveNumber(process.env.PICLAW_PROVIDER_USAGE_TTL_MS, 60_000);
+const ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS = parsePositiveNumber(process.env.PICLAW_CODEX_ATTACHMENT_TEXT_PREVIEW_CHARS, 200_000);
 
 const PICLAW_DYNAMIC_TOOLS = [
   {
@@ -166,6 +177,11 @@ export type PiclawBridgeSession = {
 };
 
 const bridgeSessionByThread = new Map<string, PiclawBridgeSession>();
+
+function parsePositiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function bridgeToolName(tool: PiclawBridgeTool): string {
   return typeof tool.name === "string" ? tool.name.trim() : "";
@@ -411,16 +427,19 @@ function getChatThinking(chatJid: string): CodexThinkingLevel {
   return thinkingByChat.get(chatJid) ?? DEFAULT_CODEX_THINKING_LEVEL;
 }
 
-function readPersistedFastMode(): boolean {
+function readPersistedFastMode(chatJid: string): boolean {
   try {
-    const parsed = JSON.parse(readFileSync(FAST_CONFIG_PATH, "utf8")) as { active?: unknown };
+    const parsed = JSON.parse(readFileSync(FAST_CONFIG_PATH, "utf8")) as { active?: unknown; activeByChat?: Record<string, unknown> };
+    if (parsed.activeByChat && typeof parsed.activeByChat === "object" && chatJid in parsed.activeByChat) {
+      return parsed.activeByChat[chatJid] === true;
+    }
     return parsed.active === true;
   } catch {
     return false;
   }
 }
 
-function writePersistedFastMode(enabled: boolean): void {
+function writePersistedFastMode(chatJid: string, enabled: boolean): void {
   try {
     let parsed: Record<string, unknown> = {};
     try {
@@ -428,8 +447,12 @@ function writePersistedFastMode(enabled: boolean): void {
     } catch {
       parsed = { persistState: true };
     }
+    const activeByChat = parsed.activeByChat && typeof parsed.activeByChat === "object" && !Array.isArray(parsed.activeByChat)
+      ? parsed.activeByChat as Record<string, unknown>
+      : {};
+    activeByChat[chatJid] = enabled;
     mkdirSync(join(WORKSPACE_DIR, ".pi", "extensions"), { recursive: true });
-    writeFileSync(FAST_CONFIG_PATH, `${JSON.stringify({ ...parsed, active: enabled }, null, 2)}\n`);
+    writeFileSync(FAST_CONFIG_PATH, `${JSON.stringify({ ...parsed, activeByChat }, null, 2)}\n`);
   } catch (err) {
     log.warn("Failed to persist Codex fast mode", { operation: "codex_app_server.fast_mode.persist", err });
   }
@@ -549,8 +572,8 @@ function safeFileName(id: number, name: string): string {
   return `${id}-${cleaned}`;
 }
 
-function materializeMedia(mediaId: number): { path: string; name: string; contentType: string; size: number; text: string | null } | null {
-  const media = getMediaById(mediaId);
+function materializeMedia(chatJid: string, mediaId: number): { path: string; name: string; contentType: string; size: number; text: string | null } | null {
+  const media = getMediaByIdForChat(chatJid, mediaId);
   if (!media) return null;
   const dir = join(DATA_DIR, "codex-input-attachments");
   mkdirSync(dir, { recursive: true });
@@ -568,18 +591,21 @@ function materializeMedia(mediaId: number): { path: string; name: string; conten
   };
 }
 
-function buildUserInput(prompt: string, mediaIds: number[] | undefined, toolNames: string[] = []): JsonObject[] {
+function buildUserInput(chatJid: string, prompt: string, mediaIds: number[] | undefined, toolNames: string[] = []): JsonObject[] {
   const inputs: JsonObject[] = [];
   const attachmentNotes: string[] = [];
+  let remainingPreviewChars = ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS;
   for (const mediaId of mediaIds ?? []) {
-    const materialized = materializeMedia(mediaId);
+    const materialized = materializeMedia(chatJid, mediaId);
     if (!materialized) {
       attachmentNotes.push(`- media ${mediaId}: not found`);
       continue;
     }
     attachmentNotes.push(`- media ${mediaId}: ${materialized.name} (${materialized.contentType}, ${materialized.size} bytes) saved at ${materialized.path}`);
-    if (materialized.text) {
-      attachmentNotes.push(`  text preview:\n${materialized.text}`);
+    if (materialized.text && remainingPreviewChars > 0) {
+      const preview = materialized.text.slice(0, remainingPreviewChars);
+      remainingPreviewChars -= preview.length;
+      attachmentNotes.push(`  text preview:\n${preview}${preview.length < materialized.text.length ? "\n...[attachment text preview truncated]" : ""}`);
     }
     if (materialized.contentType.startsWith("image/") && materialized.contentType !== "image/svg+xml") {
       inputs.push({ type: "localImage", path: materialized.path });
@@ -600,6 +626,27 @@ function buildUserInput(prompt: string, mediaIds: number[] | undefined, toolName
 function parseArgs(value: unknown): JsonObject {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as JsonObject;
   return {};
+}
+
+function isUntrustedThread(threadId: string | null): boolean {
+  return Boolean(threadId && untrustedExternalContentByThread.get(threadId));
+}
+
+export function resolveCodexAppServerApprovalForTests(method: string, params: JsonObject, threadIsUntrusted: boolean): unknown | null {
+  return resolveApprovalResponse(method, params, threadIsUntrusted);
+}
+
+function resolveApprovalResponse(method: string, params: JsonObject, threadIsUntrusted: boolean): unknown | null {
+  if (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") {
+    return { decision: threadIsUntrusted ? "reject" : "accept" };
+  }
+  if (method === "execCommandApproval" || method === "applyPatchApproval") {
+    return { decision: threadIsUntrusted ? "denied" : "approved" };
+  }
+  if (method === "item/permissions/requestApproval") {
+    return { permissions: threadIsUntrusted ? {} : params.permissions || {}, scope: "turn" };
+  }
+  return null;
 }
 
 async function handleDynamicToolCall(params: JsonObject): Promise<{ contentItems: Array<{ type: "inputText"; text: string }>; success: boolean }> {
@@ -651,8 +698,8 @@ async function handleDynamicToolCall(params: JsonObject): Promise<{ contentItems
   if (tool === "read_media") {
     const mediaId = Number(args.media_id);
     if (!Number.isFinite(mediaId) || mediaId <= 0) return contentItemsFrom("Missing media_id.", false);
-    const materialized = materializeMedia(mediaId);
-    const info = getMediaInfoById(mediaId);
+    const materialized = materializeMedia(chatJid, mediaId);
+    const info = getMediaInfoByIdForChat(chatJid, mediaId);
     if (!materialized || !info) return contentItemsFrom(`Media ${mediaId} not found.`, false);
     const maxChars = Math.max(1, Math.min(50_000, Number(args.max_chars) || 12_000));
     return contentItemsFrom({
@@ -802,21 +849,13 @@ class CodexAppServerClient {
   private handleServerRequest(message: JsonObject): void {
     const id = message.id as JsonRpcId;
     const method = String(message.method);
-    if (method === "item/commandExecution/requestApproval") {
-      this.respond(id, { decision: "accept" });
-      return;
-    }
-    if (method === "item/fileChange/requestApproval") {
-      this.respond(id, { decision: "accept" });
-      return;
-    }
-    if (method === "execCommandApproval" || method === "applyPatchApproval") {
-      this.respond(id, { decision: "approved" });
-      return;
-    }
-    if (method === "item/permissions/requestApproval") {
-      const params = message.params && typeof message.params === "object" ? message.params as JsonObject : {};
-      this.respond(id, { permissions: params.permissions || {}, scope: "turn" });
+    const params = message.params && typeof message.params === "object" ? message.params as JsonObject : {};
+    const threadId = method === "execCommandApproval" || method === "applyPatchApproval"
+      ? readString(params.conversationId)
+      : readString(params.threadId);
+    const approvalResponse = resolveApprovalResponse(method, params, isUntrustedThread(threadId));
+    if (approvalResponse !== null) {
+      this.respond(id, approvalResponse);
       return;
     }
     if (method === "mcpServer/elicitation/request") {
@@ -838,10 +877,22 @@ class CodexAppServerClient {
   }
 }
 
-async function getClient(): Promise<CodexAppServerClient> {
-  client ??= new CodexAppServerClient();
-  await client.ready();
-  return client;
+async function getClient(): Promise<CodexAppServerClientLike> {
+  client ??= testClientFactory ? testClientFactory() : new CodexAppServerClient();
+  const current = client;
+  try {
+    await current.ready();
+    return current;
+  } catch (error) {
+    if (client === current) client = null;
+    current.stop();
+    throw error;
+  }
+}
+
+export function setCodexAppServerClientFactoryForTests(factory: (() => CodexAppServerClientLike) | null): void {
+  stopCodexAppServerBackend();
+  testClientFactory = factory;
 }
 
 export function stopCodexAppServerBackend(): void {
@@ -849,6 +900,9 @@ export function stopCodexAppServerBackend(): void {
   client = null;
   threadsByChat.clear();
   chatByThread.clear();
+  bridgeSessionByChat.clear();
+  bridgeSessionByThread.clear();
+  untrustedExternalContentByThread.clear();
   contextUsageByChat.clear();
   providerUsageCache = null;
   providerUsageInFlight = null;
@@ -856,6 +910,10 @@ export function stopCodexAppServerBackend(): void {
 
 export function getCodexAppServerContextUsage(chatJid: string): CodexContextUsage | null {
   return contextUsageByChat.get(chatJid) ?? null;
+}
+
+export function hasCodexAppServerThread(chatJid: string): boolean {
+  return threadsByChat.has(chatJid);
 }
 
 export function getCodexAppServerModelLabel(chatJid?: string): string {
@@ -870,7 +928,6 @@ export function setCodexAppServerThinkingLevel(chatJid: string, requested: strin
   const level = normalizeThinkingLevel(requested);
   if (!level) return null;
   thinkingByChat.set(chatJid, level);
-  if (level !== "minimal") fastByChat.set(chatJid, false);
   return level;
 }
 
@@ -879,19 +936,18 @@ export function cycleCodexAppServerThinkingLevel(chatJid: string): CodexThinking
   const index = THINKING_LEVELS.indexOf(current);
   const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length] ?? DEFAULT_CODEX_THINKING_LEVEL;
   thinkingByChat.set(chatJid, next);
-  fastByChat.set(chatJid, next === "minimal");
   return next;
 }
 
 export function setCodexAppServerFastMode(chatJid: string, enabled: boolean): boolean {
   fastByChat.set(chatJid, enabled);
-  writePersistedFastMode(enabled);
+  writePersistedFastMode(chatJid, enabled);
   return enabled;
 }
 
 export function getCodexAppServerFastMode(chatJid: string): boolean {
   if (fastByChat.has(chatJid)) return fastByChat.get(chatJid) === true;
-  const persisted = readPersistedFastMode();
+  const persisted = readPersistedFastMode(chatJid);
   fastByChat.set(chatJid, persisted);
   return persisted;
 }
@@ -960,19 +1016,22 @@ export async function warmCodexAppServerProviderUsage(): Promise<CodexProviderUs
 
 export async function compactCodexAppServerChat(chatJid: string): Promise<void> {
   const nextClient = await getClient();
-  const thread = await getThread(nextClient, chatJid);
+  const thread = threadsByChat.get(chatJid);
+  if (!thread) throw new Error("Codex app-server has no active thread to compact.");
   contextUsageByChat.delete(chatJid);
 
   const timeoutMs = getCompactionRuntimeConfig().timeoutMs;
   let timeout: ReturnType<typeof setTimeout> | null = null;
   let compactTurnId: string | null = null;
+  let unsubscribe: Function | null = null;
   const compacted = new Promise<void>((resolve, reject) => {
-    const unsubscribe = nextClient.onNotification((message) => {
+    unsubscribe = nextClient.onNotification((message) => {
       const method = readString(message.method);
       const params = (message.params && typeof message.params === "object" ? message.params : {}) as JsonObject;
       if (params.threadId !== thread.threadId) return;
       if (method === "thread/compacted") {
-        unsubscribe();
+        unsubscribe?.();
+        unsubscribe = null;
         if (timeout) clearTimeout(timeout);
         resolve();
         return;
@@ -988,7 +1047,8 @@ export async function compactCodexAppServerChat(chatJid: string): Promise<void> 
         const turn = params.turn && typeof params.turn === "object" ? params.turn as JsonObject : null;
         const turnId = readString(turn?.id) ?? readString(params.turnId);
         if (compactTurnId && turnId === compactTurnId) {
-          unsubscribe();
+          unsubscribe?.();
+          unsubscribe = null;
           if (timeout) clearTimeout(timeout);
           const status = readString(turn?.status);
           if (status && status !== "completed") {
@@ -1001,16 +1061,23 @@ export async function compactCodexAppServerChat(chatJid: string): Promise<void> 
       }
     });
     timeout = setTimeout(() => {
-      unsubscribe();
+      unsubscribe?.();
+      unsubscribe = null;
       reject(new Error(`Codex app-server compaction timed out after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
   });
 
-  await nextClient.request("thread/compact/start", { threadId: thread.threadId });
-  await compacted;
+  try {
+    await nextClient.request("thread/compact/start", { threadId: thread.threadId });
+    await compacted;
+  } finally {
+    const cleanup = unsubscribe as (() => void) | null;
+    cleanup?.();
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
-async function getThread(nextClient: CodexAppServerClient, chatJid: string, bridgeSession?: PiclawBridgeSession | null): Promise<CodexThreadState> {
+async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, bridgeSession?: PiclawBridgeSession | null): Promise<CodexThreadState> {
   const toolsConfig = dynamicToolsConfig(bridgeSession);
   const toolSignature = dynamicToolSignature(toolsConfig);
   const existing = threadsByChat.get(chatJid);
@@ -1042,6 +1109,10 @@ async function getThread(nextClient: CodexAppServerClient, chatJid: string, brid
   const state = { threadId, dynamicToolSignature: toolSignature };
   threadsByChat.set(chatJid, state);
   chatByThread.set(threadId, chatJid);
+  if (bridgeSession) {
+    bridgeSessionByChat.set(chatJid, bridgeSession);
+    bridgeSessionByThread.set(threadId, bridgeSession);
+  }
   return state;
 }
 
@@ -1053,7 +1124,11 @@ export async function runCodexAppServerPrompt(
 ): Promise<AgentOutput> {
   const nextClient = await getClient();
   const thread = await getThread(nextClient, chatJid, bridgeSession);
-  if (bridgeSession) bridgeSessionByThread.set(thread.threadId, bridgeSession);
+  if (bridgeSession) {
+    bridgeSessionByChat.set(chatJid, bridgeSession);
+    bridgeSessionByThread.set(thread.threadId, bridgeSession);
+  }
+  untrustedExternalContentByThread.set(thread.threadId, runOptions.hasUntrustedExternalContent === true);
   const config = getAgentBackendConfig();
   let turnId: string | null = null;
   let finalText = "";
@@ -1063,9 +1138,10 @@ export async function runCodexAppServerPrompt(
   let completed = false;
   let completionErrorMessage: string | null = null;
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  let unsubscribe: Function | null = null;
 
   const finish = new Promise<void>((resolve, reject) => {
-    const unsubscribe = nextClient.onNotification((message) => {
+    unsubscribe = nextClient.onNotification((message) => {
       const method = readString(message.method);
       const params = (message.params && typeof message.params === "object" ? message.params : {}) as JsonObject;
       if (params.threadId !== thread.threadId) return;
@@ -1183,7 +1259,8 @@ export async function runCodexAppServerPrompt(
         const error = turn?.error && typeof turn.error === "object" ? turn.error as JsonObject : null;
         completed = status === "completed";
         if (!completed) completionErrorMessage = readString(error?.message) || `Codex turn ${status || "did not complete"}`;
-        unsubscribe();
+        unsubscribe?.();
+        unsubscribe = null;
         resolve();
       }
     });
@@ -1191,7 +1268,8 @@ export async function runCodexAppServerPrompt(
     const timeoutMs = typeof runOptions.timeoutMs === "number" ? runOptions.timeoutMs : 0;
     if (timeoutMs > 0) {
       timeout = setTimeout(() => {
-        unsubscribe();
+        unsubscribe?.();
+        unsubscribe = null;
         reject(new Error(`Codex app-server timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     }
@@ -1211,7 +1289,7 @@ export async function runCodexAppServerPrompt(
     const response = await nextClient.request("turn/start", {
       threadId: thread.threadId,
       cwd: workspaceCwd(),
-      input: buildUserInput(prompt, runOptions.inputMediaIds, dynamicToolNames),
+      input: buildUserInput(chatJid, prompt, runOptions.inputMediaIds, dynamicToolNames),
       model: getChatModel(chatJid) ?? config.codexAppServerModel,
       ...turnReasoningConfig(chatJid),
       approvalPolicy: "on-request",
@@ -1230,6 +1308,8 @@ export async function runCodexAppServerPrompt(
     });
     return { status: "error", result: null, error: error.message };
   } finally {
+    const cleanup = unsubscribe as (() => void) | null;
+    cleanup?.();
     if (timeout) clearTimeout(timeout);
   }
 
