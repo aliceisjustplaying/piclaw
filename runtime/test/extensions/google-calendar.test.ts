@@ -38,6 +38,15 @@ test("google_calendar rejects flag-like event ids", () => {
   })).toThrow("eventId contains unsupported characters");
 });
 
+test("google_calendar accepts hyphenated event ids after the first character", () => {
+  const args = buildGoogleCalendarArgsForTests({
+    action: "delete",
+    eventId: "event-123",
+    confirm: true,
+  });
+  expect(args.slice(1)).toEqual(["calendar", "delete", "event-123", "--calendar", "primary"]);
+});
+
 test("google_calendar calendars action uses inline discovery script", () => {
   const args = buildGoogleCalendarArgsForTests({ action: "calendars" });
   expect(args[0]).toBe("-c");

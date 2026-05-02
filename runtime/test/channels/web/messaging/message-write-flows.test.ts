@@ -5,6 +5,7 @@ import {
   sendWebMessage,
   type MessageWriteContext,
 } from "../../../../src/channels/web/messaging/message-write-flows.js";
+import { hasUntrustedExternalContentForTests } from "../../../../src/channels/web/handlers/agent.js";
 
 describe("web message write flows", () => {
   test("sendWebMessage stores and broadcasts agent responses and can force thread roots", () => {
@@ -66,6 +67,15 @@ describe("web message write flows", () => {
       type: "piclaw_metadata",
       untrusted_external_content: true,
     });
+    expect(hasUntrustedExternalContentForTests({
+      id: "m1",
+      chat_jid: "web:default",
+      sender: "web-user",
+      sender_name: "You",
+      content: "mail",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      content_blocks: storedOptions?.contentBlocks,
+    })).toBe(true);
   });
 
   test("queueFollowupPlaceholderMessage enqueues placeholders without broadcasting", () => {

@@ -7,6 +7,7 @@ import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { DATA_DIR, WORKSPACE_DIR, getAgentBackendConfig, getCompactionRuntimeConfig } from "../core/config.js";
 import { getMediaByIdForChat, getMediaInfoByIdForChat, searchMessages } from "../db.js";
 import { createLogger } from "../utils/logger.js";
+import { parsePositiveNumber } from "../utils/numbers.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 
 const log = createLogger("agent-pool.codex-app-server");
@@ -67,6 +68,7 @@ const threadsByChat = new Map<string, CodexThreadState>();
 const chatByThread = new Map<string, string>();
 const contextUsageByChat = new Map<string, CodexContextUsage>();
 const untrustedExternalContentByThread = new Map<string, boolean>();
+const toolAbortControllersByThread = new Map<string, AbortController>();
 const modelByChat = new Map<string, string | null>();
 const thinkingByChat = new Map<string, CodexThinkingLevel>();
 const fastByChat = new Map<string, boolean>();
@@ -176,11 +178,6 @@ export type PiclawBridgeSession = {
 };
 
 const bridgeSessionByThread = new Map<string, PiclawBridgeSession>();
-
-function parsePositiveNumber(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 function bridgeToolName(tool: PiclawBridgeTool): string {
   return typeof tool.name === "string" ? tool.name.trim() : "";
@@ -635,8 +632,12 @@ function markThreadUntrusted(threadId: string | null): void {
   if (threadId) untrustedExternalContentByThread.set(threadId, true);
 }
 
-function isExternalDataTool(toolName: string): boolean {
-  return toolName.startsWith("gmail_") || toolName === "google_calendar";
+function isExternalDataTool(_toolName: string): boolean {
+  return true;
+}
+
+export function isCodexExternalDataToolForTests(toolName: string): boolean {
+  return isExternalDataTool(toolName);
 }
 
 export function resolveCodexAppServerApprovalForTests(method: string, params: JsonObject, threadIsUntrusted: boolean): unknown | null {
@@ -678,10 +679,11 @@ async function handleDynamicToolCall(params: JsonObject): Promise<{ contentItems
     }
     try {
       if (isExternalDataTool(tool)) markThreadUntrusted(threadId);
+      const signal = threadId ? toolAbortControllersByThread.get(threadId)?.signal : undefined;
       const result = await bridgeTool.execute(
         `codex-bridge-${Date.now().toString(36)}`,
         args,
-        undefined,
+        signal,
         () => undefined,
         makeBridgeContext(chatJid),
       );
@@ -774,6 +776,7 @@ class CodexAppServerClient {
       chatByThread.clear();
       bridgeSessionByThread.clear();
       untrustedExternalContentByThread.clear();
+      toolAbortControllersByThread.clear();
       contextUsageByChat.clear();
       providerUsageCache = null;
       providerUsageInFlight = null;
@@ -867,11 +870,11 @@ class CodexAppServerClient {
   private handleServerRequest(message: JsonObject): void {
     const id = message.id as JsonRpcId;
     const method = String(message.method);
-    const params = message.params && typeof message.params === "object" ? message.params as JsonObject : {};
+    const requestParams = message.params && typeof message.params === "object" ? message.params as JsonObject : {};
     const threadId = method === "execCommandApproval" || method === "applyPatchApproval"
-      ? readString(params.conversationId)
-      : readString(params.threadId);
-    const approvalResponse = resolveApprovalResponse(method, params, isUntrustedThread(threadId));
+      ? readString(requestParams.conversationId)
+      : readString(requestParams.threadId);
+    const approvalResponse = resolveApprovalResponse(method, requestParams, isUntrustedThread(threadId));
     if (approvalResponse !== null) {
       this.respond(id, approvalResponse);
       return;
@@ -885,8 +888,7 @@ class CodexAppServerClient {
       return;
     }
     if (method === "item/tool/call") {
-      const params = message.params && typeof message.params === "object" ? message.params as JsonObject : {};
-      void handleDynamicToolCall(params)
+      void handleDynamicToolCall(requestParams)
         .then((result) => this.respond(id, result))
         .catch((error) => this.respond(id, contentItemsFrom(`Piclaw dynamic tool failed: ${error instanceof Error ? error.message : String(error)}`, false)));
       return;
@@ -920,6 +922,7 @@ export function stopCodexAppServerBackend(): void {
   chatByThread.clear();
   bridgeSessionByThread.clear();
   untrustedExternalContentByThread.clear();
+  toolAbortControllersByThread.clear();
   contextUsageByChat.clear();
   providerUsageCache = null;
   providerUsageInFlight = null;
@@ -937,6 +940,14 @@ export function willCodexAppServerStartNewThread(chatJid: string, bridgeSession?
   const existing = threadsByChat.get(chatJid);
   if (!existing) return true;
   return existing.dynamicToolSignature !== dynamicToolSignature(dynamicToolsConfig(bridgeSession));
+}
+
+export function markCodexAppServerThreadUntrustedForTests(chatJid: string): void {
+  markThreadUntrusted(threadsByChat.get(chatJid)?.threadId ?? null);
+}
+
+export function isCodexAppServerThreadUntrustedForTests(chatJid: string): boolean {
+  return isUntrustedThread(threadsByChat.get(chatJid)?.threadId ?? null);
 }
 
 export function getCodexAppServerModelLabel(chatJid?: string): string {
@@ -1105,16 +1116,11 @@ async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, 
   const toolSignature = dynamicToolSignature(toolsConfig);
   const existing = threadsByChat.get(chatJid);
   if (existing?.dynamicToolSignature === toolSignature) return existing;
-  if (existing) {
-    threadsByChat.delete(chatJid);
-    chatByThread.delete(existing.threadId);
-    bridgeSessionByThread.delete(existing.threadId);
-    log.info("Restarting Codex app-server thread after dynamic tool set changed", {
-      operation: "codex_app_server.thread_restart_for_dynamic_tools",
-      chatJid,
-      threadId: existing.threadId,
-    });
-  }
+  if (existing) log.info("Restarting Codex app-server thread after dynamic tool set changed", {
+    operation: "codex_app_server.thread_restart_for_dynamic_tools",
+    chatJid,
+    threadId: existing.threadId,
+  });
 
   const config = getAgentBackendConfig();
   const response = await nextClient.request("thread/start", {
@@ -1129,6 +1135,13 @@ async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, 
 
   const threadId = response?.thread?.id;
   if (!threadId) throw new Error("Codex app-server did not return a thread id");
+  if (existing) {
+    threadsByChat.delete(chatJid);
+    chatByThread.delete(existing.threadId);
+    bridgeSessionByThread.delete(existing.threadId);
+    untrustedExternalContentByThread.delete(existing.threadId);
+    toolAbortControllersByThread.delete(existing.threadId);
+  }
   const state = { threadId, dynamicToolSignature: toolSignature };
   threadsByChat.set(chatJid, state);
   chatByThread.set(threadId, chatJid);
@@ -1149,8 +1162,12 @@ export async function runCodexAppServerPrompt(
   if (bridgeSession) {
     bridgeSessionByThread.set(thread.threadId, bridgeSession);
   }
-  untrustedExternalContentByThread.set(thread.threadId, runOptions.hasUntrustedExternalContent === true);
+  if (runOptions.hasUntrustedExternalContent === true) {
+    markThreadUntrusted(thread.threadId);
+  }
   const config = getAgentBackendConfig();
+  const abortController = new AbortController();
+  toolAbortControllersByThread.set(thread.threadId, abortController);
   let turnId: string | null = null;
   let finalText = "";
   let textStarted = false;
@@ -1289,6 +1306,18 @@ export async function runCodexAppServerPrompt(
     const timeoutMs = typeof runOptions.timeoutMs === "number" ? runOptions.timeoutMs : 0;
     if (timeoutMs > 0) {
       timeout = setTimeout(() => {
+        abortController.abort();
+        if (turnId) {
+          void nextClient.request("turn/cancel", { threadId: thread.threadId, turnId }).catch((err) => {
+            log.warn("Failed to cancel timed-out Codex turn", {
+              operation: "codex_app_server.turn_cancel_failed",
+              chatJid,
+              threadId: thread.threadId,
+              turnId,
+              err,
+            });
+          });
+        }
         unsubscribe?.();
         unsubscribe = null;
         reject(new Error(`Codex app-server timed out after ${timeoutMs}ms`));
@@ -1331,6 +1360,8 @@ export async function runCodexAppServerPrompt(
   } finally {
     const cleanup = unsubscribe as (() => void) | null;
     cleanup?.();
+    toolAbortControllersByThread.delete(thread.threadId);
+    abortController.abort();
     if (timeout) clearTimeout(timeout);
   }
 
