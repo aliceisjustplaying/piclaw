@@ -92,6 +92,7 @@ function useStubClient(client: StubCodexClient): void {
 test("Codex bridge filters native Pi tools and exposes Piclaw extension tools", () => {
   expect(isCodexBridgeToolAllowed("bash")).toBe(false);
   expect(isCodexBridgeToolAllowed("edit")).toBe(false);
+  expect(isCodexBridgeToolAllowed("delegate_codex")).toBe(false);
   expect(isCodexBridgeToolAllowed("m365_mail")).toBe(true);
   expect(isCodexBridgeToolAllowed("schedule_task")).toBe(true);
 

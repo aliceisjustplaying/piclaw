@@ -60,6 +60,7 @@ export const CODEX_BRIDGE_EXCLUDED_TOOLS = new Set([
   "switch_model",
   "switch_thinking",
   "mcp",
+  "delegate_codex",
   "exit_process",
   "session_status",
   "smart_compact",
