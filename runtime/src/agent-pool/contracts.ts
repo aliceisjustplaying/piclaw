@@ -101,6 +101,8 @@ export interface RunAgentOptions {
   hasUntrustedExternalContent?: boolean;
   /** Full recent-history prompt to use when a Codex app-server thread has to be created or replaced. */
   codexReplayPrompt?: string;
+  /** Do not inject pending cross-backend handoff state into this run. */
+  skipBackendHandoff?: boolean;
   /**
    * Skip Piclaw-managed pre-prompt compaction for this run.
    *

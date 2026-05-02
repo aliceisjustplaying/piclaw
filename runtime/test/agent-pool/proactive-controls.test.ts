@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import "../helpers.js";
 
 import { AgentPool } from "../../src/agent-pool.js";
+import { setChatAgentBackend } from "../../src/agent-pool/backend-state.js";
 import { extensionKvGet, getDb, getTaskById, initDatabase } from "../../src/db.js";
 import { closeDbQuietly } from "../helpers.js";
 
@@ -24,7 +25,7 @@ afterEach(async () => {
 describe("proactive agent controls", () => {
   test("/proactive creates pauses and resumes a recurring agent task", async () => {
     const chatJid = "web:proactive-test";
-    await pool!.applyControlCommand(chatJid, { type: "backend", backend: "claude", raw: "/backend claude" });
+    setChatAgentBackend(chatJid, "claude");
 
     const enabled = await pool!.applyControlCommand(chatJid, { type: "proactive", action: "on", raw: "/proactive on" });
     expect(enabled.status).toBe("success");
