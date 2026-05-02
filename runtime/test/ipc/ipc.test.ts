@@ -124,6 +124,23 @@ test("IPC message can be promoted to agent input and wake the chat", async () =>
   expect(resumedChats[resumedChats.length - 1]).toEqual({ chatJid: "web:default" });
 });
 
+test("IPC runAgent stores the message as user input", async () => {
+  const startMessages = sentMessages.length;
+  const startResumes = resumedChats.length;
+  await ipc.processMessageCommand({
+    type: "message",
+    chatJid: "web:default",
+    text: "wake me",
+    runAgent: true,
+    noNudge: true,
+  }, deps);
+  await waitFor(() => sentMessages.length > startMessages && resumedChats.length > startResumes);
+
+  const msg = sentMessages[sentMessages.length - 1];
+  expect(msg.options?.asUser).toBe(true);
+  expect(resumedChats[resumedChats.length - 1]).toEqual({ chatJid: "web:default" });
+});
+
 test("IPC message falls back to PICLAW_CHAT_JID when chatJid is omitted", async () => {
   const restore = setEnv({ PICLAW_CHAT_JID: "web:test-chat" });
   const start = sentMessages.length;

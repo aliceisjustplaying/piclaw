@@ -364,6 +364,7 @@ export async function processMessageCommand(data: JsonRecord, deps: IpcDeps): Pr
   const options: IpcMessageOptions = {};
   if (mediaIds.length > 0) options.mediaIds = mediaIds;
   if (contentBlocks.length > 0) options.contentBlocks = contentBlocks;
+  if (data.runAgent === true || data.resumeChat === true) options.asUser = true;
   if (data.agentInput === true || data.asUser === true) options.asUser = true;
 
   await deps.sendMessage(chatJid, finalText, options);
