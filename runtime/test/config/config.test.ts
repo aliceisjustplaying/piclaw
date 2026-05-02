@@ -272,6 +272,7 @@ test("config and env fallback chains handle booleans and session settings", () =
       maxLines: 8000,
       maxCompactionsBeforeRotation: 3,
       autoRotate: false,
+      maxCompactionsBeforeRotation: 3,
     });
   } finally {
     ws.cleanup();
@@ -811,6 +812,7 @@ test("in-process module init handles deprecated env warnings, argv parsing, and 
       maxLines: 8000,
       maxCompactionsBeforeRotation: 3,
       autoRotate: true,
+      maxCompactionsBeforeRotation: 3,
     });
     expect(snapshot["same:getSessionStorageConfig:SESSION_STORAGE_CONFIG"]).toBe(true);
     expect(snapshot["call:getSessionStorageConfig"]).toEqual(snapshot.SESSION_STORAGE_CONFIG);

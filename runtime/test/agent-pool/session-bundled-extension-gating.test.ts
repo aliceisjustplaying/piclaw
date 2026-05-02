@@ -53,5 +53,5 @@ describe("bundled extension gating by channel/platform", () => {
       console.warn = originalWarn;
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  });
+  }, 15000); // Nix test runs may spend several seconds materializing extension deps during session bootstrap.
 });

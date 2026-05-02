@@ -148,6 +148,7 @@ export function setEnvironmentOverride(nameValue: unknown, value: unknown): Envi
   if (!isValidEnvName(name)) throw new Error("Invalid environment variable name.");
   if (getKeychainEnvNameSet().has(name)) throw new Error("Keychain-injected environment variables cannot be overridden here.");
   const current = loadEnvironmentOverrides();
+  // Preserve the first pre-managed value for this process; DB-loaded overrides already own their names.
   if (!Object.prototype.hasOwnProperty.call(current, name) && !preOverrideProcessEnv.has(name)) {
     preOverrideProcessEnv.set(name, process.env[name]);
   }

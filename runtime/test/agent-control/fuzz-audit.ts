@@ -15,6 +15,7 @@ export const DEFAULT_FUZZ_TEST_ARTIFACT_DIR = `${DEFAULT_FUZZ_ARTIFACT_DIR}/test
 const ROUTING_SAMPLES: Record<string, string> = {
   "/model": "/model",
   "/cycle-model": "/cycle-model",
+  "/fast": "/fast",
   "/thinking": "/thinking",
   "/cycle-thinking": "/cycle-thinking",
   "/state": "/state",
