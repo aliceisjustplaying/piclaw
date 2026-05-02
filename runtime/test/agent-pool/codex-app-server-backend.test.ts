@@ -25,23 +25,35 @@ class StubCodexClient {
   handlers = new Set<NotificationHandler>();
   rejectTurnStart = false;
   rejectCompactStart = false;
+  rejectNextThreadStart = false;
+  holdTurn = false;
   stopped = false;
+  private threadCounter = 0;
 
   async ready() {}
 
   async request(method: string, params: unknown): Promise<unknown> {
     this.requests.push({ method, params });
-    if (method === "thread/start") return { thread: { id: "thread-1" } };
+    if (method === "thread/start") {
+      if (this.rejectNextThreadStart) {
+        this.rejectNextThreadStart = false;
+        throw new Error("thread start failed");
+      }
+      this.threadCounter += 1;
+      return { thread: { id: `thread-${this.threadCounter}` } };
+    }
     if (method === "turn/start") {
       if (this.rejectTurnStart) throw new Error("turn start failed");
-      queueMicrotask(() => this.emit({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } }));
+      const threadId = (params as any).threadId || "thread-1";
+      if (!this.holdTurn) queueMicrotask(() => this.emit({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status: "completed" } } }));
       return { turn: { id: "turn-1" } };
     }
     if (method === "thread/compact/start") {
       if (this.rejectCompactStart) throw new Error("compact start failed");
-      queueMicrotask(() => this.emit({ method: "thread/compacted", params: { threadId: "thread-1" } }));
+      queueMicrotask(() => this.emit({ method: "thread/compacted", params: { threadId: (params as any).threadId || "thread-1" } }));
       return {};
     }
+    if (method === "turn/cancel") return {};
     return {};
   }
 
@@ -189,6 +201,32 @@ test("Codex app-server detects dynamic tool changes before a replay decision", a
   }
 });
 
+test("Codex app-server keeps the old thread when restart thread/start fails", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    const firstSession: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+    const secondSession: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+        { name: "gmail_fetch_email", description: "Fetch email", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+
+    await runCodexAppServerPrompt("hello", "web:codex-restart-fail", { timeoutMs: 1000 }, firstSession);
+    client.rejectNextThreadStart = true;
+    await expect(runCodexAppServerPrompt("hello", "web:codex-restart-fail", { timeoutMs: 1000 }, secondSession)).rejects.toThrow("thread start failed");
+    expect(hasCodexAppServerThread("web:codex-restart-fail")).toBe(true);
+    expect(willCodexAppServerStartNewThread("web:codex-restart-fail", firstSession)).toBe(false);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
 test("Codex app-server removes notification handlers when start requests fail", async () => {
   const client = new StubCodexClient();
   useStubClient(client);
@@ -274,10 +312,54 @@ test("Codex app-server keeps untrusted thread state sticky across later trusted 
   }
 });
 
+test("Codex app-server carries untrusted state across dynamic tool restarts", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    const firstSession: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+    const secondSession: PiclawBridgeSession = {
+      getAllTools: () => [
+        { name: "google_calendar", description: "Calendar", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+        { name: "gmail_fetch_email", description: "Fetch email", parameters: { type: "object" }, execute: async () => ({ content: [] }) },
+      ],
+    };
+
+    await runCodexAppServerPrompt("hello", "web:codex-untrusted-restart", { timeoutMs: 1000 }, firstSession);
+    markCodexAppServerThreadUntrustedForTests("web:codex-untrusted-restart");
+    await runCodexAppServerPrompt("followup", "web:codex-untrusted-restart", { timeoutMs: 1000 }, secondSession);
+    expect(isCodexAppServerThreadUntrustedForTests("web:codex-untrusted-restart")).toBe(true);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server cancels active turns when the caller aborts", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    client.holdTurn = true;
+    const controller = new AbortController();
+    const run = runCodexAppServerPrompt("hello", "web:codex-abort", { timeoutMs: 0, signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const output = await run;
+    expect(output.status).toBe("error");
+    expect(output.error).toContain("aborted");
+    expect(client.requests.some((request) => request.method === "turn/cancel")).toBe(true);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
 test("Codex treats all bridged Piclaw tools as external data for approval safety", () => {
   expect(isCodexExternalDataToolForTests("gmail_fetch_email")).toBe(true);
   expect(isCodexExternalDataToolForTests("m365_mail")).toBe(true);
   expect(isCodexExternalDataToolForTests("m365_spo_download")).toBe(true);
   expect(isCodexExternalDataToolForTests("office_read")).toBe(true);
   expect(isCodexExternalDataToolForTests("schedule_task")).toBe(true);
+  expect(isCodexExternalDataToolForTests("anything_xyz")).toBe(true);
 });

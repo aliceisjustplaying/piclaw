@@ -47,6 +47,7 @@ import {
 import { runSidePrompt as runSidePromptInternal } from "./agent-pool/side-prompt-runner.js";
 import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
 import {
+  abortCodexAppServerChat,
   compactCodexAppServerChat,
   cycleCodexAppServerThinkingLevel,
   getCodexAppServerContextUsage,
@@ -472,6 +473,10 @@ export class AgentPool {
       if (command.type === "compact") {
         await compactCodexAppServerChat(chatJid);
         return { status: "success", message: "Codex app-server compaction complete. Context usage will update after the next token-usage event." };
+      }
+      if (command.type === "abort") {
+        const aborted = await abortCodexAppServerChat(chatJid);
+        return { status: "success", message: aborted ? "Aborted current Codex response." : "No active Codex response to abort." };
       }
       if (command.type === "context") {
         const usage = await this.getContextUsageForChat(chatJid);
