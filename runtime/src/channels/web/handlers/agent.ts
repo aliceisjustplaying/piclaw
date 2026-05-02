@@ -1338,8 +1338,10 @@ export async function processChat(
   });
 
   const channelName = detectChannel(chatJid);
-  const promptMessages = getAgentBackendConfig().backend === "codex-app-server"
-    ? [...getRecentMessagesForPrompt(chatJid, currentMessage.timestamp, 16), currentMessage]
+  const identity = getIdentityConfig();
+  const includeCodexReplay = getAgentBackendConfig().backend === "codex-app-server" && !channel.agentPool.hasActiveCodexThread(chatJid);
+  const promptMessages = includeCodexReplay
+    ? [...getRecentMessagesForPrompt(chatJid, currentMessage.timestamp, identity.assistantName, 16), currentMessage]
     : [currentMessage];
   const prompt = formatMessages(promptMessages, channelName);
   const lastMessage = currentMessage;
@@ -1351,7 +1353,6 @@ export async function processChat(
   const PREVIEW_MAX_CHARS_PER_LINE = 160;
 
   const turnId = createUuid("turn");
-  const identity = getIdentityConfig();
   const withAgentProfile = createAgentProfileBuilder(
     chatJid,
     identity.assistantName,
@@ -1653,6 +1654,7 @@ export async function processChat(
     timeoutMs,
     turnId,
     inputMediaIds: Array.isArray(currentMessage.media_ids) ? currentMessage.media_ids : [],
+    hasUntrustedExternalContent: String(currentMessage.content || "").includes("[Untrusted email notification]"),
     ...(browserObservability?.userId ? { userId: browserObservability.userId } : {}),
     ...(browserObservability?.sessionId ? { sessionId: browserObservability.sessionId } : {}),
     ...(browserObservability?.clientId ? { clientId: browserObservability.clientId } : {}),

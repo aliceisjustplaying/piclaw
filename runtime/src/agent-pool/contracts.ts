@@ -95,6 +95,8 @@ export interface RunAgentOptions {
   maxToolCalls?: number;
   /** Media IDs from the user turn that should be forwarded to compatible backends. */
   inputMediaIds?: number[];
+  /** True when the run prompt includes external data that must not approve shell/file actions automatically. */
+  hasUntrustedExternalContent?: boolean;
   /**
    * Skip Piclaw-managed pre-prompt compaction for this run.
    *
