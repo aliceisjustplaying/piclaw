@@ -71,8 +71,8 @@ function buildProviderUsageHint(primary: CodexProviderUsageWindow | null, second
   const parts: string[] = [];
   const p1 = compactPercent(primary?.remaining_percent ?? null);
   const p2 = compactPercent(secondary?.remaining_percent ?? null);
-  if (p1) parts.push(`5h ${p1}`);
-  if (p2) parts.push(`wk ${p2}`);
+  if (p1) parts.push(p1);
+  if (p2) parts.push(p2);
   return parts.join(" • ");
 }
 

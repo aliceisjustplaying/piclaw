@@ -4,6 +4,7 @@ import {
   SLASH_COMMANDS,
   formatModelPickerContextWindow,
   formatModelPickerDisplayLabel,
+  formatCompactModelUsageLabel,
   getComposeHistoryStorageKey,
   getModelPickerContextLimit,
   getModelPickerOptionSearchLabel,
@@ -355,6 +356,23 @@ test('resolveComposeRoutedModelStatus hides matching or stale routed model state
     latest_requested_model: 'openrouter/auto',
     latest_response_model: 'anthropic/claude-sonnet-4-5',
   })).toBeNull();
+});
+
+test('formatCompactModelUsageLabel renders provider limits without window names', () => {
+  expect(formatCompactModelUsageLabel({
+    primary: { remaining_percent: 98 },
+    secondary: { remaining_percent: 47 },
+    hint_short: '5h 98% • wk 47%',
+  })).toBe('98% - 47%');
+
+  expect(formatCompactModelUsageLabel({
+    primary: { remaining_percent: 67.2 },
+    secondary: null,
+  })).toBe('67%');
+
+  expect(formatCompactModelUsageLabel({
+    hint_short: '5h 98% • wk 47%',
+  })).toBe('98% - 47%');
 });
 
 test('shouldOpenModelPickerCommand only intercepts bare /model', () => {
