@@ -75,6 +75,8 @@ const envConfig = readEnvFile([
   "PICLAW_CODEX_APP_SERVER_MODEL",
   "PICLAW_CLAUDE_AGENT_SDK_MODEL",
   "PICLAW_CLAUDE_AGENT_SDK_OAUTH_TOKEN",
+  "PICLAW_EAGER_WARMUP",
+  "PICLAW_EAGER_PROVIDER_USAGE_TIMEOUT_MS",
   "PICLAW_WHATSAPP_PHONE",
   "WHATSAPP_PHONE",
   "PUSHOVER_APP_TOKEN",
@@ -212,6 +214,10 @@ const whatsappConfig =
 const compactionConfig =
   piclawConfig.compaction && typeof piclawConfig.compaction === "object"
     ? (piclawConfig.compaction as Record<string, unknown>)
+    : piclawConfig;
+const performanceConfig =
+  piclawConfig.performance && typeof piclawConfig.performance === "object"
+    ? (piclawConfig.performance as Record<string, unknown>)
     : piclawConfig;
 
 function hasDefinedConfigValue(source: Record<string, unknown>, keys: string[]): boolean {
@@ -520,6 +526,35 @@ export const AGENT_BACKEND_CONFIG = Object.freeze<AgentBackendConfig>({
 
 export function getAgentBackendConfig(): Readonly<AgentBackendConfig> {
   return AGENT_BACKEND_CONFIG;
+}
+
+export interface EagerWarmupConfig {
+  enabled: boolean;
+  providerUsageTimeoutMs: number;
+}
+
+function parsePositiveInteger(value: unknown, fallback: number): number {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const eagerWarmupEnabled =
+  pickBoolean({ PICLAW_EAGER_WARMUP: process.env.PICLAW_EAGER_WARMUP ?? envConfig.PICLAW_EAGER_WARMUP }, ["PICLAW_EAGER_WARMUP"]) ??
+  pickBoolean(performanceConfig, ["eagerWarmup", "eager_warmup", "PICLAW_EAGER_WARMUP"]) ??
+  false;
+
+const eagerProviderUsageTimeoutRaw =
+  process.env.PICLAW_EAGER_PROVIDER_USAGE_TIMEOUT_MS ??
+  envConfig.PICLAW_EAGER_PROVIDER_USAGE_TIMEOUT_MS ??
+  pickNumber(performanceConfig, ["eagerProviderUsageTimeoutMs", "eager_provider_usage_timeout_ms", "PICLAW_EAGER_PROVIDER_USAGE_TIMEOUT_MS"]);
+
+export const EAGER_WARMUP_CONFIG = Object.freeze<EagerWarmupConfig>({
+  enabled: eagerWarmupEnabled,
+  providerUsageTimeoutMs: parsePositiveInteger(eagerProviderUsageTimeoutRaw, 2500),
+});
+
+export function getEagerWarmupConfig(): Readonly<EagerWarmupConfig> {
+  return EAGER_WARMUP_CONFIG;
 }
 
 /** Parse a numeric port string, falling back to `fallback` on failure. */

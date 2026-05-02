@@ -151,6 +151,37 @@ describe("core config", () => {
     }
   });
 
+  test("loads eager warmup settings from config and env", () => {
+    const workspace = createTempWorkspace("piclaw-eager-warmup-config-");
+    try {
+      writeWorkspaceConfig(workspace.workspace, {
+        performance: {
+          eagerWarmup: true,
+          eagerProviderUsageTimeoutMs: 1500,
+        },
+      });
+
+      const configSnapshot = loadConfigInSubprocess(workspace, ["call:getEagerWarmupConfig"]);
+      expect(configSnapshot["call:getEagerWarmupConfig"]).toEqual({
+        enabled: true,
+        providerUsageTimeoutMs: 1500,
+      });
+
+      const envSnapshot = loadConfigInSubprocess(workspace, ["call:getEagerWarmupConfig"], {
+        env: {
+          PICLAW_EAGER_WARMUP: "0",
+          PICLAW_EAGER_PROVIDER_USAGE_TIMEOUT_MS: "750",
+        },
+      });
+      expect(envSnapshot["call:getEagerWarmupConfig"]).toEqual({
+        enabled: false,
+        providerUsageTimeoutMs: 750,
+      });
+    } finally {
+      workspace.cleanup();
+    }
+  });
+
   test("CLI flags override env-derived web server settings", () => {
     const workspace = createTempWorkspace("piclaw-config-");
     try {
