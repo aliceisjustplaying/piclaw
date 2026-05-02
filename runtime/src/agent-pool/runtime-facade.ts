@@ -588,13 +588,9 @@ export class AgentRuntimeFacade {
     contextWindow: number;
     percent: number | null;
   } | null {
-    const codexUsage = getCodexAppServerContextUsage(chatJid);
-    if (codexUsage) return codexUsage;
     const backend = getChatAgentBackend(chatJid);
-    if (backend === "codex-app-server") return null;
-    const claudeUsage = getClaudeAgentSdkContextUsage(chatJid);
-    if (claudeUsage) return claudeUsage;
-    if (backend === "claude-agent-sdk") return null;
+    if (backend === "codex-app-server") return getCodexAppServerContextUsage(chatJid);
+    if (backend === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
     const entry = this.options.pool.get(chatJid);
     if (!entry) return null;
     return entry.runtime.session.getContextUsage() ?? null;

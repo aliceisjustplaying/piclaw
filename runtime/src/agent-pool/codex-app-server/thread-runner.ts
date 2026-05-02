@@ -32,6 +32,25 @@ import { emit, log } from "./telemetry.js";
 import type { CodexAppServerClientLike, CodexContextUsage, CodexThreadState, JsonObject, PiclawBridgeSession } from "./types.js";
 import { asError, readString, workspaceCwd } from "./utils.js";
 
+const runLocksByChat = new Map<string, Promise<unknown>>();
+
+async function withCodexChatRunLock<T>(chatJid: string, fn: () => Promise<T>): Promise<T> {
+  const previous = runLocksByChat.get(chatJid) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const current = previous.catch(() => undefined).then(() => gate);
+  runLocksByChat.set(chatJid, current);
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (runLocksByChat.get(chatJid) === current) runLocksByChat.delete(chatJid);
+  }
+}
+
 function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, threadId: string, turnId: string): void {
   void nextClient.request("turn/interrupt", { threadId, turnId }).catch((err) => {
     log.warn("Failed to cancel Codex turn", {
@@ -77,6 +96,10 @@ export async function abortCodexAppServerChat(chatJid: string): Promise<boolean>
 }
 
 export async function compactCodexAppServerChat(chatJid: string): Promise<void> {
+  return withCodexChatRunLock(chatJid, () => compactCodexAppServerChatUnlocked(chatJid));
+}
+
+async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void> {
   const nextClient = await getClient();
   const thread = threadsByChat.get(chatJid);
   if (!thread) throw new Error("Codex app-server has no active thread to compact.");
@@ -209,6 +232,15 @@ async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, 
 }
 
 export async function runCodexAppServerPrompt(
+  prompt: string,
+  chatJid: string,
+  runOptions: RunAgentOptions,
+  bridgeSession?: PiclawBridgeSession | null,
+): Promise<AgentOutput> {
+  return withCodexChatRunLock(chatJid, () => runCodexAppServerPromptUnlocked(prompt, chatJid, runOptions, bridgeSession));
+}
+
+async function runCodexAppServerPromptUnlocked(
   prompt: string,
   chatJid: string,
   runOptions: RunAgentOptions,
@@ -432,8 +464,9 @@ export async function runCodexAppServerPrompt(
     const cleanup = unsubscribe as (() => void) | null;
     cleanup?.();
     if (abortHandler) runOptions.signal?.removeEventListener("abort", abortHandler);
-    activeTurnByChat.delete(chatJid);
-    toolAbortControllersByThread.delete(thread.threadId);
+    const activeTurn = activeTurnByChat.get(chatJid);
+    if (activeTurn?.threadId === thread.threadId && activeTurn.turnId === turnId) activeTurnByChat.delete(chatJid);
+    if (toolAbortControllersByThread.get(thread.threadId) === abortController) toolAbortControllersByThread.delete(thread.threadId);
     abortController.abort();
     if (timeout) clearTimeout(timeout);
     if (settleTimer) clearTimeout(settleTimer);

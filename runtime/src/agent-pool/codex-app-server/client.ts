@@ -20,6 +20,8 @@ class CodexAppServerClient implements CodexAppServerClientLike {
   private pending = new Map<JsonRpcId, PendingRequest>();
   private notificationHandlers = new Set<NotificationHandler>();
   private initialized: Promise<void>;
+  private stopKillTimer: ReturnType<typeof setTimeout> | null = null;
+  private exited = false;
 
   constructor() {
     const { command, args } = appServerCommand();
@@ -35,10 +37,20 @@ class CodexAppServerClient implements CodexAppServerClientLike {
       const text = String(chunk).trim();
       if (text) log.warn("Codex app-server stderr", { operation: "codex_app_server.stderr", text });
     });
+    this.child.on("error", (error) => {
+      this.failAll(error);
+      resetCodexAppServerState();
+      if (client === this) setClient(null);
+      log.warn("Codex app-server process error", { operation: "codex_app_server.process_error", error });
+    });
     this.child.on("exit", (code, signal) => {
+      this.exited = true;
       const error = new Error(`codex app-server exited (${code ?? signal ?? "unknown"})`);
-      for (const pending of this.pending.values()) pending.reject(error);
-      this.pending.clear();
+      this.failAll(error);
+      if (this.stopKillTimer) {
+        clearTimeout(this.stopKillTimer);
+        this.stopKillTimer = null;
+      }
       resetCodexAppServerState();
       if (client === this) setClient(null);
       log.warn("Codex app-server exited", { operation: "codex_app_server.exit", code, signal });
@@ -75,17 +87,31 @@ class CodexAppServerClient implements CodexAppServerClientLike {
   }
 
   stop(): void {
-    for (const pending of this.pending.values()) pending.reject(new Error("codex app-server stopped"));
-    this.pending.clear();
-    this.child.kill();
+    this.failAll(new Error("codex app-server stopped"));
+    if (!this.exited) this.child.kill("SIGTERM");
+    this.stopKillTimer = setTimeout(() => {
+      if (!this.exited) this.child.kill("SIGKILL");
+    }, 2000);
+    this.stopKillTimer.unref?.();
   }
 
   private respond(id: JsonRpcId, result: unknown): void {
-    this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
+    this.writeJson({ jsonrpc: "2.0", id, result }, "respond");
   }
 
   private notify(method: string, params: unknown): void {
-    this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+    this.writeJson({ jsonrpc: "2.0", method, params }, "notify");
+  }
+
+  private writeJson(payload: unknown, operation: string): void {
+    this.child.stdin.write(`${JSON.stringify(payload)}\n`, (err) => {
+      if (err) log.warn("Codex app-server stdin write failed", { operation: `codex_app_server.${operation}_write_failed`, err });
+    });
+  }
+
+  private failAll(error: Error): void {
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
   }
 
   private handleLine(line: string): void {
