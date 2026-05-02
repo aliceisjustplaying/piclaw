@@ -396,12 +396,25 @@ export function stripCodexModelPrefix(label) {
     return value;
 }
 
+export function formatCompactModelLabel(label) {
+    const stripped = stripCodexModelPrefix(label);
+    const lower = stripped.toLowerCase();
+    const claudeVersionMatch = lower.match(/^claude-(?:opus|sonnet)-(\d+)[.-](\d+)/);
+    if (claudeVersionMatch) return `${claudeVersionMatch[1]}.${claudeVersionMatch[2]}`;
+    if (lower.includes('gpt-5.4-mini')) return '5.4m';
+    if (lower.includes('gpt-5.3-codex-spark')) return '5.3cs';
+    if (lower.includes('gpt-5.3-codex')) return '5.3c';
+    const gptVersionMatch = lower.match(/^gpt-(\d+)\.(\d+)/);
+    if (gptVersionMatch) return `${gptVersionMatch[1]}.${gptVersionMatch[2]}`;
+    return stripped;
+}
+
 export function shouldOpenModelPickerCommand(value) {
     return /^\/model\s*$/i.test(String(value || '').trim());
 }
 
 export function formatModelPickerDisplayLabel(label, contextWindow) {
-    const primaryLabel = stripCodexModelPrefix(label);
+    const primaryLabel = formatCompactModelLabel(label);
     const contextLabel = formatModelPickerContextWindow(contextWindow);
     if (!primaryLabel) return contextLabel;
     if (!contextLabel) return primaryLabel;
@@ -465,6 +478,7 @@ export function normalizeModelPickerOptions(payload) {
 export function getModelPickerOptionSearchLabel(option) {
     if (!option || typeof option !== 'object') return '';
     return [
+        formatCompactModelLabel(option.label),
         stripCodexModelPrefix(option.label),
         option.label,
         option.provider,
@@ -479,7 +493,7 @@ export function resolveComposeModelPickerState(activeModel, agentModelsPayload) 
     if (modelLabel) {
         return {
             showPicker: true,
-            label: stripCodexModelPrefix(modelLabel),
+            label: formatCompactModelLabel(modelLabel),
             hasAvailableModels: true,
         };
     }
@@ -2664,7 +2678,7 @@ export function ComposeBox({
                                 `}
                                 ${!loadingModels && modelOptions.map((modelOption, index) => {
                                     const modelLabel = typeof modelOption?.label === 'string' ? modelOption.label : '';
-                                    const modelUiLabel = stripCodexModelPrefix(modelLabel);
+                                    const modelUiLabel = formatCompactModelLabel(modelLabel);
                                     const contextWindowLabel = formatModelPickerContextWindow(modelOption?.contextWindow);
                                     const modelName = typeof modelOption?.name === 'string' ? modelOption.name.trim() : '';
                                     const modelDisplayName = modelName && modelName !== modelUiLabel ? modelName : null;

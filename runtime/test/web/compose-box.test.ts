@@ -300,9 +300,14 @@ test('model picker helpers expose searchable names, formatted context windows, a
   };
 
   expect(formatModelPickerContextWindow(200000)).toBe('200K ctx');
-  expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4', 200000)).toBe('claude-sonnet-4 • 200K ctx');
-  expect(formatModelPickerDisplayLabel('claude/claude-opus-4-6[1m]', null)).toBe('claude-opus-4-6[1m]');
-  expect(formatModelPickerDisplayLabel('codex/gpt-5.5', 400000)).toBe('gpt-5.5 • 400K ctx');
+  expect(formatModelPickerDisplayLabel('anthropic/claude-sonnet-4-7', 200000)).toBe('4.7 • 200K ctx');
+  expect(formatModelPickerDisplayLabel('claude/claude-opus-4-6[1m]', null)).toBe('4.6');
+  expect(formatModelPickerDisplayLabel('claude/claude-opus-4-5', null)).toBe('4.5');
+  expect(formatModelPickerDisplayLabel('codex/gpt-5.5', 400000)).toBe('5.5 • 400K ctx');
+  expect(formatModelPickerDisplayLabel('codex/gpt-5.4-mini', null)).toBe('5.4m');
+  expect(formatModelPickerDisplayLabel('codex/gpt-5.3-codex-spark', null)).toBe('5.3cs');
+  expect(formatModelPickerDisplayLabel('codex/gpt-5.3-codex', null)).toBe('5.3c');
+  expect(formatModelPickerDisplayLabel('codex/gpt-5.2', null)).toBe('5.2');
   expect(getModelPickerOptionSearchLabel(option)).toContain('anthropic/claude-sonnet-4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('Claude Sonnet 4');
   expect(getModelPickerOptionSearchLabel(option)).toContain('200K ctx');
@@ -356,7 +361,7 @@ test('resolveComposeModelPickerState keeps the model picker visible for cold cha
     model_options: [{ label: 'codex/gpt-5.5', provider: 'codex', id: 'gpt-5.5' }],
   })).toEqual({
     showPicker: true,
-    label: 'gpt-5.5',
+    label: '5.5',
     hasAvailableModels: true,
   });
 
