@@ -228,3 +228,12 @@ test('renderMarkdown honors sanitize: false for trusted surfaces', async () => {
   expect(renderMarkdown('trusted', null)).toBe('<a>trusted</a>');
   expect(renderMarkdown('trusted', null, { sanitize: false })).toBe('<a href="javascript:alert(1)">trusted</a>');
 });
+
+test('renderPlainTextPreview preserves kaomoji and escapes html without markdown parsing', async () => {
+  const { renderPlainTextPreview } = await import('../../web/src/markdown.ts');
+
+  const output = renderPlainTextPreview('(._.) **no bold** <script>x</script>\n(￣^￣)');
+
+  expect(output).toBe('(._.) **no bold** &lt;script&gt;x&lt;/script&gt;<br>(￣^￣)');
+  expect(output).not.toContain('<strong>');
+});

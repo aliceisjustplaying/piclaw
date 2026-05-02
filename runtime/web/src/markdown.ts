@@ -652,6 +652,19 @@ export function renderThinkingMarkdown(text) {
     return html_content;
 }
 
+/** Render transient draft/thinking stream text as plain HTML, not markdown. */
+export function renderPlainTextPreview(text) {
+    if (!text) return '';
+    const normalized = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    return normalized
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\n/g, '<br>');
+}
+
 // Render pending mermaid diagrams in the DOM
 /**
  * Post-process Mermaid SVG: replace sharp orthogonal polyline corners with

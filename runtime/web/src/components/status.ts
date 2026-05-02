@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { addToWhitelist, getWorkspaceBranch, respondToAgentRequest } from '../api.js';
-import { renderThinkingMarkdown } from '../markdown.js';
+import { renderPlainTextPreview, renderThinkingMarkdown } from '../markdown.js';
 import { getTurnColor } from '../ui/agent-utils.js';
 import { buildTurnDotClass, resolveRunningStatusIndicator, shouldShowRunningStatusDot } from '../ui/status-dot.js';
 import { getStatusElapsedLabel, getStatusRetryCountdownLabel, isCompactionStatus, parseStatusLastEventAt, parseStatusStartedAt, resolveStatusPanelTitle } from '../ui/status-duration.js';
@@ -387,6 +387,9 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
         if (!sourceText && !(Number.isFinite(truncated.totalLines) && truncated.totalLines > 0)) return null;
         const bodyClass = `agent-thinking-body${isCollapsible ? ' agent-thinking-body-collapsible' : ''}`;
         const bodyStyle = isCollapsible ? `--agent-thinking-collapsed-lines: ${maxLines};` : '';
+        const renderedBody = panelKey === 'thought' || panelKey === 'draft'
+            ? renderPlainTextPreview(sourceText)
+            : renderThinkingMarkdown(sourceText);
         return html`
             <div
                 class="agent-thinking"
@@ -410,7 +413,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                 <div
                     class=${bodyClass}
                     style=${bodyStyle}
-                    dangerouslySetInnerHTML=${{ __html: renderThinkingMarkdown(sourceText) }}
+                    dangerouslySetInnerHTML=${{ __html: renderedBody }}
                 />
                 ${!isExpanded && truncated.omitted > 0 && html`
                     <button class="agent-thinking-truncation" onClick=${() => toggleExpand(panelKey)}>
