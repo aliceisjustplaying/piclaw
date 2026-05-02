@@ -42,8 +42,25 @@ async function listMemoryFiles(): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
+async function resolveExistingMemoryFile(file: string, root = MEMORY_DIR): Promise<string> {
+  const resolved = resolveMemoryFileForTests(file, root);
+  const [realRoot, realFile] = await Promise.all([
+    fs.realpath(root),
+    fs.realpath(resolved),
+  ]);
+  if (realFile !== realRoot && !realFile.startsWith(`${realRoot}${path.sep}`)) {
+    throw new Error("memory file must be inside the memory directory");
+  }
+  return realFile;
+}
+
 async function readMemoryFile(file: string): Promise<string> {
-  return await fs.readFile(resolveMemoryFileForTests(file), "utf8");
+  return await fs.readFile(await resolveExistingMemoryFile(file), "utf8");
+}
+
+/** Read a memory file with realpath containment checks; exported for tests. */
+export async function readMemoryFileForTests(file: string, root = MEMORY_DIR): Promise<string> {
+  return await fs.readFile(await resolveExistingMemoryFile(file, root), "utf8");
 }
 
 async function runPersonalMemory(params: MemoryParams): Promise<Record<string, unknown>> {
