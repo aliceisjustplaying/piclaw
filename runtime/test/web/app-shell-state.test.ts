@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   BTW_SESSION_KEY,
+  LAST_CHAT_JID_KEY,
   describeSearchScope,
   getCurrentAppAssetVersion,
   getRenameBranchFormLock,
@@ -113,4 +114,20 @@ test('readAppLocationModes parses the current shell mode flags from URL params',
     branchLoaderMode: false,
     branchLoaderSourceChatJid: 'web:default',
   });
+
+  expect(readAppLocationModes(new URLSearchParams(), {
+    readItem: (key) => key === LAST_CHAT_JID_KEY ? 'web:remembered' : null,
+  })).toEqual({
+    currentChatJid: 'web:remembered',
+    chatOnlyMode: false,
+    panePopoutMode: false,
+    panePopoutPath: '',
+    panePopoutLabel: '',
+    branchLoaderMode: false,
+    branchLoaderSourceChatJid: 'web:remembered',
+  });
+
+  expect(readAppLocationModes(new URLSearchParams({ chat_jid: 'web:explicit' }), {
+    readItem: () => 'web:remembered',
+  }).currentChatJid).toBe('web:explicit');
 });

@@ -24,6 +24,7 @@ import {
 import { formatBranchPickerLabel } from './ui/branch-lifecycle.js';
 import {
     getCurrentAppAssetVersion,
+    LAST_CHAT_JID_KEY,
     getRenameBranchFormLock,
     readAppLocationModes,
 } from './ui/app-shell-state.js';
@@ -113,6 +114,7 @@ function MainApp({ locationParams, navigate }) {
         if (typeof window === 'undefined') return;
         window.__piclawCurrentChatJid = currentChatJid;
         window.dispatchEvent?.(new CustomEvent('piclaw:current-chat-changed', { detail: { chatJid: currentChatJid } }));
+        if (currentChatJid) setLocalStorageItem(LAST_CHAT_JID_KEY, currentChatJid);
     }, [currentChatJid]);
 
     const surface = useMainAppSurfaceState({

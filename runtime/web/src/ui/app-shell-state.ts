@@ -3,6 +3,9 @@ import { getLocalStorageItem } from '../utils/storage.js';
 /** Shared localStorage key for the BTW side-conversation session cache. */
 export const BTW_SESSION_KEY = 'piclaw_btw_session';
 
+/** Shared localStorage key for the last selected chat/session. */
+export const LAST_CHAT_JID_KEY = 'piclaw_last_chat_jid';
+
 /** Cooldown window that prevents duplicate branch-rename submits. */
 export const RENAME_BRANCH_FORM_GUARD_MS = 900;
 
@@ -67,6 +70,7 @@ export interface LoadStoredBtwSessionOptions {
 /** Optional overrides for parsing location-driven app shell modes. */
 export interface ReadAppLocationModesOptions {
   defaultChatJid?: string;
+  readItem?: (key: string) => string | null | undefined;
 }
 
 /** Optional override for the window-global rename form lock carrier. */
@@ -99,6 +103,12 @@ function readAssetVersionFromImportMeta(importMetaUrl: string | null | undefined
 function readTextParam(locationParams: LocationParamsLike, key: string, fallback = ''): string {
   const raw = locationParams?.get?.(key);
   return raw && raw.trim() ? raw.trim() : fallback;
+}
+
+function readStoredChatJid(options: ReadAppLocationModesOptions): string | null {
+  const readItem = typeof options.readItem === 'function' ? options.readItem : getLocalStorageItem;
+  const raw = readItem(LAST_CHAT_JID_KEY);
+  return raw && raw.trim() ? raw.trim() : null;
 }
 
 /** Resolve the current authenticated app bundle version from import.meta or the loaded script tag. */
@@ -182,7 +192,7 @@ export function readAppLocationModes(
   options: ReadAppLocationModesOptions = {},
 ): AppLocationModes {
   const defaultChatJid = options.defaultChatJid || 'web:default';
-  const currentChatJid = readTextParam(locationParams, 'chat_jid', defaultChatJid);
+  const currentChatJid = readTextParam(locationParams, 'chat_jid', readStoredChatJid(options) || defaultChatJid);
   const chatOnlyMode = readModeParam(locationParams?.get?.('chat_only') || locationParams?.get?.('chat-only'));
   const panePopoutMode = readModeParam(locationParams?.get?.('pane_popout'));
   const panePopoutPath = readTextParam(locationParams, 'pane_path');
