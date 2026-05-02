@@ -46,7 +46,7 @@ if (!INTERNAL_SECRET) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Internal-Secret": INTERNAL_SECRET,
+        "x-piclaw-internal-secret": INTERNAL_SECRET,
       },
       body: JSON.stringify({ secret: INTERNAL_SECRET }),
     });
