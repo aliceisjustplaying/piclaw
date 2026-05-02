@@ -54,30 +54,74 @@ bun run test
 |----------|----------|---------|-------------|
 | `OPENCODE_API_KEY` | No | — | OpenCode API key (free models work without) |
 | `OPENCODE_BASE_URL` | No | `https://opencode.ai/zen/v1` | OpenCode ZEN API endpoint |
-| `OPENCODE_MODEL` | No | `hy3-preview-free` | Model to use for tests |
+| `OPENCODE_MODEL` | No | `minimax-m2.5-free` | Model to use for tests |
 | `PICLAW_E2E_URL` | Yes (tests) | `http://localhost:3000` | PiClaw instance URL |
 | `PICLAW_INTERNAL_SECRET` | Yes (tests) | — | Instance internal secret for auth |
 
-## OpenCode Free Tier Models
+## Provider Options
 
-These models require **no API key** and are accessible at `https://opencode.ai/zen/v1`:
+### Option A: OpenCode ZEN (no auth, anywhere)
 
-| Model | Type | Best for |
-|-------|------|----------|
-| `minimax-m2.5-free` | Fast, minimal reasoning | **Recommended for E2E** — 38 tokens for simple replies |
-| `hy3-preview-free` | Heavy reasoning + content | Alternative — needs ~1000 tokens to finish reasoning |
+```bash
+bun run setup/configure-test-instance.ts
+```
 
-Note: Free models return both `reasoning` and `content` fields. PiClaw handles this via the standard openai-completions adapter.
+- No API key required
+- Works anywhere (local, CI, etc.)
+- Model: `minimax-m2.5-free` — fast, 38 tokens for hello
+- Free models return both `reasoning` and `content` fields
+
+### Option B: GitHub Models (zero-config in CI)
+
+```bash
+# In GitHub Actions — GITHUB_TOKEN is automatic:
+bun run setup/configure-github-models.ts
+
+# Locally with a PAT:
+GITHUB_TOKEN=ghp_... bun run setup/configure-github-models.ts
+```
+
+- Uses `$GITHUB_TOKEN` (auto-injected in Actions runners)
+- Model: `gpt-4o-mini` — fast, predictable, 19 tokens for hello
+- **Preferred for CI** — reliable, no external dependency
+- Requires `permissions: { models: read }` in workflow
+
+### Recommendation
+
+| Environment | Use |
+|-------------|-----|
+| GitHub Actions CI | **GitHub Models** (`gpt-4o-mini`, zero-config) |
+| Local development | **OpenCode ZEN** (`minimax-m2.5-free`, no credentials) |
+| Microvm test | Either (both work) |
 
 ## CI Integration
 
-For CI/CD pipelines, set these as secrets:
+For CI/CD pipelines using GitHub Models (preferred — no secrets needed):
 
 ```yaml
-env:
-  OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-  PICLAW_E2E_URL: http://localhost:3000
-  PICLAW_INTERNAL_SECRET: ${{ secrets.PICLAW_INTERNAL_SECRET }}
+permissions:
+  models: read
+
+steps:
+  - name: Configure E2E LLM
+    run: bun run tests/e2e/setup/configure-github-models.ts
+    # GITHUB_TOKEN is automatic
+
+  - name: Run E2E tests
+    run: bun run test
+    working-directory: tests/e2e
+    env:
+      PICLAW_E2E_URL: http://localhost:3000
+      PICLAW_INTERNAL_SECRET: ${{ secrets.PICLAW_INTERNAL_SECRET }}
+```
+
+Or using OpenCode (no secrets at all):
+
+```yaml
+steps:
+  - name: Configure E2E LLM
+    run: bun run tests/e2e/setup/configure-test-instance.ts
+    # No env vars needed
 ```
 
 ## Microvm Target

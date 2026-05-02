@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "setup": "bun run setup/configure-test-instance.ts",
+    "setup:github": "bun run setup/configure-github-models.ts",
     "validate": "bun run setup/validate-test-config.ts",
     "test": "playwright test",
     "test:compose": "playwright test steps/us02-*",
