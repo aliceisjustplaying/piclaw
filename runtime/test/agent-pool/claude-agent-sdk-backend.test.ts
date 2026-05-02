@@ -9,6 +9,7 @@ import {
   listClaudeAgentSdkModels,
   resetClaudeAgentSdkBackendForTests,
   runClaudeAgentSdkPrompt,
+  setClaudeAgentSdkModel,
   setClaudeAgentSdkOAuthTokenResolverForTests,
   setClaudeAgentSdkQueryFactoryForTests,
 } from "../../src/agent-pool/claude-agent-sdk-backend.js";
@@ -73,7 +74,13 @@ test("Claude Agent SDK backend stores rate limit events for status UI", async ()
 });
 
 test("Claude Agent SDK backend exposes Opus 4.6 one-million-context option", () => {
-  expect(listClaudeAgentSdkModels().map((model) => model.id)).toContain("claude-opus-4.6[1m]");
+  expect(listClaudeAgentSdkModels().map((model) => model.id)).toContain("claude-opus-4-6[1m]");
+});
+
+test("Claude Agent SDK backend normalizes the old dotted Opus 4.6 model id", async () => {
+  const label = await setClaudeAgentSdkModel("web:test", "claude-opus-4.6[1m]");
+
+  expect(label).toBe("claude/claude-opus-4-6[1m]");
 });
 
 test("Claude Agent SDK prompt advertises bridged Gmail and calendar tools", () => {

@@ -31,6 +31,9 @@ const modelByChat = new Map<string, string>();
 const CLAUDE_THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"] as const;
 type ClaudeThinkingLevel = typeof CLAUDE_THINKING_LEVELS[number];
 const DEFAULT_THINKING_LEVEL: ClaudeThinkingLevel = "high";
+const CLAUDE_MODEL_ALIASES: Record<string, string> = {
+  "claude-opus-4.6[1m]": "claude-opus-4-6[1m]",
+};
 
 type PersistedClaudeState = {
   model?: string | null;
@@ -44,6 +47,12 @@ function readPersistedState(chatJid: string): PersistedClaudeState {
 function writePersistedState(chatJid: string, patch: PersistedClaudeState): void {
   const next = { ...readPersistedState(chatJid), ...patch };
   extensionKvSet(STATE_EXTENSION_ID, STATE_KEY, next, "chat", chatJid);
+}
+
+function normalizeClaudeModelId(value: string | null | undefined): string | null {
+  const raw = (value || "").trim();
+  if (!raw || raw === "default") return null;
+  return CLAUDE_MODEL_ALIASES[raw] ?? raw;
 }
 
 export function setClaudeAgentSdkQueryFactoryForTests(factory: ClaudeQueryFactory | null): void {
@@ -66,8 +75,9 @@ export function resetClaudeAgentSdkBackendForTests(): void {
 }
 
 export function getClaudeAgentSdkModelLabel(chatJid?: string): string {
-  const persisted = chatJid ? readPersistedState(chatJid).model : null;
-  const model = chatJid ? (modelByChat.get(chatJid) ?? persisted ?? getAgentBackendConfig().claudeAgentSdkModel) : getAgentBackendConfig().claudeAgentSdkModel;
+  const persisted = chatJid ? normalizeClaudeModelId(readPersistedState(chatJid).model) : null;
+  const configured = normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel);
+  const model = chatJid ? (normalizeClaudeModelId(modelByChat.get(chatJid)) ?? persisted ?? configured) : configured;
   return model ? `claude/${model}` : "claude/default";
 }
 
@@ -75,10 +85,10 @@ export function listClaudeAgentSdkModels(): { label: string; provider: string; i
   const configured = getAgentBackendConfig().claudeAgentSdkModel;
   const ids = Array.from(new Set([
     "default",
-    "claude-opus-4.6[1m]",
+    "claude-opus-4-6[1m]",
     "opus",
     "sonnet",
-    ...(configured ? [configured] : []),
+    ...(normalizeClaudeModelId(configured) ? [normalizeClaudeModelId(configured)!] : []),
   ]));
   return ids.map((id) => ({
     label: `claude/${id}`,
@@ -130,7 +140,8 @@ export function cycleClaudeAgentSdkThinkingLevel(chatJid: string): ClaudeThinkin
 export async function setClaudeAgentSdkModel(chatJid: string, requested: string | undefined): Promise<string> {
   const raw = (requested || "").trim();
   if (!raw) throw new Error("Missing Claude model.");
-  const id = raw.startsWith("claude/") ? raw.slice("claude/".length) : raw;
+  const requestedId = raw.startsWith("claude/") ? raw.slice("claude/".length) : raw;
+  const id = normalizeClaudeModelId(requestedId) ?? "default";
   modelByChat.set(chatJid, id === "default" ? "" : id);
   writePersistedState(chatJid, { model: id === "default" ? null : id });
   return getClaudeAgentSdkModelLabel(chatJid);
@@ -350,7 +361,7 @@ export async function runClaudeAgentSdkPrompt(
   const streamState = { textStarted: false, text: "", thinkingStarted: false, thinking: "" };
   let errorMessage: string | null = null;
   const sessionId = sessionIdByChat.get(chatJid);
-  const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel || undefined;
+  const selectedModel = normalizeClaudeModelId(modelByChat.get(chatJid)) || normalizeClaudeModelId(readPersistedState(chatJid).model) || normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel) || undefined;
   const promptWithAttachments = buildClaudePrompt(chatJid, prompt, runOptions.inputMediaIds, bridgeSession);
   const options: Options & { getOAuthToken?: (options: { signal: AbortSignal }) => Promise<string | null> } = {
     abortController: controller,
