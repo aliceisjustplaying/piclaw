@@ -67,7 +67,7 @@ class StubCodexClient {
       });
       return {};
     }
-    if (method === "turn/cancel") return {};
+    if (method === "turn/interrupt") return {};
     return {};
   }
 
@@ -407,7 +407,7 @@ test("Codex app-server cancels active turns when the caller aborts", async () =>
     const output = await run;
     expect(output.status).toBe("error");
     expect(output.error).toContain("aborted");
-    expect(client.requests.some((request) => request.method === "turn/cancel")).toBe(true);
+    expect(client.requests.some((request) => request.method === "turn/interrupt")).toBe(true);
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }
@@ -423,7 +423,7 @@ test("Codex app-server ignores caller abort after a completed turn", async () =>
     controller.abort();
     const output = await run;
     expect(output.status).toBe("success");
-    expect(client.requests.some((request) => request.method === "turn/cancel")).toBe(false);
+    expect(client.requests.some((request) => request.method === "turn/interrupt")).toBe(false);
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }

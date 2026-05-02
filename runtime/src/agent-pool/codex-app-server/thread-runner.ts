@@ -32,7 +32,7 @@ import type { CodexAppServerClientLike, CodexContextUsage, CodexThreadState, Jso
 import { asError, readString, workspaceCwd } from "./utils.js";
 
 function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, threadId: string, turnId: string): void {
-  void nextClient.request("turn/cancel", { threadId, turnId }).catch((err) => {
+  void nextClient.request("turn/interrupt", { threadId, turnId }).catch((err) => {
     log.warn("Failed to cancel Codex turn", {
       operation: "codex_app_server.turn_cancel_failed",
       chatJid,
