@@ -4,12 +4,22 @@ import { createRequire } from "node:module";
 
 import { WORKSPACE_DIR, getAgentBackendConfig } from "../core/config.js";
 import { extensionKvGet, extensionKvSet } from "../db.js";
-import { getAttachmentRegistry } from "./attachments.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
 import type { PiclawBridgeSession } from "./codex-app-server-backend.js";
 import { buildAgentChildEnv } from "./child-env.js";
 import { buildClaudePrompt, createPiclawMcpServer, type ClaudeBridgeTrustState } from "./claude-agent-sdk/bridge.js";
+import { withScopedChatRunLock } from "./chat-run-lock.js";
+import { createNativeAbortHandle } from "./native-abort.js";
+import {
+  createNativeStreamState,
+  emitNativeEvent,
+  emitNativeMessageEnd,
+  emitNativeTextDelta,
+  emitNativeThinkingDelta,
+  finishNativeStreams,
+  nativeOutputWithAttachments,
+} from "./native-stream.js";
 
 const log = createLogger("agent-pool.claude-agent-sdk");
 const DEFAULT_CONTEXT_WINDOW = 200_000;
@@ -29,7 +39,6 @@ const contextUsageByChat = new Map<string, { tokens: number | null; contextWindo
 const providerUsageByChat = new Map<string, unknown>();
 const thinkingLevelByChat = new Map<string, ClaudeThinkingLevel>();
 const modelByChat = new Map<string, string>();
-const runLocksByChat = new Map<string, Promise<unknown>>();
 
 const CLAUDE_THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"] as const;
 type ClaudeThinkingLevel = typeof CLAUDE_THINKING_LEVELS[number];
@@ -80,7 +89,6 @@ export function resetClaudeAgentSdkBackendForTests(): void {
   providerUsageByChat.clear();
   thinkingLevelByChat.clear();
   modelByChat.clear();
-  runLocksByChat.clear();
 }
 
 export function getClaudeAgentSdkModelLabel(chatJid?: string): string {
@@ -168,56 +176,6 @@ async function resolveOAuthToken(): Promise<string | null> {
   const configured = getAgentBackendConfig().claudeAgentSdkOAuthToken;
   if (configured) return configured;
   return null;
-}
-
-function emit(onEvent: RunAgentOptions["onEvent"], event: AgentSessionEvent): void {
-  onEvent?.(event);
-}
-
-function emitText(runOptions: RunAgentOptions, text: string, state?: { textStarted: boolean; text: string }): void {
-  if (!text) return;
-  if (!state || !state.textStarted) {
-    emit(runOptions.onEvent, {
-      type: "message_update",
-      assistantMessageEvent: { type: "text_start", contentIndex: 0, partial: { type: "text", text: "" } },
-    } as unknown as AgentSessionEvent);
-    if (state) state.textStarted = true;
-  }
-  const nextText = state ? (state.text += text) : text;
-  emit(runOptions.onEvent, {
-    type: "message_update",
-    assistantMessageEvent: { type: "text_delta", delta: text, contentIndex: 0, partial: { type: "text", text: nextText } },
-  } as unknown as AgentSessionEvent);
-}
-
-function endText(runOptions: RunAgentOptions, text: string): void {
-  emit(runOptions.onEvent, {
-    type: "message_update",
-    assistantMessageEvent: { type: "text_end", contentIndex: 0, partial: { type: "text", text } },
-  } as unknown as AgentSessionEvent);
-}
-
-function emitThinking(runOptions: RunAgentOptions, delta: string, state: { thinkingStarted: boolean; thinking: string }): void {
-  if (!delta) return;
-  if (!state.thinkingStarted) {
-    emit(runOptions.onEvent, {
-      type: "message_update",
-      assistantMessageEvent: { type: "thinking_start", contentIndex: 0, partial: { type: "thinking", thinking: "" } },
-    } as unknown as AgentSessionEvent);
-    state.thinkingStarted = true;
-  }
-  state.thinking += delta;
-  emit(runOptions.onEvent, {
-    type: "message_update",
-    assistantMessageEvent: { type: "thinking_delta", delta, contentIndex: 0, partial: { type: "thinking", thinking: state.thinking } },
-  } as unknown as AgentSessionEvent);
-}
-
-function endThinking(runOptions: RunAgentOptions, thinking: string): void {
-  emit(runOptions.onEvent, {
-    type: "message_update",
-    assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: thinking },
-  } as unknown as AgentSessionEvent);
 }
 
 function extractAssistantText(message: SDKMessage): string {
@@ -350,9 +308,9 @@ function thinkingOptions(level: ClaudeThinkingLevel): Pick<Options, "thinking" |
 
 export async function compactClaudeAgentSdkChat(chatJid: string): Promise<boolean> {
   if (!sessionIdByChat.has(chatJid)) return false;
-  emit(undefined, { type: "compaction_start", reason: "manual" } as AgentSessionEvent);
+  emitNativeEvent(undefined, { type: "compaction_start", reason: "manual" } as AgentSessionEvent);
   const output = await runClaudeAgentSdkPrompt("/compact", chatJid, { timeoutMs: 120_000 });
-  emit(undefined, { type: "compaction_end", reason: "manual", result: undefined, aborted: false, willRetry: false } as AgentSessionEvent);
+  emitNativeEvent(undefined, { type: "compaction_end", reason: "manual", result: undefined, aborted: false, willRetry: false } as AgentSessionEvent);
   return output.status === "success";
 }
 
@@ -362,20 +320,7 @@ export async function runClaudeAgentSdkPrompt(
   runOptions: RunAgentOptions,
   bridgeSession?: PiclawBridgeSession | null,
 ): Promise<AgentOutput> {
-  const previous = runLocksByChat.get(chatJid) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const current = previous.catch(() => undefined).then(() => gate);
-  runLocksByChat.set(chatJid, current);
-  await previous.catch(() => undefined);
-  try {
-    return await runClaudeAgentSdkPromptUnlocked(prompt, chatJid, runOptions, bridgeSession);
-  } finally {
-    release();
-    if (runLocksByChat.get(chatJid) === current) runLocksByChat.delete(chatJid);
-  }
+  return withScopedChatRunLock("claude-agent-sdk", chatJid, () => runClaudeAgentSdkPromptUnlocked(prompt, chatJid, runOptions, bridgeSession));
 }
 
 async function runClaudeAgentSdkPromptUnlocked(
@@ -387,23 +332,18 @@ async function runClaudeAgentSdkPromptUnlocked(
   if (runOptions.signal?.aborted) return { status: "error", result: null, error: "Claude Agent SDK aborted" };
   const token = await resolveOAuthToken();
 
-  const controller = new AbortController();
-  const abortFromCaller = () => controller.abort();
-  runOptions.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  if (runOptions.signal?.aborted) controller.abort();
-  activeRunsByChat.set(chatJid, controller);
-  const timeoutMs = typeof runOptions.timeoutMs === "number" ? runOptions.timeoutMs : 0;
-  const timeout = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  const abortHandle = createNativeAbortHandle(runOptions);
+  if (!abortHandle) return { status: "error", result: null, error: "Claude Agent SDK aborted" };
+  activeRunsByChat.set(chatJid, abortHandle.controller);
 
-  let finalText = "";
-  const streamState = { textStarted: false, text: "", thinkingStarted: false, thinking: "" };
+  const streamState = createNativeStreamState();
   let errorMessage: string | null = null;
   const sessionId = sessionIdByChat.get(chatJid);
   const selectedModel = normalizeClaudeModelId(modelByChat.get(chatJid)) || normalizeClaudeModelId(readPersistedState(chatJid).model) || normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel) || undefined;
   const promptWithAttachments = buildClaudePrompt(chatJid, prompt, runOptions.inputMediaIds, bridgeSession);
   const bridgeTrustState: ClaudeBridgeTrustState = { hasUntrustedExternalContent: runOptions.hasUntrustedExternalContent === true };
   const options: Options & { getOAuthToken?: (options: { signal: AbortSignal }) => Promise<string | null> } = {
-    abortController: controller,
+    abortController: abortHandle.controller,
     cwd: WORKSPACE_DIR,
     pathToClaudeCodeExecutable: resolveClaudeCodeExecutable(),
     env: buildAgentChildEnv("claude", {
@@ -431,24 +371,21 @@ async function runClaudeAgentSdkPromptUnlocked(
         const event = (message as any).event;
         const delta = event?.delta;
         if (event?.type === "content_block_delta" && delta?.type === "text_delta" && typeof delta.text === "string") {
-          finalText += delta.text;
-          emitText(runOptions, delta.text, streamState);
+          emitNativeTextDelta(runOptions, delta.text, streamState);
         }
         if (event?.type === "content_block_delta" && (delta?.type === "thinking_delta" || delta?.type === "signature_delta")) {
           const thinkingDelta = typeof delta.thinking === "string" ? delta.thinking : typeof delta.text === "string" ? delta.text : "";
-          emitThinking(runOptions, thinkingDelta, streamState);
+          emitNativeThinkingDelta(runOptions, thinkingDelta, streamState);
         }
         continue;
       }
       const assistantText = extractAssistantText(message);
       if (assistantText && !streamState.textStarted) {
-        finalText += assistantText;
-        emitText(runOptions, assistantText, streamState);
+        emitNativeTextDelta(runOptions, assistantText, streamState);
       }
       if (message.type === "result") {
-        if ((message as any).subtype === "success" && typeof (message as any).result === "string" && !finalText) {
-          finalText = (message as any).result;
-          emitText(runOptions, finalText, streamState);
+        if ((message as any).subtype === "success" && typeof (message as any).result === "string" && !streamState.text) {
+          emitNativeTextDelta(runOptions, (message as any).result, streamState);
         } else if ((message as any).subtype !== "success") {
           const errors = Array.isArray((message as any).errors) ? (message as any).errors.filter(Boolean).join("\n") : "";
           errorMessage = errors || `Claude SDK run failed: ${(message as any).subtype}`;
@@ -458,33 +395,12 @@ async function runClaudeAgentSdkPromptUnlocked(
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error);
   } finally {
-    if (timeout) clearTimeout(timeout);
-    runOptions.signal?.removeEventListener("abort", abortFromCaller);
-    if (activeRunsByChat.get(chatJid) === controller) activeRunsByChat.delete(chatJid);
+    abortHandle.dispose();
+    if (activeRunsByChat.get(chatJid) === abortHandle.controller) activeRunsByChat.delete(chatJid);
   }
 
-  if (streamState.textStarted) endText(runOptions, streamState.text);
-  if (streamState.thinkingStarted) endThinking(runOptions, streamState.thinking);
-  emit(runOptions.onEvent, {
-    type: "message_end",
-    message: {
-      role: "assistant",
-      content: finalText ? [{ type: "text", text: finalText }] : [],
-      stopReason: errorMessage ? "error" : "stop",
-      ...(errorMessage ? { errorMessage } : {}),
-    },
-  } as AgentSessionEvent);
-
-  const attachments = getAttachmentRegistry().take(chatJid);
-  if (errorMessage) return {
-    status: "error",
-    result: finalText || null,
-    error: errorMessage,
-    ...(attachments.length ? { attachments } : {}),
-  };
-  return {
-    status: "success",
-    result: finalText,
-    ...(attachments.length ? { attachments } : {}),
-  };
+  finishNativeStreams(runOptions, streamState);
+  emitNativeMessageEnd(runOptions, streamState.text, errorMessage);
+  if (errorMessage) return nativeOutputWithAttachments(chatJid, "error", streamState.text || null, errorMessage);
+  return nativeOutputWithAttachments(chatJid, "success", streamState.text);
 }
