@@ -44,10 +44,14 @@ function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, 
 }
 
 const SENTENCE_STARTERS_AFTER_LIST = "(?:No|The|This|That|There|It|I|We|You|A|An)";
+const MONTH_NAMES = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
 
 function normalizeCodexAppServerAssistantText(text: string): string {
   const normalized = text.replace(/\r\n?/g, "\n");
-  const bulletFixed = normalized.replace(/([^\s\n])(-\s+(?=[A-Za-z0-9]))/g, "$1\n$2");
+  const dateFixed = normalized
+    .replace(new RegExp(`\\b(${MONTH_NAMES})(\\d{1,2})(\\b)`, "g"), "$1 $2$3")
+    .replace(new RegExp(`([A-Za-z])-(until|through|before|after|since)-(?=${MONTH_NAMES}|\\d)`, "gi"), "$1 $2 ");
+  const bulletFixed = dateFixed.replace(/([^\s\n])(-\s+(?=[A-Za-z0-9]))/g, "$1\n$2");
   if (!bulletFixed.includes("\n- ")) return bulletFixed;
   return bulletFixed.replace(
     new RegExp(`([a-z0-9.!?])(${SENTENCE_STARTERS_AFTER_LIST}\\s+)`, "g"),
