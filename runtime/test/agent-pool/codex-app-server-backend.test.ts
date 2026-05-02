@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   compactCodexAppServerChat,
   getCodexAppServerFastMode,
+  getCodexAppServerContextUsage,
   hasCodexAppServerThread,
   isCodexAppServerThreadUntrustedForTests,
   isCodexExternalDataToolForTests,
@@ -50,7 +51,20 @@ class StubCodexClient {
     }
     if (method === "thread/compact/start") {
       if (this.rejectCompactStart) throw new Error("compact start failed");
-      queueMicrotask(() => this.emit({ method: "thread/compacted", params: { threadId: (params as any).threadId || "thread-1" } }));
+      const threadId = (params as any).threadId || "thread-1";
+      queueMicrotask(() => {
+        this.emit({ method: "thread/compacted", params: { threadId } });
+        setTimeout(() => this.emit({
+          method: "thread/tokenUsage/updated",
+          params: {
+            threadId,
+            tokenUsage: {
+              modelContextWindow: 128000,
+              last: { totalTokens: 4321 },
+            },
+          },
+        }), 50);
+      });
       return {};
     }
     if (method === "turn/cancel") return {};
@@ -173,6 +187,11 @@ test("Codex app-server registers bridge tools on thread start and compacts exist
     await compactCodexAppServerChat("web:codex-stub");
     expect(client.requests.filter((request) => request.method === "thread/start").length).toBe(1);
     expect(client.requests.some((request) => request.method === "thread/compact/start")).toBe(true);
+    expect(getCodexAppServerContextUsage("web:codex-stub")).toEqual({
+      tokens: 4321,
+      contextWindow: 128000,
+      percent: (4321 / 128000) * 100,
+    });
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }
@@ -350,6 +369,22 @@ test("Codex app-server cancels active turns when the caller aborts", async () =>
     expect(output.status).toBe("error");
     expect(output.error).toContain("aborted");
     expect(client.requests.some((request) => request.method === "turn/cancel")).toBe(true);
+  } finally {
+    setCodexAppServerClientFactoryForTests(null);
+  }
+});
+
+test("Codex app-server ignores caller abort after a completed turn", async () => {
+  const client = new StubCodexClient();
+  useStubClient(client);
+  try {
+    const controller = new AbortController();
+    const run = runCodexAppServerPrompt("hello", "web:codex-late-abort", { timeoutMs: 1000, signal: controller.signal });
+    await Bun.sleep(20);
+    controller.abort();
+    const output = await run;
+    expect(output.status).toBe("success");
+    expect(client.requests.some((request) => request.method === "turn/cancel")).toBe(false);
   } finally {
     setCodexAppServerClientFactoryForTests(null);
   }

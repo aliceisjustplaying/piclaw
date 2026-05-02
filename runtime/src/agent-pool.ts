@@ -444,7 +444,7 @@ export class AgentPool {
       }
       if (command.type === "compact") {
         await compactCodexAppServerChat(chatJid);
-        return { status: "success", message: "Codex app-server compaction complete. Context usage will update after the next token-usage event." };
+        return { status: "success", message: "Codex app-server compaction complete. Context usage updated if the app-server reported token usage." };
       }
       if (command.type === "abort") {
         const aborted = await abortCodexAppServerChat(chatJid);
