@@ -149,7 +149,7 @@ test("Claude Agent SDK backend normalizes the old dotted Opus 4.6 model id", asy
   expect(label).toBe("claude/claude-opus-4-6[1m]");
 });
 
-test("Claude Agent SDK backend uses one-million context fallback for Opus 4.6 1m usage", async () => {
+test("Claude Agent SDK backend records only context window until native context usage is available", async () => {
   await setClaudeAgentSdkModel("web:test", "claude-opus-4-6[1m]");
   setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
     {
@@ -165,13 +165,13 @@ test("Claude Agent SDK backend uses one-million context fallback for Opus 4.6 1m
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
   expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
-    tokens: 15,
+    tokens: null,
     contextWindow: 1_000_000,
-    percent: 0.0015,
+    percent: null,
   });
 });
 
-test("Claude Agent SDK backend excludes prompt cache accounting from context usage", async () => {
+test("Claude Agent SDK backend does not use prompt cache accounting as context usage", async () => {
   await setClaudeAgentSdkModel("web:test", "claude-opus-4-6[1m]");
   setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
     {
@@ -192,9 +192,9 @@ test("Claude Agent SDK backend excludes prompt cache accounting from context usa
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
   expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
-    tokens: 950_000,
+    tokens: null,
     contextWindow: 1_000_000,
-    percent: 95,
+    percent: null,
   });
 });
 
@@ -331,7 +331,7 @@ test("Claude Agent SDK backend emits assistant text and records usage", async ()
 
   expect(output).toEqual({ status: "success", result: "hi there" });
   expect(hasClaudeAgentSdkSession("web:test")).toBe(true);
-  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: 10, contextWindow: 200000, percent: 0.005 });
+  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: null, contextWindow: 200000, percent: null });
   expect(events.some((event: any) => event.type === "message_end" && event.message?.content?.[0]?.text === "hi there")).toBe(true);
 });
 

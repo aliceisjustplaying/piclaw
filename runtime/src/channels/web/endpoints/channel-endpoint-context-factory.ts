@@ -125,7 +125,8 @@ export function createWebChannelEndpointContexts(
           getBuffer: (turnId, panel) => channel.getBuffer(turnId, panel),
           getContextUsageForChat: async (chatJid) => {
             const liveUsage = await channel.agentPool.getContextUsageForChat(chatJid);
-            if (getChatAgentBackend(chatJid) === "codex-app-server") return liveUsage;
+            const backend = getChatAgentBackend(chatJid);
+            if (backend === "codex-app-server" || backend === "claude-agent-sdk") return liveUsage;
             return liveUsage ?? normalizeContextUsageSnapshot(channel.getContextUsage(chatJid));
           },
           getAvailableModels: (chatJid) => channel.agentPool.getAvailableModels(chatJid),
