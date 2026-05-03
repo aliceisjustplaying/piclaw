@@ -5,8 +5,8 @@ import type {
   CodexProviderUsageSnapshot,
   CodexThreadState,
   CodexThinkingLevel,
-  PiclawBridgeSession,
 } from "./types.js";
+import type { PiclawBridgeSession } from "../piclaw-bridge-builtins.js";
 
 export type ActiveCodexTurn = { threadId: string; turnId: string };
 

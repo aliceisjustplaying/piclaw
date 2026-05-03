@@ -8,8 +8,8 @@ export type {
   CodexProviderUsageSnapshot,
   CodexProviderUsageWindow,
   CodexThinkingLevel,
-  PiclawBridgeSession,
 } from "./codex-app-server/types.js";
+export type { PiclawBridgeSession } from "./piclaw-bridge-builtins.js";
 
 export {
   isCodexBridgeToolAllowed,

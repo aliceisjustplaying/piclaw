@@ -15,6 +15,7 @@ import {
 } from "../../src/agent-pool/claude-agent-sdk-backend.js";
 import {
   buildClaudePrompt,
+  createPiclawMcpServer,
   isExternalClaudeBridgeToolForTests,
   isMutatingClaudeBridgeToolForTests,
 } from "../../src/agent-pool/claude-agent-sdk/bridge.js";
@@ -241,6 +242,16 @@ test("Claude Agent SDK bridge classifies mutating email and calendar tools", () 
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create" })).toBe(true);
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create", input: { action: "list" } })).toBe(true);
   expect(isExternalClaudeBridgeToolForTests("gmail_fetch_email")).toBe(true);
+});
+
+test("Claude Agent SDK Piclaw MCP builtins keep their expected wire schemas", () => {
+  const server = createPiclawMcpServer("web:test", null, () => null) as any;
+  const tools = server.instance?._registeredTools ?? {};
+
+  expect(tools.search_messages?.description).toContain("thread ids");
+  expect(Object.keys(tools.search_messages?.inputSchema?.shape ?? {})).toEqual(["query", "limit", "offset"]);
+  expect(Object.keys(tools.read_media?.inputSchema?.shape ?? {})).toEqual(["media_id", "max_chars"]);
+  expect(Object.keys(tools.context_usage?.inputSchema?.shape ?? {})).toEqual([]);
 });
 
 function makeQuery(messages: unknown[], contextUsage?: unknown) {
