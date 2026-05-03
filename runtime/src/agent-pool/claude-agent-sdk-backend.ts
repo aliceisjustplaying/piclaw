@@ -212,18 +212,14 @@ function updateContextUsage(chatJid: string, message: SDKMessage): void {
   const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
   const contextWindow = modelWindows[0] ?? contextWindowForClaudeModel(selectedModel);
   const totalTokens =
-    readNumber(usage.total_tokens) ??
-    readNumber(usage.totalTokens) ??
     sumNumbers([
       usage.input_tokens,
       usage.output_tokens,
-      usage.cache_read_input_tokens,
-      usage.cache_creation_input_tokens,
       usage.inputTokens,
       usage.outputTokens,
-      usage.cacheReadInputTokens,
-      usage.cacheCreationInputTokens,
-    ]);
+    ]) ??
+    readNumber(usage.total_tokens) ??
+    readNumber(usage.totalTokens);
   contextUsageByChat.set(chatJid, {
     tokens: totalTokens,
     contextWindow,
