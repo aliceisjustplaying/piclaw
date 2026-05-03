@@ -8,6 +8,7 @@ import {
   getCodexAppServerFastMode,
   getCodexAppServerThinkingLevel,
   listCodexAppServerModels,
+  resolveCodexAppServerModel,
   setCodexAppServerFastMode,
   setCodexAppServerModel,
   setCodexAppServerThinkingLevel,
@@ -19,6 +20,7 @@ import {
   getClaudeAgentSdkModelLabel,
   getClaudeAgentSdkThinkingLevel,
   listClaudeAgentSdkModels,
+  resolveClaudeAgentSdkModelLabel,
   setClaudeAgentSdkModel,
   setClaudeAgentSdkThinkingLevel,
 } from "./claude-agent-sdk-backend.js";
@@ -27,6 +29,7 @@ import {
   getChatAgentBackend,
   setChatAgentBackend,
 } from "./backend-state.js";
+import { withScopedChatRunLock } from "./chat-run-lock.js";
 
 export type NativeBackendControlDeps = {
   getContextUsageForChat: (chatJid: string) => Promise<{ tokens: number | null; contextWindow: number; percent: number | null } | null>;
@@ -57,14 +60,10 @@ async function applyBackendCommand(chatJid: string, command: Extract<AgentContro
   const previous = backend;
   const normalizedTarget = normalizeBackend(command.backend);
   if (!normalizedTarget) {
-    try {
-      setChatAgentBackend(chatJid, command.backend);
-    } catch (error) {
-      return { status: "error", message: error instanceof Error ? error.message : String(error) };
-    }
+    return { status: "error", message: "Unknown backend. Available: codex, claude, pi." };
   }
-  if (normalizedTarget && normalizedTarget !== previous) await deps.abortBackendTurnForSwitch(chatJid, previous);
-  const handoff = normalizedTarget && normalizedTarget !== previous
+  if (normalizedTarget !== previous) await deps.abortBackendTurnForSwitch(chatJid, previous);
+  const handoff = normalizedTarget !== previous
     ? await deps.captureBackendHandoff(chatJid, previous, normalizedTarget)
     : false;
   const next = setChatAgentBackend(chatJid, command.backend);
@@ -79,12 +78,14 @@ async function applyProviderModelSwitch(chatJid: string, command: Extract<AgentC
   const backend = getChatAgentBackend(chatJid);
   if (command.provider === "claude") {
     const target: AgentBackend = "claude-agent-sdk";
+    const modelInput = command.modelId || "default";
+    const modelLabel = resolveClaudeAgentSdkModelLabel(modelInput);
     if (target !== backend) {
       await deps.abortBackendTurnForSwitch(chatJid, backend);
       await deps.captureBackendHandoff(chatJid, backend, target);
     }
     setChatAgentBackend(chatJid, "claude");
-    const modelLabel = await setClaudeAgentSdkModel(chatJid, command.modelId || "default");
+    await setClaudeAgentSdkModel(chatJid, modelInput);
     const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
     return {
       status: "success",
@@ -97,12 +98,14 @@ async function applyProviderModelSwitch(chatJid: string, command: Extract<AgentC
   }
   if (command.provider === "codex") {
     const target: AgentBackend = "codex-app-server";
+    const modelInput = command.modelId || "default";
+    const { label: modelLabel } = await resolveCodexAppServerModel(modelInput);
     if (target !== backend) {
       await deps.abortBackendTurnForSwitch(chatJid, backend);
       await deps.captureBackendHandoff(chatJid, backend, target);
     }
     setChatAgentBackend(chatJid, "codex");
-    const modelLabel = await setCodexAppServerModel(chatJid, command.modelId || "default");
+    await setCodexAppServerModel(chatJid, modelInput);
     const thinking = getCodexAppServerThinkingLevel(chatJid);
     return {
       status: "success",
@@ -318,9 +321,15 @@ export async function applyNativeBackendControlCommand(
   command: AgentControlCommand,
   deps: NativeBackendControlDeps,
 ): Promise<AgentControlResult | null> {
-  if (command.type === "backend") return applyBackendCommand(chatJid, command, deps);
+  if (command.type === "backend") return withScopedChatRunLock("backend-control", chatJid, () => applyBackendCommand(chatJid, command, deps));
   if (command.type === "model") {
-    const switched = await applyProviderModelSwitch(chatJid, command, deps);
+    const switched = await withScopedChatRunLock("backend-control", chatJid, async () => {
+      try {
+        return await applyProviderModelSwitch(chatJid, command, deps);
+      } catch (error) {
+        return { status: "error" as const, message: error instanceof Error ? error.message : String(error) };
+      }
+    });
     if (switched) return switched;
   }
 

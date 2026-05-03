@@ -253,7 +253,7 @@ export function getCodexAppServerFastMode(chatJid: string): boolean {
   return persisted;
 }
 
-export async function setCodexAppServerModel(chatJid: string, modelInput: string | null | undefined): Promise<string> {
+export async function resolveCodexAppServerModel(modelInput: string | null | undefined): Promise<{ model: string | null; label: string }> {
   const model = parseCodexModelInput(modelInput);
   if (model) {
     const available = await listCodexAppServerModels().catch(() => []);
@@ -261,8 +261,13 @@ export async function setCodexAppServerModel(chatJid: string, modelInput: string
       throw new Error(`Model not found: ${codexModelLabel(model)}.`);
     }
   }
+  return { model, label: codexModelLabel(model) };
+}
+
+export async function setCodexAppServerModel(chatJid: string, modelInput: string | null | undefined): Promise<string> {
+  const { model, label } = await resolveCodexAppServerModel(modelInput);
   modelByChat.set(chatJid, model);
-  return codexModelLabel(model);
+  return label;
 }
 
 export async function listCodexAppServerModels(): Promise<CodexModelOption[]> {
