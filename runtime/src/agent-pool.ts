@@ -393,7 +393,7 @@ export class AgentPool {
     contextWindow: number;
     percent: number | null;
   } | null> {
-    return getNativeContextUsageForChat(chatJid, this.runtimeFacade);
+    return await getNativeContextUsageForChat(chatJid, this.runtimeFacade);
   }
 
   scheduleRecentChatWarmup(options: { limit?: number; excludeChatJids?: string[] } = {}): string[] {

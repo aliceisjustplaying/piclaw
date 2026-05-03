@@ -151,10 +151,13 @@ export async function refreshContextUsageForChat(options: RefreshContextUsageFor
   try {
     const contextPayload = normalizeContextUsage(await getAgentContext(targetChatJid));
     if (activeChatJidRef.current !== targetChatJid) return;
-    if (contextPayload && contextPayload.percent != null) {
-      setContextUsage((prev: unknown) => haveSameContextUsage(prev, contextPayload) ? prev : contextPayload);
-      persistContextUsage(targetChatJid, contextPayload);
+    if (!contextPayload || contextPayload.percent == null) {
+      setContextUsage((prev: unknown) => prev == null ? prev : null);
+      clearPersistedContextUsage(targetChatJid);
+      return;
     }
+    setContextUsage((prev: unknown) => haveSameContextUsage(prev, contextPayload) ? prev : contextPayload);
+    persistContextUsage(targetChatJid, contextPayload);
   } catch (error) {
     if (activeChatJidRef.current !== targetChatJid) return;
     console.warn('Failed to fetch agent context:', error);

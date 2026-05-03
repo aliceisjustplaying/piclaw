@@ -36,6 +36,7 @@ let oauthTokenResolverForTests: (() => Promise<string | null>) | null = null;
 const sessionIdByChat = new Map<string, string>();
 const activeRunsByChat = new Map<string, AbortController>();
 const contextUsageByChat = new Map<string, { tokens: number | null; contextWindow: number; percent: number | null }>();
+const controlStreamByChat = new Map<string, { getContextUsage?: () => Promise<unknown> }>();
 const providerUsageByChat = new Map<string, unknown>();
 const thinkingLevelByChat = new Map<string, ClaudeThinkingLevel>();
 const modelByChat = new Map<string, string>();
@@ -87,6 +88,7 @@ export function resetClaudeAgentSdkBackendForTests(): void {
   sessionIdByChat.clear();
   activeRunsByChat.clear();
   contextUsageByChat.clear();
+  controlStreamByChat.clear();
   providerUsageByChat.clear();
   thinkingLevelByChat.clear();
   modelByChat.clear();
@@ -132,6 +134,26 @@ export function getClaudeAgentSdkContextUsage(chatJid: string): {
   percent: number | null;
 } | null {
   return contextUsageByChat.get(chatJid) ?? null;
+}
+
+export async function refreshClaudeAgentSdkContextUsage(chatJid: string): Promise<{
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+} | null> {
+  const stream = controlStreamByChat.get(chatJid);
+  if (!stream?.getContextUsage) return getClaudeAgentSdkContextUsage(chatJid);
+  try {
+    const snapshot = normalizeClaudeContextUsage(await stream.getContextUsage());
+    if (snapshot) contextUsageByChat.set(chatJid, snapshot);
+  } catch (error) {
+    log.debug("Claude Agent SDK context usage refresh failed", {
+      operation: "claude_agent_sdk.context_usage_refresh_failed",
+      chatJid,
+      err: error,
+    });
+  }
+  return getClaudeAgentSdkContextUsage(chatJid);
 }
 
 export function getClaudeAgentSdkProviderUsage(chatJid: string): unknown | null {
@@ -225,6 +247,16 @@ function updateContextUsage(chatJid: string, message: SDKMessage): void {
     contextWindow,
     percent: totalTokens == null ? null : (totalTokens / contextWindow) * 100,
   });
+}
+
+function normalizeClaudeContextUsage(payload: unknown): { tokens: number | null; contextWindow: number; percent: number | null } | null {
+  if (!payload || typeof payload !== "object") return null;
+  const data = payload as Record<string, unknown>;
+  const tokens = readNumber(data.totalTokens) ?? readNumber(data.total_tokens);
+  const contextWindow = readNumber(data.maxTokens) ?? readNumber(data.max_tokens) ?? readNumber(data.rawMaxTokens) ?? readNumber(data.raw_max_tokens);
+  const percent = readNumber(data.percentage) ?? (tokens != null && contextWindow != null ? (tokens / contextWindow) * 100 : null);
+  if (contextWindow == null || contextWindow <= 0) return null;
+  return { tokens, contextWindow, percent };
 }
 
 function updateProviderUsage(chatJid: string, message: SDKMessage): void {
@@ -376,6 +408,7 @@ async function runClaudeAgentSdkPromptUnlocked(
 
   try {
     const stream = queryFactory({ prompt: promptWithAttachments, options });
+    controlStreamByChat.set(chatJid, stream as { getContextUsage?: () => Promise<unknown> });
     for await (const message of stream) {
       if ((message as any).session_id) sessionIdByChat.set(chatJid, String((message as any).session_id));
       updateContextUsage(chatJid, message);
@@ -405,6 +438,7 @@ async function runClaudeAgentSdkPromptUnlocked(
         }
       }
     }
+    await refreshClaudeAgentSdkContextUsage(chatJid);
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error);
     const operation = /Tool permission request failed:\s*(ZodError|.*invalid_union)|ZodError|invalid_union/i.test(errorMessage)
