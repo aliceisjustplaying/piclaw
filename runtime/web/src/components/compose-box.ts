@@ -729,8 +729,11 @@ export function returnQueuedFollowupToEditor(options) {
         if (!textarea) return;
         textarea.value = text;
         // Keep the controlled textarea state in sync even if a render happens
-        // before setContent has flushed.
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        // before setContent has flushed. Some tests provide a lightweight
+        // textarea stub, so only dispatch when a DOM-like surface is present.
+        if (typeof textarea.dispatchEvent === 'function') {
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
         resizeTextarea();
         const len = text.length;
         textarea.selectionStart = len;
