@@ -11,7 +11,10 @@ export function createNativeAbortHandle(
 ): NativeAbortHandle | null {
   if (runOptions.signal?.aborted) return null;
   const controller = new AbortController();
+  let aborted = false;
   const abortFromCaller = () => {
+    if (aborted) return;
+    aborted = true;
     controller.abort();
     onAbort?.();
   };
