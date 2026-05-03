@@ -271,7 +271,7 @@ function sumNumbers(values: unknown[]): number | null {
 }
 
 function createPermissionHandler(runOptions: RunAgentOptions, trustState: ClaudeBridgeTrustState): CanUseTool {
-  return async (toolName, _input, options): Promise<PermissionResult> => {
+  return async (toolName, input, options): Promise<PermissionResult> => {
     if ((runOptions.hasUntrustedExternalContent || trustState.hasUntrustedExternalContent) && isMutatingClaudeTool(toolName)) {
       return {
         behavior: "deny",
@@ -280,7 +280,12 @@ function createPermissionHandler(runOptions: RunAgentOptions, trustState: Claude
         decisionClassification: "user_reject",
       };
     }
-    return { behavior: "allow", toolUseID: options.toolUseID, decisionClassification: "user_temporary" };
+    return {
+      behavior: "allow",
+      updatedInput: input,
+      toolUseID: options.toolUseID,
+      decisionClassification: "user_temporary",
+    };
   };
 }
 

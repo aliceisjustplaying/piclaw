@@ -386,6 +386,66 @@ test("Claude Agent SDK backend can rely on native Claude Code auth", async () =>
   expect(output).toEqual({ status: "success", result: "ok" });
 });
 
+test("Claude Agent SDK permission allow responses include updated input", async () => {
+  const permissionResults: unknown[] = [];
+  setClaudeAgentSdkQueryFactoryForTests((params: any) => {
+    permissionResults.push(params.options.canUseTool(
+      "Read",
+      { file_path: "/workspace/notes.txt" },
+      { toolUseID: "toolu-read", signal: new AbortController().signal },
+    ));
+    return makeQuery([
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-1",
+        result: "ok",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+  await expect(permissionResults[0]).resolves.toEqual({
+    behavior: "allow",
+    updatedInput: { file_path: "/workspace/notes.txt" },
+    toolUseID: "toolu-read",
+    decisionClassification: "user_temporary",
+  });
+});
+
+test("Claude Agent SDK permission denies mutating tools for untrusted turns", async () => {
+  const permissionResults: unknown[] = [];
+  setClaudeAgentSdkQueryFactoryForTests((params: any) => {
+    permissionResults.push(params.options.canUseTool(
+      "Bash",
+      { command: "rm -rf /workspace/tmp" },
+      { toolUseID: "toolu-bash", signal: new AbortController().signal },
+    ));
+    return makeQuery([
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-1",
+        result: "ok",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", { hasUntrustedExternalContent: true });
+
+  await expect(permissionResults[0]).resolves.toEqual({
+    behavior: "deny",
+    message: "Denied because this turn contains untrusted external content.",
+    toolUseID: "toolu-bash",
+    decisionClassification: "user_reject",
+  });
+});
+
 test("Claude Agent SDK backend aborts runs after timeout", async () => {
   const aborted = deferred();
   setClaudeAgentSdkQueryFactoryForTests((params: any) => {
