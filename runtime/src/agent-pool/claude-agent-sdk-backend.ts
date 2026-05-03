@@ -226,26 +226,16 @@ function extractAssistantText(message: SDKMessage): string {
 
 function updateContextUsage(chatJid: string, message: SDKMessage): void {
   if (message.type !== "result") return;
-  const usage = (message as any).usage ?? {};
   const modelUsage = (message as any).modelUsage ?? {};
   const modelWindows = Object.values(modelUsage)
     .map((entry: any) => (typeof entry?.contextWindow === "number" ? entry.contextWindow : null))
     .filter((value): value is number => value != null && Number.isFinite(value) && value > 0);
   const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
   const contextWindow = modelWindows[0] ?? contextWindowForClaudeModel(selectedModel);
-  const totalTokens =
-    sumNumbers([
-      usage.input_tokens,
-      usage.output_tokens,
-      usage.inputTokens,
-      usage.outputTokens,
-    ]) ??
-    readNumber(usage.total_tokens) ??
-    readNumber(usage.totalTokens);
   contextUsageByChat.set(chatJid, {
-    tokens: totalTokens,
+    tokens: null,
     contextWindow,
-    percent: totalTokens == null ? null : (totalTokens / contextWindow) * 100,
+    percent: null,
   });
 }
 

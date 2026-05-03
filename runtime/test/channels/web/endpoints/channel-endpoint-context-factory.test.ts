@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import "../../../helpers.js";
 import {
   createWebChannelEndpointContexts,
   type WebChannelEndpointFactoryOptions,
   type WebChannelIdentitySnapshot,
 } from "../../../../src/channels/web/endpoints/channel-endpoint-context-factory.js";
+import { setChatAgentBackend } from "../../../../src/agent-pool/backend-state.js";
 
 function createIdentitySnapshot(overrides: Partial<WebChannelIdentitySnapshot> = {}): WebChannelIdentitySnapshot {
   return {
@@ -91,6 +93,32 @@ describe("web channel endpoint context factory", () => {
     expect(status.defaultChatJid).toBe("web:default");
     expect(status.getAgentStatus("web:default")?.type).toBe("thinking");
     expect((await status.getContextUsageForChat("web:default"))?.tokens).toBe(10);
+  });
+
+  test("does not use persisted channel context fallback for Claude chats", async () => {
+    setChatAgentBackend("web:claude-context", "claude-agent-sdk");
+    const channel = {
+      json: (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status }),
+      getAgentStatus: () => null,
+      recoverStaleInflightRun: () => false,
+      getBuffer: () => undefined,
+      getContextUsage: () => ({ tokens: 72, contextWindow: 1_000_000, percent: 0.0072 }),
+      agentPool: {
+        getContextUsageForChat: async () => null,
+        getAvailableModels: async () => ({}),
+      },
+    };
+
+    const contexts = createWebChannelEndpointContexts(
+      channel as unknown as Parameters<typeof createWebChannelEndpointContexts>[0],
+      {
+        defaultChatJid: "web:claude-context",
+        defaultAgentId: "default",
+        getIdentitySnapshot: () => createIdentitySnapshot(),
+      },
+    );
+
+    expect(await contexts.agentStatus().getContextUsageForChat("web:claude-context")).toBeNull();
   });
 
   test("rebuilds agents/avatar contexts from the latest identity snapshot", () => {
