@@ -322,6 +322,8 @@ export function createAgentBackendAdapter(backend: AgentBackend): AgentBackendAd
           supports_thinking: true,
           available_thinking_levels: ["off", "minimal", "low", "medium", "high", "xhigh"],
           provider_usage: providerUsage,
+          latest_requested_model: current,
+          latest_response_model: null,
         };
       },
       getContextUsage: (chatJid) => getCodexAppServerContextUsage(chatJid),
@@ -412,6 +414,8 @@ export function createAgentBackendAdapter(backend: AgentBackend): AgentBackendAd
           supports_thinking: true,
           available_thinking_levels: ["off", "low", "medium", "high", "xhigh", "max"],
           provider_usage: providerUsage as any,
+          latest_requested_model: current,
+          latest_response_model: null,
         };
       },
       getContextUsage: (chatJid) => refreshClaudeAgentSdkContextUsage(chatJid),

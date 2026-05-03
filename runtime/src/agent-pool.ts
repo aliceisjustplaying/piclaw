@@ -48,6 +48,7 @@ import { runAgentPrompt } from "./agent-pool/run-agent-orchestrator.js";
 import { withAgentChatRunLock } from "./agent-pool/chat-run-lock.js";
 import { applyNativeBackendControlCommand } from "./agent-pool/native-backend-control.js";
 import { applyProactiveControlCommand } from "./agent-pool/proactive-control.js";
+import { type ActiveChatAgent } from "./agent-pool/branch-manager.js";
 import {
   hasCodexAppServerThread,
 } from "./agent-pool/codex-app-server-backend.js";
