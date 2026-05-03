@@ -144,6 +144,10 @@ test("Claude Agent SDK backend exposes Opus 4.6 one-million-context option", () 
   expect(model?.contextWindow).toBe(1_000_000);
 });
 
+test("Claude Agent SDK backend does not expose a default model picker option", () => {
+  expect(listClaudeAgentSdkModels().some((candidate) => candidate.id === "default" || candidate.label === "claude/default")).toBe(false);
+});
+
 test("Claude Agent SDK backend normalizes the old dotted Opus 4.6 model id", async () => {
   const label = await setClaudeAgentSdkModel("web:test", "claude-opus-4.6[1m]");
 

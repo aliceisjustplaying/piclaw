@@ -1385,10 +1385,10 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                             const isSvg = typeof mimeType === 'string' && mimeType.toLowerCase().startsWith('image/svg');
                             const imageSrc = isSvg ? getMediaUrl(id) : getThumbnailUrl(id);
                             return html`
-                                <img 
-                                    key=${id} 
-                                    src=${imageSrc} 
-                                    alt="Media" 
+                                <img
+                                    key=${id}
+                                    src=${imageSrc}
+                                    alt="Media"
                                     loading="lazy"
                                     decoding="async"
                                     onClick=${(e) => handleImageClick(e, id)}

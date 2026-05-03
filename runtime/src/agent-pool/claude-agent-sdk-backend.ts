@@ -133,7 +133,6 @@ export function getClaudeAgentSdkModelLabel(chatJid?: string): string {
 export function listClaudeAgentSdkModels(): { label: string; provider: string; id: string; name: string; contextWindow: number }[] {
   const configured = getAgentBackendConfig().claudeAgentSdkModel;
   const ids = Array.from(new Set([
-    "default",
     "claude-opus-4-6[1m]",
     "opus",
     "sonnet",
