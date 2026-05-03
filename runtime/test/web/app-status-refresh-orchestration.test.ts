@@ -147,7 +147,7 @@ test('refreshContextUsageForChat ignores stale chat responses', async () => {
   expect(contextState).toBeNull();
 });
 
-test('refreshContextUsageForChat keeps cached state with null-percent API response', async () => {
+test('refreshContextUsageForChat clears cached state with null-percent API response', async () => {
   const activeChatJidRef = { current: 'chat:alpha' };
   let contextState: any = { tokens: 5000, contextWindow: 128000, percent: 3.9 };
 
@@ -160,7 +160,7 @@ test('refreshContextUsageForChat keeps cached state with null-percent API respon
     },
   });
 
-  expect(contextState).toEqual({ tokens: 5000, contextWindow: 128000, percent: 3.9 });
+  expect(contextState).toBeNull();
 });
 
 test('refreshContextUsageForChat updates state when API returns real data', async () => {

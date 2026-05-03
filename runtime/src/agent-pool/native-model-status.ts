@@ -10,6 +10,7 @@ import {
   getClaudeAgentSdkProviderUsage,
   getClaudeAgentSdkThinkingLevel,
   listClaudeAgentSdkModels,
+  refreshClaudeAgentSdkContextUsage,
 } from "./claude-agent-sdk-backend.js";
 import {
   getCodexAppServerContextUsage,
@@ -27,7 +28,11 @@ import { type AvailableModelsResult } from "./runtime-facade.js";
 interface RuntimeModelFacade {
   getCurrentModelLabel(chatJid: string): Promise<string | null>;
   getAvailableModels(chatJid: string): Promise<AvailableModelsResult>;
-  getContextUsageForChat(chatJid: string): {
+  getContextUsageForChat(chatJid: string): Promise<{
+    tokens: number | null;
+    contextWindow: number;
+    percent: number | null;
+  } | null> | {
     tokens: number | null;
     contextWindow: number;
     percent: number | null;
@@ -111,16 +116,16 @@ export async function getNativeAvailableModels(
   return runtimeFacade.getAvailableModels(chatJid);
 }
 
-export function getNativeContextUsageForChat(
+export async function getNativeContextUsageForChat(
   chatJid: string,
   runtimeFacade: RuntimeModelFacade,
-): {
+): Promise<{
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
-} | null {
+} | null> {
   const backend = getChatAgentBackend(chatJid);
-  if (backend === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
+  if (backend === "claude-agent-sdk") return refreshClaudeAgentSdkContextUsage(chatJid);
   if (backend === "codex-app-server") return getCodexAppServerContextUsage(chatJid);
-  return runtimeFacade.getContextUsageForChat(chatJid);
+  return await runtimeFacade.getContextUsageForChat(chatJid);
 }

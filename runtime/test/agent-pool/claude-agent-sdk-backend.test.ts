@@ -198,6 +198,33 @@ test("Claude Agent SDK backend excludes prompt cache accounting from context usa
   });
 });
 
+test("Claude Agent SDK backend prefers native context usage over per-turn API usage", async () => {
+  await setClaudeAgentSdkModel("web:test", "claude-opus-4-6[1m]");
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-context",
+      result: "ok",
+      usage: { input_tokens: 42, output_tokens: 32 },
+      modelUsage: {},
+    },
+  ], {
+    totalTokens: 742_000,
+    maxTokens: 1_000_000,
+    rawMaxTokens: 1_000_000,
+    percentage: 74.2,
+  }));
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
+    tokens: 742_000,
+    contextWindow: 1_000_000,
+    percent: 74.2,
+  });
+});
+
 test("Claude Agent SDK prompt advertises bridged Gmail and calendar tools", () => {
   const prompt = buildClaudePrompt("web:test", "check my day", [], {
     getAllTools: () => [
@@ -220,7 +247,7 @@ test("Claude Agent SDK bridge classifies mutating email and calendar tools", () 
   expect(isExternalClaudeBridgeToolForTests("gmail_fetch_email")).toBe(true);
 });
 
-function makeQuery(messages: unknown[]) {
+function makeQuery(messages: unknown[], contextUsage?: unknown) {
   const generator = (async function* () {
     for (const message of messages) yield message;
   })();
@@ -240,6 +267,7 @@ function makeQuery(messages: unknown[]) {
     askSideQuestion: async () => null,
     launchUltrareview: async () => ({}),
     messageRated: async () => {},
+    getContextUsage: async () => contextUsage ?? null,
   }) as any;
 }
 
