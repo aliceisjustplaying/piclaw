@@ -8,6 +8,7 @@ import { bridgeSessionByThread, chatByThread, contextUsageByChat, toolAbortContr
 import type { JsonObject, PiclawBridgeSession, PiclawBridgeTool } from "./types.js";
 import { contentItemsFrom, parseArgs, readString, workspaceCwd } from "./utils.js";
 import { markThreadUntrusted } from "./notifications.js";
+import { log } from "./telemetry.js";
 
 export function bridgeToolName(tool: PiclawBridgeTool): string {
   return typeof tool.name === "string" ? tool.name.trim() : "";
@@ -202,8 +203,24 @@ export async function handleDynamicToolCall(params: JsonObject): Promise<{ conte
       if (isExternalDataTool(tool)) markThreadUntrusted(threadId);
       const signal = threadId ? toolAbortControllersByThread.get(threadId)?.signal : undefined;
       const result = await bridgeTool.execute(`codex-bridge-${Date.now().toString(36)}`, args, signal, () => undefined, makeBridgeContext(chatJid));
-      return contentItemsFrom(bridgeResultToText(result));
+      const text = bridgeResultToText(result);
+      if (!text.trim()) {
+        log.debug("Piclaw dynamic bridge tool returned empty output", {
+          operation: "codex_app_server.dynamic_tool_empty_result",
+          tool,
+          chatJid,
+          threadId,
+        });
+      }
+      return contentItemsFrom(text);
     } catch (error) {
+      log.warn("Piclaw dynamic bridge tool failed", {
+        operation: "codex_app_server.dynamic_tool_failed",
+        tool,
+        chatJid,
+        threadId,
+        err: error,
+      });
       return contentItemsFrom(`${tool || "Piclaw tool"} failed: ${error instanceof Error ? error.message : String(error)}`, false);
     }
   }

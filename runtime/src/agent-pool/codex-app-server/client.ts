@@ -18,6 +18,13 @@ import { appServerCommand, asError, contentItemsFrom, readString, workspaceCwd }
 
 let shutdownHookRegistered = false;
 
+export function resolveCodexAppServerRequestForTests(method: string, requestParams: JsonObject): unknown | null {
+  const threadId = method === "execCommandApproval" || method === "applyPatchApproval"
+    ? readString(requestParams.conversationId)
+    : readString(requestParams.threadId);
+  return resolveApprovalResponse(method, requestParams, !threadId || isUntrustedThread(threadId));
+}
+
 class CodexAppServerClient implements CodexAppServerClientLike {
   private child: ChildProcessWithoutNullStreams;
   private nextId = 1;
@@ -163,10 +170,7 @@ class CodexAppServerClient implements CodexAppServerClientLike {
     const id = message.id as JsonRpcId;
     const method = String(message.method);
     const requestParams = message.params && typeof message.params === "object" ? message.params as JsonObject : {};
-    const threadId = method === "execCommandApproval" || method === "applyPatchApproval"
-      ? readString(requestParams.conversationId)
-      : readString(requestParams.threadId);
-    const approvalResponse = resolveApprovalResponse(method, requestParams, isUntrustedThread(threadId));
+    const approvalResponse = resolveCodexAppServerRequestForTests(method, requestParams);
     if (approvalResponse !== null) {
       this.respond(id, approvalResponse);
       return;
