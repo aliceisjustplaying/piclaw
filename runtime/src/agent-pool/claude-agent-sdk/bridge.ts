@@ -11,8 +11,10 @@ import {
   materializeMedia,
 } from "../codex-app-server/bridge-tools.js";
 import type { PiclawBridgeSession } from "../codex-app-server-backend.js";
+import { createLogger } from "../../utils/logger.js";
 
 const GENERIC_TOOL_SHAPE = { input: z.record(z.string(), z.unknown()).optional() };
+const log = createLogger("agent-pool.claude-agent-sdk.bridge");
 
 export type ClaudeBridgeTrustState = {
   hasUntrustedExternalContent: boolean;
@@ -127,12 +129,30 @@ export function createPiclawMcpServer(
         const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
         const toolArgs = "input" in args && args.input && typeof args.input === "object" ? args.input : args;
         if (trustState.hasUntrustedExternalContent && (isMutatingBridgeTool(name, args) || isMutatingBridgeTool(name, toolArgs))) {
+          log.warn("Denied mutating Piclaw MCP tool after untrusted external content", {
+            operation: "claude_agent_sdk.bridge_tool_denied_untrusted",
+            tool: name,
+          });
           return mcpText("Denied because this session has untrusted external content.", true);
         }
         const result = await (bridgeTool.execute as Function)(`claude-bridge-${Date.now().toString(36)}`, toolArgs, signal, () => undefined, bridgeContext(chatJid));
-        trustState.hasUntrustedExternalContent = true;
-        return mcpText(bridgeResultToText(result));
+        if (isExternalBridgeTool(name)) trustState.hasUntrustedExternalContent = true;
+        const text = bridgeResultToText(result);
+        if (!text.trim()) {
+          log.debug("Piclaw MCP bridge tool returned empty output", {
+            operation: "claude_agent_sdk.bridge_tool_empty_result",
+            tool: name,
+            chatJid,
+          });
+        }
+        return mcpText(text);
       } catch (error) {
+        log.warn("Piclaw MCP bridge tool failed", {
+          operation: "claude_agent_sdk.bridge_tool_failed",
+          tool: name,
+          chatJid,
+          err: error,
+        });
         return mcpText(`${name} failed: ${error instanceof Error ? error.message : String(error)}`, true);
       }
     }));
@@ -152,8 +172,16 @@ function isMutatingBridgeTool(name: string, input: unknown): boolean {
   return false;
 }
 
+function isExternalBridgeTool(_name: string): boolean {
+  return true;
+}
+
 export function isMutatingClaudeBridgeToolForTests(name: string, input: unknown): boolean {
   return isMutatingBridgeTool(name, input);
+}
+
+export function isExternalClaudeBridgeToolForTests(name: string): boolean {
+  return isExternalBridgeTool(name);
 }
 
 export function buildClaudePrompt(chatJid: string, prompt: string, mediaIds: number[] | undefined, bridgeSession?: PiclawBridgeSession | null): string {
