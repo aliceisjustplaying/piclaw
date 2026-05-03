@@ -171,6 +171,33 @@ test("Claude Agent SDK backend uses one-million context fallback for Opus 4.6 1m
   });
 });
 
+test("Claude Agent SDK backend excludes prompt cache accounting from context usage", async () => {
+  await setClaudeAgentSdkModel("web:test", "claude-opus-4-6[1m]");
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-cache",
+      result: "ok",
+      usage: {
+        input_tokens: 900_000,
+        output_tokens: 50_000,
+        cache_read_input_tokens: 400_000,
+        cache_creation_input_tokens: 100_000,
+      },
+      modelUsage: {},
+    },
+  ]));
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
+    tokens: 950_000,
+    contextWindow: 1_000_000,
+    percent: 95,
+  });
+});
+
 test("Claude Agent SDK prompt advertises bridged Gmail and calendar tools", () => {
   const prompt = buildClaudePrompt("web:test", "check my day", [], {
     getAllTools: () => [
@@ -276,7 +303,7 @@ test("Claude Agent SDK backend emits assistant text and records usage", async ()
 
   expect(output).toEqual({ status: "success", result: "hi there" });
   expect(hasClaudeAgentSdkSession("web:test")).toBe(true);
-  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: 21, contextWindow: 200000, percent: 0.0105 });
+  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: 10, contextWindow: 200000, percent: 0.005 });
   expect(events.some((event: any) => event.type === "message_end" && event.message?.content?.[0]?.text === "hi there")).toBe(true);
 });
 
