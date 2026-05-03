@@ -13,11 +13,23 @@ import {
   setClaudeAgentSdkOAuthTokenResolverForTests,
   setClaudeAgentSdkQueryFactoryForTests,
 } from "../../src/agent-pool/claude-agent-sdk-backend.js";
-import { buildClaudePrompt, isMutatingClaudeBridgeToolForTests } from "../../src/agent-pool/claude-agent-sdk/bridge.js";
+import {
+  buildClaudePrompt,
+  isExternalClaudeBridgeToolForTests,
+  isMutatingClaudeBridgeToolForTests,
+} from "../../src/agent-pool/claude-agent-sdk/bridge.js";
+import { addLogSink, removeLogSink, type LogRecord } from "../../src/utils/logger.js";
 
 afterEach(() => {
   resetClaudeAgentSdkBackendForTests();
 });
+
+function hasUndefinedValue(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasUndefinedValue);
+  return Object.values(value as Record<string, unknown>).some(hasUndefinedValue);
+}
 
 test("Claude Agent SDK backend maps partial text and thinking stream events", async () => {
   setClaudeAgentSdkQueryFactoryForTests(() => {
@@ -178,6 +190,7 @@ test("Claude Agent SDK bridge classifies mutating email and calendar tools", () 
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "list" })).toBe(false);
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create" })).toBe(true);
   expect(isMutatingClaudeBridgeToolForTests("google_calendar", { action: "create", input: { action: "list" } })).toBe(true);
+  expect(isExternalClaudeBridgeToolForTests("gmail_fetch_email")).toBe(true);
 });
 
 function makeQuery(messages: unknown[]) {
@@ -416,6 +429,40 @@ test("Claude Agent SDK permission allow responses include updated input", async 
   });
 });
 
+test("Claude Agent SDK permission allow response keeps the SDK wire contract", async () => {
+  const permissionResults: unknown[] = [];
+  setClaudeAgentSdkQueryFactoryForTests((params: any) => {
+    permissionResults.push(params.options.canUseTool(
+      "mcp__piclaw__search_messages",
+      { query: "casa tilo", limit: 5 },
+      {
+        toolUseID: "toolu-search",
+        signal: new AbortController().signal,
+        suggestions: [{ toolName: "mcp__piclaw__search_messages" }],
+      },
+    ));
+    return makeQuery([
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-1",
+        result: "ok",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  await runClaudeAgentSdkPrompt("hello", "web:test", {});
+  const result = await permissionResults[0] as any;
+
+  expect(result.behavior).toBe("allow");
+  expect(result.updatedInput).toEqual({ query: "casa tilo", limit: 5 });
+  expect(result.toolUseID).toBe("toolu-search");
+  expect(result.decisionClassification).toBe("user_temporary");
+  expect(hasUndefinedValue(result)).toBe(false);
+});
+
 test("Claude Agent SDK permission denies mutating tools for untrusted turns", async () => {
   const permissionResults: unknown[] = [];
   setClaudeAgentSdkQueryFactoryForTests((params: any) => {
@@ -444,6 +491,66 @@ test("Claude Agent SDK permission denies mutating tools for untrusted turns", as
     toolUseID: "toolu-bash",
     decisionClassification: "user_reject",
   });
+});
+
+test("Claude Agent SDK keeps untrusted external content sticky across turns", async () => {
+  const permissionResults: unknown[] = [];
+  setClaudeAgentSdkQueryFactoryForTests((params: any) => {
+    if (permissionResults.length === 0) {
+      return makeQuery([
+        {
+          type: "result",
+          subtype: "success",
+          session_id: "claude-session-untrusted",
+          result: "read mail",
+          usage: { input_tokens: 1, output_tokens: 1 },
+          modelUsage: {},
+        },
+      ]);
+    }
+    permissionResults.push(params.options.canUseTool(
+      "Bash",
+      { command: "touch /workspace/from-untrusted" },
+      { toolUseID: "toolu-bash-sticky", signal: new AbortController().signal },
+    ));
+    return makeQuery([
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-untrusted",
+        result: "ok",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  await runClaudeAgentSdkPrompt("gmail notification", "web:claude-untrusted-sticky", { hasUntrustedExternalContent: true });
+  permissionResults.push("second-turn-marker");
+  await runClaudeAgentSdkPrompt("follow-up", "web:claude-untrusted-sticky", {});
+
+  await expect(permissionResults[1]).resolves.toMatchObject({
+    behavior: "deny",
+    toolUseID: "toolu-bash-sticky",
+  });
+});
+
+test("Claude Agent SDK logs protocol validation failures", async () => {
+  const records: LogRecord[] = [];
+  const sink = (record: LogRecord) => records.push(record);
+  addLogSink(sink);
+  try {
+    setClaudeAgentSdkQueryFactoryForTests(() => {
+      throw new Error("Tool permission request failed: ZodError: invalid_union");
+    });
+
+    const output = await runClaudeAgentSdkPrompt("hello", "web:test", {});
+
+    expect(output.status).toBe("error");
+    expect(records.some((record) => record.operation === "claude_agent_sdk.protocol_validation_error")).toBe(true);
+  } finally {
+    removeLogSink(sink);
+  }
 });
 
 test("Claude Agent SDK backend aborts runs after timeout", async () => {
