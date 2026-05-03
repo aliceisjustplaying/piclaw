@@ -6,6 +6,9 @@ import fs from "node:fs";
 import os from "node:os";
 
 import type { AgentPoolMemoryInstrumentationSnapshot } from "../../../agent-pool.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+
+const log = createLogger("web-system-metrics");
 
 export interface ProcessMemorySnapshot {
   rss_bytes: number;
@@ -173,8 +176,8 @@ function readRamUsage(): MemoryUsageSnapshot {
       const meminfo = fs.readFileSync("/proc/meminfo", "utf8");
       const usage = parseLinuxRamMeminfo(meminfo);
       if (usage) return usage;
-    } catch {
-      // Fall back to os.freemem() below for non-standard Linux environments.
+    } catch (error) {
+      debugSuppressedError(log, "Failed to read /proc/meminfo; falling back to os memory counters.", error, {});
     }
   }
 

@@ -84,7 +84,7 @@ function getLatestTokenUsageModelForStatus(chatJid: string): ReturnType<typeof g
   try {
     return getLatestTokenUsageModel(chatJid);
   } catch (error) {
-    if (error instanceof Error && error.message === "Database not initialized") return null;
+    if (error instanceof Error && (error.message === "Database not initialized" || error.message.includes("closed database"))) return null;
     throw error;
   }
 }

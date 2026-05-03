@@ -15,7 +15,9 @@ function dispatchMetersChange(enabled) {
 
 function persistMetersState(patch) {
     if (typeof fetch !== 'function') return;
-    void saveUiState({ ui_meters: patch }).catch(() => {});
+    void saveUiState({ ui_meters: patch }).catch((error) => {
+        console.debug('[meters] Failed to persist meters UI state.', error);
+    });
 }
 
 function dispatchMetersCollapsedChange(collapsed) {
