@@ -12,6 +12,7 @@ import {
   listCodexBridgeDynamicToolsForTests,
   markCodexAppServerThreadUntrustedForTests,
   resolveCodexAppServerApprovalForTests,
+  resolveCodexAppServerRequestForTests,
   runCodexAppServerPrompt,
   setCodexAppServerFastMode,
   setCodexAppServerClientFactoryForTests,
@@ -98,6 +99,13 @@ function deferred() {
 
 function useStubClient(client: StubCodexClient): void {
   setCodexAppServerClientFactoryForTests(() => client);
+}
+
+function hasUndefinedValue(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasUndefinedValue);
+  return Object.values(value as Record<string, unknown>).some(hasUndefinedValue);
 }
 
 test("Codex bridge filters native Pi tools and exposes Piclaw extension tools", () => {
@@ -481,6 +489,46 @@ test("Codex app-server accepts approvals for normal local-user turns", () => {
     { threadId: "thread-1" },
     false,
   )).toEqual({ decision: "denied" });
+});
+
+test("Codex app-server approval responses keep the app-server wire contract", () => {
+  const responses = [
+    resolveCodexAppServerApprovalForTests("item/commandExecution/requestApproval", { threadId: "thread-1" }, false),
+    resolveCodexAppServerApprovalForTests("item/fileChange/requestApproval", { threadId: "thread-1" }, true),
+    resolveCodexAppServerApprovalForTests("execCommandApproval", { conversationId: "thread-1" }, false),
+    resolveCodexAppServerApprovalForTests("applyPatchApproval", { conversationId: "thread-1" }, true),
+    resolveCodexAppServerApprovalForTests("item/permissions/requestApproval", { threadId: "thread-1", permissions: { sandbox: "read-only" } }, false),
+    resolveCodexAppServerApprovalForTests("item/commandExecution/requestApproval", {}, true),
+    resolveCodexAppServerApprovalForTests("item/permissions/requestApproval", { permissions: { sandbox: "danger-full-access" } }, true),
+    resolveCodexAppServerApprovalForTests("future/requestApproval", { threadId: "thread-1" }, false),
+  ];
+
+  expect(responses).toEqual([
+    { decision: "accept" },
+    { decision: "reject" },
+    { decision: "approved" },
+    { decision: "denied" },
+    { permissions: { sandbox: "read-only" }, scope: "turn" },
+    { decision: "reject" },
+    { permissions: {}, scope: "turn" },
+    { decision: "denied" },
+  ]);
+  expect(responses.every((response) => response !== null && !hasUndefinedValue(response))).toBe(true);
+});
+
+test("Codex app-server request handling denies approvals with missing thread identity", () => {
+  expect(resolveCodexAppServerRequestForTests(
+    "item/commandExecution/requestApproval",
+    {},
+  )).toEqual({ decision: "reject" });
+  expect(resolveCodexAppServerRequestForTests(
+    "execCommandApproval",
+    {},
+  )).toEqual({ decision: "denied" });
+  expect(resolveCodexAppServerRequestForTests(
+    "item/permissions/requestApproval",
+    { permissions: { sandbox: "danger-full-access" } },
+  )).toEqual({ permissions: {}, scope: "turn" });
 });
 
 test("Codex app-server keeps untrusted thread state sticky across later trusted turns", async () => {

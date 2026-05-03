@@ -17,6 +17,7 @@ export {
   listCodexBridgeDynamicToolsForTests,
 } from "./codex-app-server/bridge-tools.js";
 export {
+  resolveCodexAppServerRequestForTests,
   setCodexAppServerClientFactoryForTests,
   stopCodexAppServerBackend,
 } from "./codex-app-server/client.js";
