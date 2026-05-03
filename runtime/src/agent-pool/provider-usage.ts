@@ -1,4 +1,7 @@
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
 import { parsePositiveNumber } from "../utils/numbers.js";
@@ -270,7 +273,40 @@ async function getOAuthCredential(authStorage: AuthStorage, providerId: string):
     }
   }
   const refreshed = (authStorage.get(providerId) as any) ?? null;
+  if (typeof refreshed?.expires === "number" && Number.isFinite(refreshed.expires) && Date.now() >= refreshed.expires) {
+    return null;
+  }
   return refreshed && refreshed.type === "oauth" ? refreshed : null;
+}
+
+async function getAnthropicOAuthCredential(authStorage: AuthStorage): Promise<any | null> {
+  const configDir = process.env.PICLAW_CLAUDE_CONFIG_DIR
+    || process.env.CLAUDE_CONFIG_DIR
+    || join(homedir(), ".claude");
+  try {
+    const raw = await readFile(join(configDir, ".credentials.json"), "utf8");
+    const oauth = JSON.parse(raw)?.claudeAiOauth;
+    if (!oauth || typeof oauth !== "object") return null;
+    const access = typeof oauth.accessToken === "string" && oauth.accessToken.trim()
+      ? oauth.accessToken.trim()
+      : null;
+    if (!access) return null;
+    const expiresAt = typeof oauth.expiresAt === "number" && Number.isFinite(oauth.expiresAt)
+      ? oauth.expiresAt
+      : null;
+    if (expiresAt != null && Date.now() >= expiresAt) return null;
+    return {
+      type: "oauth",
+      access,
+      expires: expiresAt,
+      plan: typeof oauth.subscriptionType === "string" ? oauth.subscriptionType : null,
+      plan_type: typeof oauth.rateLimitTier === "string" ? oauth.rateLimitTier : null,
+    };
+  } catch (error) {
+    debugSuppressedError(log, "Failed to read Claude native OAuth credentials for Anthropic usage lookup.", error);
+  }
+
+  return await getOAuthCredential(authStorage, "anthropic");
 }
 
 async function fetchCodexUsage(authStorage: AuthStorage): Promise<ProviderUsageSnapshot | null> {
@@ -421,7 +457,7 @@ async function fetchAnthropicOverageCreditGrant(accessToken: string): Promise<an
 }
 
 async function fetchAnthropicUsage(authStorage: AuthStorage): Promise<ProviderUsageSnapshot | null> {
-  const credential = await getOAuthCredential(authStorage, "anthropic");
+  const credential = await getAnthropicOAuthCredential(authStorage);
   if (!credential?.access) return null;
 
   const usageResponse = await fetchJsonWithTimeout("https://api.anthropic.com/api/oauth/usage", {
@@ -483,7 +519,7 @@ function getCachedUsageEntry(providerId: string): CachedUsage | null {
 
 function hasFreshCachedUsage(providerId: string): boolean {
   const cached = getCachedUsageEntry(providerId);
-  return Boolean(cached && cached.expiresAt > Date.now());
+  return Boolean(cached?.value && cached.expiresAt > Date.now());
 }
 
 async function fetchProviderUsage(authStorage: AuthStorage, providerId: SupportedProviderId): Promise<ProviderUsageSnapshot | null> {
@@ -544,7 +580,7 @@ export async function getProviderUsage(authStorage: AuthStorage, providerId: str
   if (!isSupportedProviderId(providerId)) return null;
 
   const cached = getCachedUsageEntry(providerId);
-  if (cached && cached.expiresAt > Date.now()) {
+  if (cached?.value && cached.expiresAt > Date.now()) {
     return cached.value;
   }
 

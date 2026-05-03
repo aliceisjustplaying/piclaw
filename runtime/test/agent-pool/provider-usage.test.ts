@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { clearProviderUsageCache, getProviderUsage, peekProviderUsage, warmProviderUsage } from "../../src/agent-pool/provider-usage.js";
 
 function createAuthStorage(credentials: Record<string, unknown>) {
@@ -11,6 +14,7 @@ function createAuthStorage(credentials: Record<string, unknown>) {
 describe("provider usage", () => {
   beforeEach(() => {
     clearProviderUsageCache();
+    process.env.PICLAW_CLAUDE_CONFIG_DIR = join(tmpdir(), `piclaw-missing-claude-${process.pid}`);
   });
 
   test("fetches Codex usage from ChatGPT usage API", async () => {
@@ -175,6 +179,29 @@ describe("provider usage", () => {
     }
   });
 
+  test("does not treat cached null usage as a fresh successful refresh", async () => {
+    const fetchMock = mock(async () => new Response("not found", { status: 404 }));
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as any;
+
+    try {
+      const authStorage = createAuthStorage({
+        "openai-codex": {
+          type: "oauth",
+          access: "token",
+          accountId: "acct_123",
+          expires: Date.now() + 60_000,
+        },
+      });
+
+      expect(await getProviderUsage(authStorage, "openai-codex")).toBeNull();
+      expect(await getProviderUsage(authStorage, "openai-codex")).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test("fetches Anthropic usage from the OAuth usage API", async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -244,6 +271,62 @@ describe("provider usage", () => {
       expect(usage?.hint_short).toContain("extra $5/$20");
     } finally {
       globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("fetches Anthropic usage from Claude native OAuth credentials when Pi auth is absent", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "piclaw-claude-credentials-"));
+    const previousConfigDir = process.env.PICLAW_CLAUDE_CONFIG_DIR;
+    const previousFetch = globalThis.fetch;
+    process.env.PICLAW_CLAUDE_CONFIG_DIR = configDir;
+    await writeFile(join(configDir, ".credentials.json"), JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "claude-native-token",
+        refreshToken: "unused",
+        expiresAt: Date.now() + 60_000,
+        subscriptionType: "pro",
+        rateLimitTier: "pro",
+      },
+    }));
+
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://api.anthropic.com/api/oauth/usage") {
+        return new Response(JSON.stringify({
+          five_hour: { utilization: 3, resets_at: new Date(Date.now() + 3600_000).toISOString() },
+          seven_day: { utilization: 7, resets_at: new Date(Date.now() + 86400_000).toISOString() },
+        }));
+      }
+      if (url === "https://api.anthropic.com/api/oauth/profile") {
+        return new Response(JSON.stringify({ organization: { uuid: "org_native" } }));
+      }
+      if (url === "https://api.anthropic.com/api/oauth/organizations/org_native/overage_credit_grant") {
+        return new Response(JSON.stringify({ granted: false }));
+      }
+      return new Response("not found", { status: 404 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    try {
+      const usage = await getProviderUsage(createAuthStorage({}), "anthropic");
+
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+        headers: expect.objectContaining({
+          Authorization: "Bearer claude-native-token",
+        }),
+      });
+      expect(usage?.provider).toBe("anthropic");
+      expect(usage?.plan).toBe("pro");
+      expect(usage?.primary?.remaining_percent).toBe(97);
+      expect(usage?.secondary?.remaining_percent).toBe(93);
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousConfigDir === undefined) {
+        delete process.env.PICLAW_CLAUDE_CONFIG_DIR;
+      } else {
+        process.env.PICLAW_CLAUDE_CONFIG_DIR = previousConfigDir;
+      }
+      await rm(configDir, { recursive: true, force: true });
     }
   });
 
