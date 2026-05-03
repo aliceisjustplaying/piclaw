@@ -138,6 +138,17 @@
 - When avatar changes, manifest icon URLs get a new version parameter
 - Icons use the custom agent avatar when configured, not generic defaults
 
+### US-12: Thoughts Panel Scroll Behaviour
+> As a user monitoring agent reasoning, I want the thoughts panel to become scrollable when I click "N more lines" and revert to non-scrollable when I collapse it, so that I can read long reasoning without the panel taking over the screen.
+
+**Acceptance criteria:**
+- Collapsed: `overflow-y: hidden`, `max-height` clamped to N lines, "X more lines" button visible
+- Expanded (thought panel): `overflow-y: auto`, `max-height: min(52vh, 34rem)`, scrollbar appears if content exceeds
+- `data-expanded` attribute toggles between "true" and "false"
+- Clicking "show less" returns to collapsed state with hidden overflow
+- Content is preserved across expand/collapse round-trips
+- Scroll position resets to top on re-expand
+
 ---
 
 ## Priority Matrix
@@ -155,6 +166,7 @@
 | US-09 Session lifecycle | ★★ | ★ | ★★ | Medium | Medium |
 | US-10 Workspace files | ★★ | ★ | ★★ | Low-Medium | Medium |
 | US-11 PWA manifest | ★★★ | ★★★ | ★ | Every install | Medium |
+| US-12 Thoughts panel | ★★★ | ★★ | ★★★ | Every turn with thinking | Medium |
 
 ## Test implementation priority
 
@@ -169,3 +181,4 @@
 9. **US-09** — Session lifecycle
 10. **US-10** — Workspace files
 11. **US-11** — PWA manifest & icons
+12. **US-12** — Thoughts panel scroll behaviour
