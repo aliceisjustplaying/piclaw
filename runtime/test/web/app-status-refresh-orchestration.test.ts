@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
+  normalizeContextUsage,
   refreshAutoresearchStatusForChat,
   refreshContextUsageForChat,
   refreshCurrentView,
@@ -9,6 +10,10 @@ import {
 } from '../../web/src/ui/app-status-refresh-orchestration.js';
 
 type QueueRow = { row_id: string | number; content?: string };
+
+test('normalizeContextUsage rejects impossible cached context snapshots', () => {
+  expect(normalizeContextUsage({ tokens: 1_211_529, contextWindow: 1_000_000, percent: 121.1529 })).toBeNull();
+});
 
 test('refreshQueueStateForChat keeps only newest non-dismissed queue rows', async () => {
   const queueRefreshGenRef = { current: 0 };
