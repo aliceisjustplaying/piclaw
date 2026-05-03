@@ -33,9 +33,13 @@ export function normalizeContextUsage(tokenUsage: JsonObject): CodexContextUsage
   const tokens = Number(last.totalTokens);
   const nextTokens = Number.isFinite(tokens) ? tokens : null;
   return {
+    backend: "codex-app-server",
+    source: "codex-app-server-token-usage",
     tokens: nextTokens,
     contextWindow,
     percent: nextTokens == null ? null : (nextTokens / contextWindow) * 100,
+    model: null,
+    updatedAt: new Date().toISOString(),
   };
 }
 

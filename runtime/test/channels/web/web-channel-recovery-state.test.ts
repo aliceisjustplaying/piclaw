@@ -74,8 +74,27 @@ test("web channel loadState drops impossible persisted context usage", async () 
   db.setRouterState("last_agent_timestamp_web", JSON.stringify({
     agentStatuses: {},
     contextUsages: {
-      "web:c": { tokens: 1_211_529, contextWindow: 1_000_000, percent: 121.1529 },
-      "web:ok": { tokens: 10, contextWindow: 1_000_000, percent: 0.001 },
+      "web:c": {
+        backend: "claude-agent-sdk",
+        source: "claude-native-context",
+        tokens: 1_211_529,
+        contextWindow: 1_000_000,
+        percent: 121.1529,
+        model: "claude-opus-4-6[1m]",
+        updatedAt: "2026-05-03T00:00:00.000Z",
+        sessionId: "bad",
+      },
+      "web:legacy": { tokens: 72, contextWindow: 1_000_000, percent: 0.0072 },
+      "web:ok": {
+        backend: "pi",
+        source: "pi-session-context",
+        tokens: 10,
+        contextWindow: 1_000_000,
+        percent: 0.001,
+        model: "openai/gpt-test",
+        updatedAt: "2026-05-03T00:00:00.000Z",
+        sessionId: null,
+      },
     },
     draftRecoveries: {},
   }));
@@ -87,7 +106,14 @@ test("web channel loadState drops impossible persisted context usage", async () 
   second.loadState();
 
   expect(second.getContextUsage("web:c")).toBeNull();
-  expect(second.getContextUsage("web:ok")).toEqual({ tokens: 10, contextWindow: 1_000_000, percent: 0.001 });
+  expect(second.getContextUsage("web:legacy")).toBeNull();
+  expect(second.getContextUsage("web:ok")).toMatchObject({
+    backend: "pi",
+    source: "pi-session-context",
+    tokens: 10,
+    contextWindow: 1_000_000,
+    percent: 0.001,
+  });
 });
 
 test("web channel derives a recovery status from inflight chat cursors instead of trusting persisted compaction state", async () => {

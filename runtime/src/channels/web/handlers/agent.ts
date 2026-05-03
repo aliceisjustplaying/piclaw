@@ -1616,16 +1616,14 @@ export async function processChat(
     channel.saveState();
     const contextUsage = await channel.agentPool.getContextUsageForChat(chatJid);
     channel.setContextUsage(chatJid, contextUsage
-      ? { tokens: contextUsage.tokens, contextWindow: contextUsage.contextWindow, percent: contextUsage.percent }
+      ? { ...contextUsage }
       : null);
     trackedEmitter.status({
       thread_id: threadId,
       agent_id: agentId,
       type: "done",
       turn_id: turnId,
-      context_usage: contextUsage
-        ? { tokens: contextUsage.tokens, contextWindow: contextUsage.contextWindow, percent: contextUsage.percent }
-        : null,
+      context_usage: contextUsage ? { ...contextUsage } : null,
       recovery: lastRecoveryMeta,
     });
 

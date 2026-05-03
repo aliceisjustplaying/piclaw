@@ -17,6 +17,7 @@ import { executeSlashCommand } from "./slash-command.js";
 import { peekProviderUsage, warmProviderUsage } from "./provider-usage.js";
 import { getCodexAppServerContextUsage } from "./codex-app-server-backend.js";
 import { getClaudeAgentSdkContextUsage } from "./claude-agent-sdk-backend.js";
+import type { ContextUsageSnapshot } from "./context-usage.js";
 import { getChatAgentBackend } from "./backend-state.js";
 import { resolveModelLabel } from "../utils/model-utils.js";
 import { createLogger } from "../utils/logger.js";
@@ -551,17 +552,24 @@ export class AgentRuntimeFacade {
     };
   }
 
-  getContextUsageForChat(chatJid: string): {
-    tokens: number | null;
-    contextWindow: number;
-    percent: number | null;
-  } | null {
+  getContextUsageForChat(chatJid: string): ContextUsageSnapshot | null {
     const backend = getChatAgentBackend(chatJid);
     if (backend === "codex-app-server") return getCodexAppServerContextUsage(chatJid);
     if (backend === "claude-agent-sdk") return getClaudeAgentSdkContextUsage(chatJid);
     const entry = this.options.pool.get(chatJid);
     if (!entry) return null;
-    return entry.runtime.session.getContextUsage() ?? null;
+    const usage = entry.runtime.session.getContextUsage() ?? null;
+    if (!usage) return null;
+    return {
+      backend: "pi",
+      source: "pi-session-context",
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+      model: entry.runtime.session.model ? `${entry.runtime.session.model.provider}/${entry.runtime.session.model.id}` : null,
+      updatedAt: new Date().toISOString(),
+      sessionId: null,
+    };
   }
 
   getSessionTreeForChat(chatJid: string): { leafId: string | null; nodes: unknown[]; flat: true; total: number } | null {

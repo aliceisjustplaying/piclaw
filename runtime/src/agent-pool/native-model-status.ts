@@ -22,21 +22,14 @@ import {
   warmCodexAppServerProviderUsage,
 } from "./codex-app-server-backend.js";
 import { withWarmupTimeout } from "./config.js";
+import type { ContextUsageSnapshot } from "./context-usage.js";
 import { peekProviderUsage, warmProviderUsage } from "./provider-usage.js";
 import { type AvailableModelsResult } from "./runtime-facade.js";
 
 interface RuntimeModelFacade {
   getCurrentModelLabel(chatJid: string): Promise<string | null>;
   getAvailableModels(chatJid: string): Promise<AvailableModelsResult>;
-  getContextUsageForChat(chatJid: string): Promise<{
-    tokens: number | null;
-    contextWindow: number;
-    percent: number | null;
-  } | null> | {
-    tokens: number | null;
-    contextWindow: number;
-    percent: number | null;
-  } | null;
+  getContextUsageForChat(chatJid: string): Promise<ContextUsageSnapshot | null> | ContextUsageSnapshot | null;
 }
 
 export async function getNativeCurrentModelLabel(
@@ -119,11 +112,7 @@ export async function getNativeAvailableModels(
 export async function getNativeContextUsageForChat(
   chatJid: string,
   runtimeFacade: RuntimeModelFacade,
-): Promise<{
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
-} | null> {
+): Promise<ContextUsageSnapshot | null> {
   const backend = getChatAgentBackend(chatJid);
   if (backend === "claude-agent-sdk") return refreshClaudeAgentSdkContextUsage(chatJid);
   if (backend === "codex-app-server") return getCodexAppServerContextUsage(chatJid);

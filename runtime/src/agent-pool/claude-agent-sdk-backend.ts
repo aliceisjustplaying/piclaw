@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 
 import { WORKSPACE_DIR, getAgentBackendConfig } from "../core/config.js";
 import { extensionKvGet, extensionKvSet } from "../db.js";
+import { normalizeContextUsageSnapshot, type ContextUsageSnapshot } from "./context-usage.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
 import type { PiclawBridgeSession } from "./codex-app-server-backend.js";
@@ -35,7 +36,7 @@ let oauthTokenResolverForTests: (() => Promise<string | null>) | null = null;
 
 const sessionIdByChat = new Map<string, string>();
 const activeRunsByChat = new Map<string, AbortController>();
-const contextUsageByChat = new Map<string, { tokens: number | null; contextWindow: number; percent: number | null }>();
+const contextUsageByChat = new Map<string, ContextUsageSnapshot>();
 const controlStreamByChat = new Map<string, { getContextUsage?: () => Promise<unknown> }>();
 const providerUsageByChat = new Map<string, unknown>();
 const thinkingLevelByChat = new Map<string, ClaudeThinkingLevel>();
@@ -53,10 +54,13 @@ type PersistedClaudeState = {
   model?: string | null;
   thinking?: ClaudeThinkingLevel;
   providerUsage?: unknown;
+  contextUsage?: ContextUsageSnapshot | null;
 };
 
 function readPersistedState(chatJid: string): PersistedClaudeState {
-  return extensionKvGet<PersistedClaudeState>(STATE_EXTENSION_ID, STATE_KEY, "chat", chatJid) ?? {};
+  const state = extensionKvGet<PersistedClaudeState>(STATE_EXTENSION_ID, STATE_KEY, "chat", chatJid) ?? {};
+  const contextUsage = normalizeContextUsageSnapshot(state.contextUsage);
+  return { ...state, contextUsage };
 }
 
 function writePersistedState(chatJid: string, patch: PersistedClaudeState): void {
@@ -128,24 +132,23 @@ export function resolveClaudeAgentSdkModelLabel(requested: string | undefined): 
   return id === "default" ? "claude/default" : `claude/${id}`;
 }
 
-export function getClaudeAgentSdkContextUsage(chatJid: string): {
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
-} | null {
-  return contextUsageByChat.get(chatJid) ?? null;
+export function getClaudeAgentSdkContextUsage(chatJid: string): ContextUsageSnapshot | null {
+  return contextUsageByChat.get(chatJid) ?? readPersistedState(chatJid).contextUsage ?? null;
 }
 
-export async function refreshClaudeAgentSdkContextUsage(chatJid: string): Promise<{
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
-} | null> {
+export async function refreshClaudeAgentSdkContextUsage(chatJid: string): Promise<ContextUsageSnapshot | null> {
   const stream = controlStreamByChat.get(chatJid);
   if (!stream?.getContextUsage) return getClaudeAgentSdkContextUsage(chatJid);
   try {
-    const snapshot = normalizeClaudeContextUsage(await stream.getContextUsage());
-    if (snapshot) contextUsageByChat.set(chatJid, snapshot);
+    const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
+    const snapshot = normalizeClaudeContextUsage(await stream.getContextUsage(), {
+      model: normalizeClaudeModelId(selectedModel),
+      sessionId: sessionIdByChat.get(chatJid) ?? null,
+    });
+    if (snapshot) {
+      contextUsageByChat.set(chatJid, snapshot);
+      writePersistedState(chatJid, { contextUsage: snapshot });
+    }
   } catch (error) {
     log.debug("Claude Agent SDK context usage refresh failed", {
       operation: "claude_agent_sdk.context_usage_refresh_failed",
@@ -224,29 +227,26 @@ function extractAssistantText(message: SDKMessage): string {
     .join("");
 }
 
-function updateContextUsage(chatJid: string, message: SDKMessage): void {
-  if (message.type !== "result") return;
-  const modelUsage = (message as any).modelUsage ?? {};
-  const modelWindows = Object.values(modelUsage)
-    .map((entry: any) => (typeof entry?.contextWindow === "number" ? entry.contextWindow : null))
-    .filter((value): value is number => value != null && Number.isFinite(value) && value > 0);
-  const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
-  const contextWindow = modelWindows[0] ?? contextWindowForClaudeModel(selectedModel);
-  contextUsageByChat.set(chatJid, {
-    tokens: null,
-    contextWindow,
-    percent: null,
-  });
-}
-
-function normalizeClaudeContextUsage(payload: unknown): { tokens: number | null; contextWindow: number; percent: number | null } | null {
+function normalizeClaudeContextUsage(
+  payload: unknown,
+  options: { model: string | null; sessionId: string | null },
+): ContextUsageSnapshot | null {
   if (!payload || typeof payload !== "object") return null;
   const data = payload as Record<string, unknown>;
   const tokens = readNumber(data.totalTokens) ?? readNumber(data.total_tokens);
   const contextWindow = readNumber(data.maxTokens) ?? readNumber(data.max_tokens) ?? readNumber(data.rawMaxTokens) ?? readNumber(data.raw_max_tokens);
   const percent = readNumber(data.percentage) ?? (tokens != null && contextWindow != null ? (tokens / contextWindow) * 100 : null);
   if (contextWindow == null || contextWindow <= 0) return null;
-  return { tokens, contextWindow, percent };
+  return {
+    backend: "claude-agent-sdk",
+    source: "claude-native-context",
+    tokens,
+    contextWindow,
+    percent,
+    model: options.model,
+    updatedAt: new Date().toISOString(),
+    sessionId: options.sessionId,
+  };
 }
 
 function updateProviderUsage(chatJid: string, message: SDKMessage): void {
@@ -401,7 +401,6 @@ async function runClaudeAgentSdkPromptUnlocked(
     controlStreamByChat.set(chatJid, stream as { getContextUsage?: () => Promise<unknown> });
     for await (const message of stream) {
       if ((message as any).session_id) sessionIdByChat.set(chatJid, String((message as any).session_id));
-      updateContextUsage(chatJid, message);
       updateProviderUsage(chatJid, message);
       if (message.type === "stream_event") {
         const event = (message as any).event;

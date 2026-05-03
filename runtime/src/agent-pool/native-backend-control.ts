@@ -1,5 +1,6 @@
 import type { AgentControlCommand, AgentControlResult } from "../agent-control/index.js";
 import type { AgentBackend } from "../core/config.js";
+import type { ContextUsageSnapshot } from "./context-usage.js";
 import {
   abortCodexAppServerChat,
   compactCodexAppServerChat,
@@ -32,7 +33,7 @@ import {
 import { withScopedChatRunLock } from "./chat-run-lock.js";
 
 export type NativeBackendControlDeps = {
-  getContextUsageForChat: (chatJid: string) => Promise<{ tokens: number | null; contextWindow: number; percent: number | null } | null>;
+  getContextUsageForChat: (chatJid: string) => Promise<ContextUsageSnapshot | null>;
   abortBackendTurnForSwitch: (chatJid: string, backend: AgentBackend) => Promise<void>;
   captureBackendHandoff: (chatJid: string, from: AgentBackend, to: AgentBackend) => Promise<boolean>;
 };
@@ -45,7 +46,7 @@ function normalizeBackend(value: string): AgentBackend | null {
   return null;
 }
 
-function formatContextUsage(usage: { tokens: number | null; contextWindow: number; percent: number | null }): string {
+function formatContextUsage(usage: ContextUsageSnapshot): string {
   const used = usage.tokens == null ? "?" : Math.round(usage.tokens).toLocaleString();
   const total = Math.round(usage.contextWindow).toLocaleString();
   const percent = usage.percent == null ? "?" : `${usage.percent.toFixed(1)}%`;

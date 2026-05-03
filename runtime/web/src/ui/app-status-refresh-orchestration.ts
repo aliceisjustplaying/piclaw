@@ -14,20 +14,45 @@ type StateSetter<T> = (next: T | ((prev: T) => T)) => void;
 
 const CONTEXT_STORAGE_PREFIX = 'piclaw:ctx:';
 
-export function normalizeContextUsage(payload: unknown): Record<string, unknown> | null {
+type ContextUsageSnapshot = {
+  backend: string;
+  source: 'claude-native-context' | 'codex-app-server-token-usage' | 'pi-session-context';
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+  model: string | null;
+  updatedAt: string;
+  sessionId: string | null;
+};
+
+function isContextUsageSource(value: unknown): value is ContextUsageSnapshot['source'] {
+  return value === 'claude-native-context'
+    || value === 'codex-app-server-token-usage'
+    || value === 'pi-session-context';
+}
+
+export function normalizeContextUsage(payload: unknown): ContextUsageSnapshot | null {
   if (!payload || typeof payload !== 'object') return null;
   const data = payload as Record<string, unknown>;
+  const backend = typeof data.backend === 'string' && data.backend.trim() ? data.backend.trim() : null;
+  const source = isContextUsageSource(data.source) ? data.source : null;
+  const updatedAt = typeof data.updatedAt === 'string' && data.updatedAt.trim() ? data.updatedAt.trim() : null;
   const tokens = data.tokens == null ? null : Number(data.tokens);
-  const contextWindow = data.contextWindow == null ? null : Number(data.contextWindow);
+  const contextWindow = Number(data.contextWindow);
   const percent = data.percent == null ? null : Number(data.percent);
-  if (tokens != null && contextWindow != null && Number.isFinite(tokens) && Number.isFinite(contextWindow) && tokens > contextWindow) {
-    return null;
-  }
-  if (percent != null && Number.isFinite(percent) && percent > 100) return null;
+  if (!backend || !source || !updatedAt) return null;
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+  if (tokens != null && (!Number.isFinite(tokens) || tokens > contextWindow)) return null;
+  if (percent != null && (!Number.isFinite(percent) || percent > 100)) return null;
   return {
-    tokens: Number.isFinite(tokens) ? tokens : null,
-    contextWindow: Number.isFinite(contextWindow) ? contextWindow : null,
-    percent: Number.isFinite(percent) ? percent : null,
+    backend,
+    source,
+    tokens,
+    contextWindow,
+    percent,
+    model: typeof data.model === 'string' ? data.model : null,
+    updatedAt,
+    sessionId: typeof data.sessionId === 'string' ? data.sessionId : null,
   };
 }
 
@@ -38,7 +63,11 @@ export function haveSameContextUsage(a: unknown, b: unknown): boolean {
   if (!left || !right) return false;
   return left.tokens === right.tokens
     && left.contextWindow === right.contextWindow
-    && left.percent === right.percent;
+    && left.percent === right.percent
+    && left.backend === right.backend
+    && left.source === right.source
+    && left.model === right.model
+    && left.sessionId === right.sessionId;
 }
 
 export function persistContextUsage(chatJid: string, payload: unknown): void {

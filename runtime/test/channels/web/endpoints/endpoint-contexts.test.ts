@@ -45,13 +45,23 @@ describe("web endpoint context builders", () => {
 
   test("createAgentStatusContext and createContentEndpointsContext preserve shared buffer access", async () => {
     const expectedBuffer = { text: "draft", totalLines: 3 };
+    const contextSnapshot = {
+      backend: "pi",
+      source: "pi-session-context",
+      tokens: 10,
+      contextWindow: 100,
+      percent: 10,
+      model: "openai/gpt-test",
+      updatedAt: "2026-05-03T00:00:00.000Z",
+      sessionId: null,
+    } as const;
 
     const agentStatusCtx = createAgentStatusContext({
       defaultChatJid: "web:default",
       json: (payload, status = 200) => new Response(JSON.stringify(payload), { status }),
       getAgentStatus: () => ({ status: "active" }),
       getBuffer: () => expectedBuffer,
-      getContextUsageForChat: async () => ({ tokens: 10, contextWindow: 100, percent: 10 }),
+      getContextUsageForChat: async () => contextSnapshot,
       getAvailableModels: async () => ({ models: [] }),
     });
 
@@ -63,11 +73,7 @@ describe("web endpoint context builders", () => {
 
     expect(agentStatusCtx.getBuffer("turn", "draft")).toEqual(expectedBuffer);
     expect(contentCtx.getBuffer("turn", "thought")).toEqual(expectedBuffer);
-    await expect(agentStatusCtx.getContextUsageForChat("web:default")).resolves.toEqual({
-      tokens: 10,
-      contextWindow: 100,
-      percent: 10,
-    });
+    await expect(agentStatusCtx.getContextUsageForChat("web:default")).resolves.toEqual(contextSnapshot);
   });
 
   test("createUiEndpointsContext, createAgentsEndpointContext, and createAvatarEndpointContext expose configured state", () => {

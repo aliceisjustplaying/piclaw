@@ -135,10 +135,13 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
   ]);
   expect(available.thinking_level).toBe("high");
   expect(available.supports_thinking).toBe(true);
-  expect(fixture.facade.getContextUsageForChat("web:default")).toEqual({
+  expect(fixture.facade.getContextUsageForChat("web:default")).toMatchObject({
+    backend: "pi",
+    source: "pi-session-context",
     tokens: 10,
     contextWindow: 100,
     percent: 10,
+    model: "openai/gpt-test",
   });
 });
 
@@ -149,7 +152,9 @@ test("AgentRuntimeFacade scopes context usage to the active backend", async () =
   await runCodexAppServerPrompt("hello", chatJid, { timeoutMs: 1000 });
 
   const fixture = createFacade();
-  expect(fixture.facade.getContextUsageForChat(chatJid)).toEqual({
+  expect(fixture.facade.getContextUsageForChat(chatJid)).toMatchObject({
+    backend: "codex-app-server",
+    source: "codex-app-server-token-usage",
     tokens: 250,
     contextWindow: 1000,
     percent: 25,

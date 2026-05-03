@@ -15,6 +15,7 @@
  */
 
 import { getRouterState, setRouterState } from "../../../db.js";
+import { normalizeContextUsageSnapshot } from "../../../agent-pool/context-usage.js";
 
 export interface PersistedDraftRecoveryEntry {
   turnId?: string;
@@ -24,15 +25,7 @@ export interface PersistedDraftRecoveryEntry {
 }
 
 function isValidContextUsage(usage: unknown): usage is Record<string, unknown> {
-  if (!usage || typeof usage !== "object") return false;
-  const data = usage as Record<string, unknown>;
-  const tokens = data.tokens == null ? null : Number(data.tokens);
-  const contextWindow = Number(data.contextWindow);
-  const percent = data.percent == null ? null : Number(data.percent);
-  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return false;
-  if (tokens != null && (!Number.isFinite(tokens) || tokens > contextWindow)) return false;
-  if (percent != null && (!Number.isFinite(percent) || percent > 100)) return false;
-  return true;
+  return normalizeContextUsageSnapshot(usage) != null;
 }
 
 function filterContextUsages(value: unknown): Record<string, Record<string, unknown>> {

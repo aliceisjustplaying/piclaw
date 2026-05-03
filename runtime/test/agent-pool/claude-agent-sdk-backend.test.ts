@@ -164,11 +164,7 @@ test("Claude Agent SDK backend records only context window until native context 
 
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
-  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
-    tokens: null,
-    contextWindow: 1_000_000,
-    percent: null,
-  });
+  expect(getClaudeAgentSdkContextUsage("web:test")).toBeNull();
 });
 
 test("Claude Agent SDK backend does not use prompt cache accounting as context usage", async () => {
@@ -191,11 +187,7 @@ test("Claude Agent SDK backend does not use prompt cache accounting as context u
 
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
-  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
-    tokens: null,
-    contextWindow: 1_000_000,
-    percent: null,
-  });
+  expect(getClaudeAgentSdkContextUsage("web:test")).toBeNull();
 });
 
 test("Claude Agent SDK backend prefers native context usage over per-turn API usage", async () => {
@@ -218,10 +210,14 @@ test("Claude Agent SDK backend prefers native context usage over per-turn API us
 
   await runClaudeAgentSdkPrompt("hello", "web:test", {});
 
-  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({
+  expect(getClaudeAgentSdkContextUsage("web:test")).toMatchObject({
+    backend: "claude-agent-sdk",
+    source: "claude-native-context",
     tokens: 742_000,
     contextWindow: 1_000_000,
     percent: 74.2,
+    model: "claude-opus-4-6[1m]",
+    sessionId: "claude-session-context",
   });
 });
 
@@ -327,11 +323,11 @@ test("Claude Agent SDK backend emits assistant text and records usage", async ()
   });
 
   const events: unknown[] = [];
-  const output = await runClaudeAgentSdkPrompt("hello", "web:test", { onEvent: (event) => events.push(event) });
+  const output = await runClaudeAgentSdkPrompt("hello", "web:assistant-text", { onEvent: (event) => events.push(event) });
 
   expect(output).toEqual({ status: "success", result: "hi there" });
-  expect(hasClaudeAgentSdkSession("web:test")).toBe(true);
-  expect(getClaudeAgentSdkContextUsage("web:test")).toEqual({ tokens: null, contextWindow: 200000, percent: null });
+  expect(hasClaudeAgentSdkSession("web:assistant-text")).toBe(true);
+  expect(getClaudeAgentSdkContextUsage("web:assistant-text")).toBeNull();
   expect(events.some((event: any) => event.type === "message_end" && event.message?.content?.[0]?.text === "hi there")).toBe(true);
 });
 
