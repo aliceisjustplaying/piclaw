@@ -409,6 +409,37 @@ export function formatCompactModelUsageLabel(modelUsage) {
         .join(' • ');
 }
 
+export function resolveComposeModelUsageStatus({ activeModel, agentModelsPayload, modelUsage, supportsThinking, thinkingLevel }) {
+    const fastMode = typeof agentModelsPayload?.fast_mode === 'boolean' ? agentModelsPayload.fast_mode : null;
+    const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
+    const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
+    const routedModelStatus = resolveComposeRoutedModelStatus(activeModel, agentModelsPayload);
+    const modelFastLabel = fastMode === true ? 'Fast on' : null;
+    const compactModelUsageLabel = formatCompactModelUsageLabel(modelUsage);
+    const modelUsageLabel = [
+        routedModelStatus?.label || null,
+        compactModelUsageLabel || null,
+    ].filter(Boolean).join(' - ');
+    const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
+        ? modelUsage.extra_usage.reset_description.trim()
+        : '';
+    const showFastIndicator = fastMode === true;
+    const showModelUsageSeparator = Boolean((modelThinkingLabel || showFastIndicator) && modelUsageLabel);
+    const showModelUsageSection = Boolean(modelThinkingLabel || showFastIndicator || modelUsageLabel);
+    return {
+        fastMode,
+        modelHintSuffix,
+        modelThinkingLabel,
+        routedModelStatus,
+        modelFastLabel,
+        modelUsageLabel,
+        modelExtraUsageResetLabel,
+        showFastIndicator,
+        showModelUsageSeparator,
+        showModelUsageSection,
+    };
+}
+
 export function stripCodexModelPrefix(label) {
     const value = typeof label === 'string' ? label.trim() : '';
     const lower = value.toLowerCase();
@@ -1224,22 +1255,18 @@ export function ComposeBox({
     const modelPickerState = resolveComposeModelPickerState(activeModel, agentModelsPayload);
     const showModelPickerHint = modelPickerState.showPicker;
     const modelHintLabel = modelPickerState.label;
-    const fastMode = typeof agentModelsPayload?.fast_mode === 'boolean' ? agentModelsPayload.fast_mode : null;
-    const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
-    const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
-    const routedModelStatus = resolveComposeRoutedModelStatus(activeModel, agentModelsPayload);
-    const modelFastLabel = fastMode === true ? 'Fast on' : null;
-    const compactModelUsageLabel = formatCompactModelUsageLabel(modelUsage);
-    const modelUsageLabel = [
-        routedModelStatus?.label || null,
-        compactModelUsageLabel || null,
-    ].filter(Boolean).join(' - ');
-    const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
-        ? modelUsage.extra_usage.reset_description.trim()
-        : '';
-    const showFastIndicator = fastMode === true && Boolean(modelThinkingLabel);
-    const showModelUsageSeparator = Boolean((modelThinkingLabel || showFastIndicator) && modelUsageLabel);
-    const showModelUsageSection = Boolean(modelThinkingLabel || showFastIndicator || modelUsageLabel);
+    const {
+        fastMode,
+        modelHintSuffix,
+        modelThinkingLabel,
+        routedModelStatus,
+        modelFastLabel,
+        modelUsageLabel,
+        modelExtraUsageResetLabel,
+        showFastIndicator,
+        showModelUsageSeparator,
+        showModelUsageSection,
+    } = resolveComposeModelUsageStatus({ activeModel, agentModelsPayload, modelUsage, supportsThinking, thinkingLevel });
     const modelUsageTitleParts = [
         activeModel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
         routedModelStatus?.title || null,

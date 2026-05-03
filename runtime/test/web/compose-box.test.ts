@@ -11,6 +11,7 @@ import {
   normalizeModelPickerOptions,
   resolveComposeExtensionWorkingDisplay,
   resolveComposeModelPickerState,
+  resolveComposeModelUsageStatus,
   resolveComposeRoutedModelStatus,
   buildReturnedQueuedDraft,
   parseQueuedContent,
@@ -373,6 +374,22 @@ test('formatCompactModelUsageLabel renders provider limits without window names'
   expect(formatCompactModelUsageLabel({
     hint_short: '5h 98% • wk 47%',
   })).toBe('98% • 47%');
+});
+
+test('resolveComposeModelUsageStatus shows fast mode even without a thinking label', () => {
+  expect(resolveComposeModelUsageStatus({
+    activeModel: 'gpt-5.4-mini',
+    agentModelsPayload: { fast_mode: true },
+    modelUsage: null,
+    supportsThinking: false,
+    thinkingLevel: null,
+  })).toMatchObject({
+    modelThinkingLabel: '',
+    modelFastLabel: 'Fast on',
+    showFastIndicator: true,
+    showModelUsageSeparator: false,
+    showModelUsageSection: true,
+  });
 });
 
 test('shouldOpenModelPickerCommand only intercepts bare /model', () => {
