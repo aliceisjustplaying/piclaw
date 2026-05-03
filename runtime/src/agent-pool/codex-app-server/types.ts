@@ -57,22 +57,3 @@ export interface CodexModelOption {
   contextWindow: number | null;
   isDefault: boolean;
 }
-
-export type PiclawBridgeTool = {
-  name?: unknown;
-  description?: unknown;
-  promptSnippet?: unknown;
-  parameters?: unknown;
-  execute?: unknown;
-};
-
-export type PiclawBridgeSession = {
-  _toolRegistry?: Map<string, PiclawBridgeTool>;
-  getAllTools?: () => PiclawBridgeTool[];
-  extensionRunner?: {
-    createContext?: () => unknown;
-    getAllRegisteredTools?: () => Array<{
-      definition?: PiclawBridgeTool;
-    }>;
-  };
-};

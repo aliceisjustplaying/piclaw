@@ -11,7 +11,7 @@ import {
 import { normalizeContextUsageSnapshot, type ContextUsageSnapshot } from "./context-usage.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
-import type { PiclawBridgeSession } from "./codex-app-server-backend.js";
+import type { PiclawBridgeSession } from "./piclaw-bridge-builtins.js";
 import { buildAgentChildEnv } from "./child-env.js";
 import { buildClaudePrompt, createPiclawMcpServer, type ClaudeBridgeTrustState } from "./claude-agent-sdk/bridge.js";
 import { withScopedChatRunLock } from "./chat-run-lock.js";

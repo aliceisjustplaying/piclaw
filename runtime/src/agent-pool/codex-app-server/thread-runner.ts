@@ -46,7 +46,8 @@ import {
   setToolAbortControllerForThread,
 } from "./state.js";
 import { emit, log } from "./telemetry.js";
-import type { CodexAppServerClientLike, CodexContextUsage, CodexThreadState, JsonObject, PiclawBridgeSession } from "./types.js";
+import type { CodexAppServerClientLike, CodexContextUsage, CodexThreadState, JsonObject } from "./types.js";
+import type { PiclawBridgeSession } from "../piclaw-bridge-builtins.js";
 import { asError, readString, workspaceCwd } from "./utils.js";
 
 function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, threadId: string, turnId: string): void {
