@@ -68,6 +68,28 @@ test("web channel loadState clears stale persisted statuses when there is no inf
   expect(second.getAgentStatus("web:compact")).toBeNull();
 });
 
+test("web channel loadState drops impossible persisted context usage", async () => {
+  const { db, webMod } = await initWebChannelFixture(["web:c"]);
+
+  db.setRouterState("last_agent_timestamp_web", JSON.stringify({
+    agentStatuses: {},
+    contextUsages: {
+      "web:c": { tokens: 1_211_529, contextWindow: 1_000_000, percent: 121.1529 },
+      "web:ok": { tokens: 10, contextWindow: 1_000_000, percent: 0.001 },
+    },
+    draftRecoveries: {},
+  }));
+
+  const second = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: { runAgent: async () => ({ status: "success", result: "ok" }), getContextUsageForChat: async () => null },
+  });
+  second.loadState();
+
+  expect(second.getContextUsage("web:c")).toBeNull();
+  expect(second.getContextUsage("web:ok")).toEqual({ tokens: 10, contextWindow: 1_000_000, percent: 0.001 });
+});
+
 test("web channel derives a recovery status from inflight chat cursors instead of trusting persisted compaction state", async () => {
   const { db, webMod } = await initWebChannelFixture(["web:compact"]);
 

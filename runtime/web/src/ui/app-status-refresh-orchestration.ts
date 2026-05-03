@@ -20,6 +20,10 @@ export function normalizeContextUsage(payload: unknown): Record<string, unknown>
   const tokens = data.tokens == null ? null : Number(data.tokens);
   const contextWindow = data.contextWindow == null ? null : Number(data.contextWindow);
   const percent = data.percent == null ? null : Number(data.percent);
+  if (tokens != null && contextWindow != null && Number.isFinite(tokens) && Number.isFinite(contextWindow) && tokens > contextWindow) {
+    return null;
+  }
+  if (percent != null && Number.isFinite(percent) && percent > 100) return null;
   return {
     tokens: Number.isFinite(tokens) ? tokens : null,
     contextWindow: Number.isFinite(contextWindow) ? contextWindow : null,
@@ -38,11 +42,11 @@ export function haveSameContextUsage(a: unknown, b: unknown): boolean {
 }
 
 export function persistContextUsage(chatJid: string, payload: unknown): void {
-  if (!chatJid || !payload || typeof payload !== 'object') return;
-  const data = payload as Record<string, unknown>;
+  const data = normalizeContextUsage(payload);
+  if (!chatJid || !data) return;
   if (data.percent == null) return;
   try {
-    setLocalStorageItem(CONTEXT_STORAGE_PREFIX + chatJid, JSON.stringify(payload));
+    setLocalStorageItem(CONTEXT_STORAGE_PREFIX + chatJid, JSON.stringify(data));
   } catch (error) {
     console.debug('[app-status-refresh] Ignoring best-effort context usage persistence failure.', error, {
       chatJid,
@@ -61,7 +65,9 @@ export function clearPersistedContextUsage(chatJid: string): void {
 
 export function restoreContextUsage(chatJid: string): Record<string, unknown> | null {
   if (!chatJid) return null;
-  return getLocalStorageJSON<Record<string, unknown>>(CONTEXT_STORAGE_PREFIX + chatJid);
+  const restored = normalizeContextUsage(getLocalStorageJSON<Record<string, unknown>>(CONTEXT_STORAGE_PREFIX + chatJid));
+  if (!restored) clearPersistedContextUsage(chatJid);
+  return restored;
 }
 
 

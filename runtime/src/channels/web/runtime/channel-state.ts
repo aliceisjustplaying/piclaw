@@ -23,6 +23,25 @@ export interface PersistedDraftRecoveryEntry {
   updatedAt: number;
 }
 
+function isValidContextUsage(usage: unknown): usage is Record<string, unknown> {
+  if (!usage || typeof usage !== "object") return false;
+  const data = usage as Record<string, unknown>;
+  const tokens = data.tokens == null ? null : Number(data.tokens);
+  const contextWindow = Number(data.contextWindow);
+  const percent = data.percent == null ? null : Number(data.percent);
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return false;
+  if (tokens != null && (!Number.isFinite(tokens) || tokens > contextWindow)) return false;
+  if (percent != null && (!Number.isFinite(percent) || percent > 100)) return false;
+  return true;
+}
+
+function filterContextUsages(value: unknown): Record<string, Record<string, unknown>> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(([, usage]) => isValidContextUsage(usage))
+  ) as Record<string, Record<string, unknown>>;
+}
+
 /** Persistent per-chat state manager for the web channel. */
 export class WebChannelState {
   agentStatuses: Record<string, Record<string, unknown>> = {};
@@ -41,7 +60,7 @@ export class WebChannelState {
           : {};
       this.contextUsages =
         parsed && typeof parsed === "object" && typeof parsed.contextUsages === "object"
-          ? (parsed.contextUsages as Record<string, Record<string, unknown>>)
+          ? filterContextUsages(parsed.contextUsages)
           : {};
       this.draftRecoveries =
         parsed && typeof parsed === "object" && typeof parsed.draftRecoveries === "object"
@@ -74,7 +93,7 @@ export class WebChannelState {
   }
 
   setContextUsage(chatJid: string, usage: Record<string, unknown> | null): void {
-    if (!usage) {
+    if (!usage || !isValidContextUsage(usage)) {
       delete this.contextUsages[chatJid];
       return;
     }

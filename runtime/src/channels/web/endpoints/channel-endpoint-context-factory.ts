@@ -88,6 +88,7 @@ export function createWebChannelEndpointContexts(
     const contextWindow = Number(usage.contextWindow);
     const percent = usage.percent == null ? null : Number(usage.percent);
     if (!Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+    if (tokens != null && Number.isFinite(tokens) && tokens > contextWindow) return null;
     return {
       tokens: tokens == null || Number.isFinite(tokens) ? tokens : null,
       contextWindow,
