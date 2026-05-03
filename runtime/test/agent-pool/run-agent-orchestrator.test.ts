@@ -10,6 +10,10 @@ import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 import { ensureSessionDir } from "../../src/agent-pool/session.js";
 import { getAttachmentRegistry } from "../../src/agent-pool/attachments.js";
 import { setChatAgentBackend } from "../../src/agent-pool/backend-state.js";
+import {
+  resetClaudeAgentSdkBackendForTests,
+  setClaudeAgentSdkQueryFactoryForTests,
+} from "../../src/agent-pool/claude-agent-sdk-backend.js";
 import { AgentTurnCoordinator } from "../../src/agent-pool/turn-coordinator.js";
 import { createToolExecutionWatchdogHeartbeatController, runAgentPrompt } from "../../src/agent-pool/run-agent-orchestrator.js";
 import { getToolUseMessageBudget, setToolUseMessageBudget } from "../../src/core/config.js";
@@ -49,6 +53,7 @@ function createTestLogsDir(): string {
 }
 
 afterEach(() => {
+  resetClaudeAgentSdkBackendForTests();
   while (tempLogsDirs.length > 0) {
     const logsDir = tempLogsDirs.pop();
     if (!logsDir) continue;
@@ -164,6 +169,51 @@ test("runAgentPrompt emits turn-aware observability log metadata for turn and to
     expect.objectContaining({ operation: "run_agent.prompt_resolved", turnId: "turn-obs-1", sessionLeafId: "leaf-obs" }),
     expect.objectContaining({ operation: "run_agent.complete", turnId: "turn-obs-1", sessionLeafId: "leaf-obs" }),
   ]));
+});
+
+test("runAgentPrompt applies automatic recovery to native Claude backend attempts", async () => {
+  const chatJid = "web:native-claude-recovery";
+  setChatAgentBackend(chatJid, "claude");
+  let calls = 0;
+  setClaudeAgentSdkQueryFactoryForTests(() => {
+    calls += 1;
+    if (calls === 1) throw new Error("temporary provider error");
+    const generator = (async function* () {
+      yield {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-native-recovery",
+        result: "recovered",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      };
+    })();
+    return Object.assign(generator, {
+      getContextUsage: async () => null,
+    }) as any;
+  });
+
+  const events: any[] = [];
+  const turnCoordinator = new AgentTurnCoordinator({
+    takeAttachments: () => [],
+    touchSession: () => {},
+    recordMessageUsage: () => {},
+  });
+
+  const result = await runAgentPrompt("test", chatJid, { timeoutMs: 0, onEvent: (event) => events.push(event) }, {
+    getOrCreateRuntime: async () => createRuntime({}) as any,
+    turnCoordinator,
+    clearAttachments: () => {},
+    takeAttachments: () => [],
+    logsDir: createTestLogsDir(),
+    setActiveForkBaseLeaf: () => {},
+    clearActiveForkBaseLeaf: () => {},
+  });
+
+  expect(result.status).toBe("success");
+  expect(result.result).toBe("recovered");
+  expect(calls).toBe(2);
+  expect(events.some((event) => event.type === "recovery_start")).toBe(true);
 });
 
 test("runAgentPrompt aggregates deltas and returns pending attachments", async () => {

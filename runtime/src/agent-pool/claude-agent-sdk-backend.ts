@@ -34,15 +34,6 @@ type ClaudeQueryFactory = typeof claudeQuery;
 let queryFactory: ClaudeQueryFactory = claudeQuery;
 let oauthTokenResolverForTests: (() => Promise<string | null>) | null = null;
 
-const sessionIdByChat = new Map<string, string>();
-const activeRunsByChat = new Map<string, AbortController>();
-const contextUsageByChat = new Map<string, ContextUsageSnapshot>();
-const controlStreamByChat = new Map<string, { getContextUsage?: () => Promise<unknown> }>();
-const providerUsageByChat = new Map<string, unknown>();
-const thinkingLevelByChat = new Map<string, ClaudeThinkingLevel>();
-const modelByChat = new Map<string, string>();
-const untrustedExternalContentByChat = new Map<string, boolean>();
-
 const CLAUDE_THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"] as const;
 type ClaudeThinkingLevel = typeof CLAUDE_THINKING_LEVELS[number];
 const DEFAULT_THINKING_LEVEL: ClaudeThinkingLevel = "high";
@@ -55,7 +46,43 @@ type PersistedClaudeState = {
   thinking?: ClaudeThinkingLevel;
   providerUsage?: unknown;
   contextUsage?: ContextUsageSnapshot | null;
+  hasUntrustedExternalContent?: boolean;
 };
+
+type ClaudeChatState = {
+  sessionId: string | null;
+  activeRun: AbortController | null;
+  contextUsage: ContextUsageSnapshot | null;
+  controlStream: { getContextUsage?: () => Promise<unknown> } | null;
+  providerUsage: unknown | null;
+  thinking: ClaudeThinkingLevel | undefined;
+  model: string | undefined;
+  hasUntrustedExternalContent: boolean | undefined;
+};
+
+const chatStateByChat = new Map<string, ClaudeChatState>();
+
+function createClaudeChatState(): ClaudeChatState {
+  return {
+    sessionId: null,
+    activeRun: null,
+    contextUsage: null,
+    controlStream: null,
+    providerUsage: null,
+    thinking: undefined,
+    model: undefined,
+    hasUntrustedExternalContent: undefined,
+  };
+}
+
+function getClaudeChatState(chatJid: string): ClaudeChatState {
+  let state = chatStateByChat.get(chatJid);
+  if (!state) {
+    state = createClaudeChatState();
+    chatStateByChat.set(chatJid, state);
+  }
+  return state;
+}
 
 function readPersistedState(chatJid: string): PersistedClaudeState {
   const state = extensionKvGet<PersistedClaudeState>(STATE_EXTENSION_ID, STATE_KEY, "chat", chatJid) ?? {};
@@ -89,20 +116,14 @@ export function setClaudeAgentSdkOAuthTokenResolverForTests(resolver: (() => Pro
 export function resetClaudeAgentSdkBackendForTests(): void {
   queryFactory = claudeQuery;
   oauthTokenResolverForTests = null;
-  sessionIdByChat.clear();
-  activeRunsByChat.clear();
-  contextUsageByChat.clear();
-  controlStreamByChat.clear();
-  providerUsageByChat.clear();
-  thinkingLevelByChat.clear();
-  modelByChat.clear();
-  untrustedExternalContentByChat.clear();
+  chatStateByChat.clear();
 }
 
 export function getClaudeAgentSdkModelLabel(chatJid?: string): string {
   const persisted = chatJid ? normalizeClaudeModelId(readPersistedState(chatJid).model) : null;
   const configured = normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel);
-  const model = chatJid ? (normalizeClaudeModelId(modelByChat.get(chatJid)) ?? persisted ?? configured) : configured;
+  const state = chatJid ? chatStateByChat.get(chatJid) : null;
+  const model = chatJid ? (normalizeClaudeModelId(state?.model) ?? persisted ?? configured) : configured;
   return model ? `claude/${model}` : "claude/default";
 }
 
@@ -133,20 +154,21 @@ export function resolveClaudeAgentSdkModelLabel(requested: string | undefined): 
 }
 
 export function getClaudeAgentSdkContextUsage(chatJid: string): ContextUsageSnapshot | null {
-  return contextUsageByChat.get(chatJid) ?? readPersistedState(chatJid).contextUsage ?? null;
+  return chatStateByChat.get(chatJid)?.contextUsage ?? readPersistedState(chatJid).contextUsage ?? null;
 }
 
 export async function refreshClaudeAgentSdkContextUsage(chatJid: string): Promise<ContextUsageSnapshot | null> {
-  const stream = controlStreamByChat.get(chatJid);
+  const state = getClaudeChatState(chatJid);
+  const stream = state.controlStream;
   if (!stream?.getContextUsage) return getClaudeAgentSdkContextUsage(chatJid);
   try {
-    const selectedModel = modelByChat.get(chatJid) || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
+    const selectedModel = state.model || readPersistedState(chatJid).model || getAgentBackendConfig().claudeAgentSdkModel;
     const snapshot = normalizeClaudeContextUsage(await stream.getContextUsage(), {
       model: normalizeClaudeModelId(selectedModel),
-      sessionId: sessionIdByChat.get(chatJid) ?? null,
+      sessionId: state.sessionId ?? null,
     });
     if (snapshot) {
-      contextUsageByChat.set(chatJid, snapshot);
+      state.contextUsage = snapshot;
       writePersistedState(chatJid, { contextUsage: snapshot });
     }
   } catch (error) {
@@ -160,22 +182,22 @@ export async function refreshClaudeAgentSdkContextUsage(chatJid: string): Promis
 }
 
 export function getClaudeAgentSdkProviderUsage(chatJid: string): unknown | null {
-  return providerUsageByChat.get(chatJid) ?? readPersistedState(chatJid).providerUsage ?? null;
+  return chatStateByChat.get(chatJid)?.providerUsage ?? readPersistedState(chatJid).providerUsage ?? null;
 }
 
 export function hasClaudeAgentSdkSession(chatJid: string): boolean {
-  return sessionIdByChat.has(chatJid);
+  return Boolean(chatStateByChat.get(chatJid)?.sessionId);
 }
 
 export function getClaudeAgentSdkThinkingLevel(chatJid: string): ClaudeThinkingLevel {
-  return thinkingLevelByChat.get(chatJid) ?? readPersistedState(chatJid).thinking ?? DEFAULT_THINKING_LEVEL;
+  return chatStateByChat.get(chatJid)?.thinking ?? readPersistedState(chatJid).thinking ?? DEFAULT_THINKING_LEVEL;
 }
 
 export function setClaudeAgentSdkThinkingLevel(chatJid: string, level: string): ClaudeThinkingLevel | null {
   const normalized = level.trim().toLowerCase();
   if (!CLAUDE_THINKING_LEVELS.includes(normalized as ClaudeThinkingLevel)) return null;
   const next = normalized as ClaudeThinkingLevel;
-  thinkingLevelByChat.set(chatJid, next);
+  getClaudeChatState(chatJid).thinking = next;
   writePersistedState(chatJid, { thinking: next });
   return next;
 }
@@ -184,7 +206,7 @@ export function cycleClaudeAgentSdkThinkingLevel(chatJid: string): ClaudeThinkin
   const current = getClaudeAgentSdkThinkingLevel(chatJid);
   const index = CLAUDE_THINKING_LEVELS.indexOf(current);
   const next = CLAUDE_THINKING_LEVELS[(index + 1) % CLAUDE_THINKING_LEVELS.length];
-  thinkingLevelByChat.set(chatJid, next);
+  getClaudeChatState(chatJid).thinking = next;
   writePersistedState(chatJid, { thinking: next });
   return next;
 }
@@ -194,13 +216,13 @@ export async function setClaudeAgentSdkModel(chatJid: string, requested: string 
   if (!raw) throw new Error("Missing Claude model.");
   const requestedId = raw.startsWith("claude/") ? raw.slice("claude/".length) : raw;
   const id = normalizeClaudeModelId(requestedId) ?? "default";
-  modelByChat.set(chatJid, id === "default" ? "" : id);
+  getClaudeChatState(chatJid).model = id === "default" ? "" : id;
   writePersistedState(chatJid, { model: id === "default" ? null : id });
   return resolveClaudeAgentSdkModelLabel(requested);
 }
 
 export async function abortClaudeAgentSdkChat(chatJid: string): Promise<boolean> {
-  const controller = activeRunsByChat.get(chatJid);
+  const controller = chatStateByChat.get(chatJid)?.activeRun;
   if (!controller) return false;
   controller.abort();
   return true;
@@ -267,7 +289,8 @@ function updateProviderUsage(chatJid: string, message: SDKMessage): void {
     resets_at: resetAt,
     reset_description: resetAt,
   };
-  providerUsageByChat.set(chatJid, {
+  const state = getClaudeChatState(chatJid);
+  state.providerUsage = {
     provider: "anthropic",
     source: "claude-agent-sdk-rate-limit-event",
     plan: null,
@@ -278,8 +301,8 @@ function updateProviderUsage(chatJid: string, message: SDKMessage): void {
     credits_unlimited: false,
     extra_usage: null,
     hint_short: `${Math.round(remainingPercent)}%`,
-  });
-  writePersistedState(chatJid, { providerUsage: providerUsageByChat.get(chatJid) });
+  };
+  writePersistedState(chatJid, { providerUsage: state.providerUsage });
 }
 
 function readNumber(value: unknown): number | null {
@@ -340,7 +363,7 @@ function thinkingOptions(level: ClaudeThinkingLevel): Pick<Options, "thinking" |
 }
 
 export async function compactClaudeAgentSdkChat(chatJid: string): Promise<boolean> {
-  if (!sessionIdByChat.has(chatJid)) return false;
+  if (!chatStateByChat.get(chatJid)?.sessionId) return false;
   emitNativeEvent(undefined, { type: "compaction_start", reason: "manual" } as AgentSessionEvent);
   const output = await runClaudeAgentSdkPrompt("/compact", chatJid, { timeoutMs: 120_000 });
   emitNativeEvent(undefined, { type: "compaction_end", reason: "manual", result: undefined, aborted: false, willRetry: false } as AgentSessionEvent);
@@ -364,18 +387,22 @@ async function runClaudeAgentSdkPromptUnlocked(
 ): Promise<AgentOutput> {
   if (runOptions.signal?.aborted) return { status: "error", result: null, error: "Claude Agent SDK aborted" };
   const token = await resolveOAuthToken();
+  const state = getClaudeChatState(chatJid);
+  const persistedState = readPersistedState(chatJid);
 
   const abortHandle = createNativeAbortHandle(runOptions);
   if (!abortHandle) return { status: "error", result: null, error: "Claude Agent SDK aborted" };
-  activeRunsByChat.set(chatJid, abortHandle.controller);
+  state.activeRun = abortHandle.controller;
 
   const streamState = createNativeStreamState();
   let errorMessage: string | null = null;
-  const sessionId = sessionIdByChat.get(chatJid);
-  const selectedModel = normalizeClaudeModelId(modelByChat.get(chatJid)) || normalizeClaudeModelId(readPersistedState(chatJid).model) || normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel) || undefined;
-  const promptWithAttachments = buildClaudePrompt(chatJid, prompt, runOptions.inputMediaIds, bridgeSession);
+  const sessionId = state.sessionId;
+  const selectedModel = normalizeClaudeModelId(state.model) || normalizeClaudeModelId(persistedState.model) || normalizeClaudeModelId(getAgentBackendConfig().claudeAgentSdkModel) || undefined;
+  const promptWithAttachments = buildClaudePrompt(chatJid, prompt, runOptions.inputMediaIds, bridgeSession, runOptions.toolCeilingFilter);
   const bridgeTrustState: ClaudeBridgeTrustState = {
-    hasUntrustedExternalContent: runOptions.hasUntrustedExternalContent === true || untrustedExternalContentByChat.get(chatJid) === true,
+    hasUntrustedExternalContent: runOptions.hasUntrustedExternalContent === true
+      || state.hasUntrustedExternalContent === true
+      || persistedState.hasUntrustedExternalContent === true,
   };
   const options: Options & { getOAuthToken?: (options: { signal: AbortSignal }) => Promise<string | null> } = {
     abortController: abortHandle.controller,
@@ -390,7 +417,7 @@ async function runClaudeAgentSdkPromptUnlocked(
     ...(sessionId ? { resume: sessionId } : {}),
     ...thinkingOptions(getClaudeAgentSdkThinkingLevel(chatJid)),
     tools: { type: "preset", preset: "claude_code" },
-    mcpServers: { piclaw: createPiclawMcpServer(chatJid, bridgeSession, () => contextUsageByChat.get(chatJid) ?? null, bridgeTrustState) },
+    mcpServers: { piclaw: createPiclawMcpServer(chatJid, bridgeSession, () => state.contextUsage ?? null, bridgeTrustState, runOptions.toolCeilingFilter) },
     canUseTool: createPermissionHandler(runOptions, bridgeTrustState),
     permissionMode: "default",
     includePartialMessages: true,
@@ -398,9 +425,9 @@ async function runClaudeAgentSdkPromptUnlocked(
 
   try {
     const stream = queryFactory({ prompt: promptWithAttachments, options });
-    controlStreamByChat.set(chatJid, stream as { getContextUsage?: () => Promise<unknown> });
+    state.controlStream = stream as { getContextUsage?: () => Promise<unknown> };
     for await (const message of stream) {
-      if ((message as any).session_id) sessionIdByChat.set(chatJid, String((message as any).session_id));
+      if ((message as any).session_id) state.sessionId = String((message as any).session_id);
       updateProviderUsage(chatJid, message);
       if (message.type === "stream_event") {
         const event = (message as any).event;
@@ -440,9 +467,12 @@ async function runClaudeAgentSdkPromptUnlocked(
       err: error,
     });
   } finally {
-    if (bridgeTrustState.hasUntrustedExternalContent) untrustedExternalContentByChat.set(chatJid, true);
+    if (bridgeTrustState.hasUntrustedExternalContent) {
+      state.hasUntrustedExternalContent = true;
+      writePersistedState(chatJid, { hasUntrustedExternalContent: true });
+    }
     abortHandle.dispose();
-    if (activeRunsByChat.get(chatJid) === abortHandle.controller) activeRunsByChat.delete(chatJid);
+    if (state.activeRun === abortHandle.controller) state.activeRun = null;
   }
 
   finishNativeStreams(runOptions, streamState);

@@ -586,6 +586,49 @@ test("Claude Agent SDK keeps untrusted external content sticky across turns", as
   });
 });
 
+test("Claude Agent SDK reloads untrusted external content taint from persisted chat state", async () => {
+  const chatJid = "web:claude-untrusted-persisted";
+  setClaudeAgentSdkQueryFactoryForTests(() => makeQuery([
+    {
+      type: "result",
+      subtype: "success",
+      session_id: "claude-session-untrusted-persisted",
+      result: "read mail",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+    },
+  ]));
+
+  await runClaudeAgentSdkPrompt("gmail notification", chatJid, { hasUntrustedExternalContent: true });
+  resetClaudeAgentSdkBackendForTests();
+
+  const permissionResults: unknown[] = [];
+  setClaudeAgentSdkQueryFactoryForTests((params: any) => {
+    permissionResults.push(params.options.canUseTool(
+      "Bash",
+      { command: "touch /workspace/from-untrusted" },
+      { toolUseID: "toolu-bash-persisted", signal: new AbortController().signal },
+    ));
+    return makeQuery([
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "claude-session-untrusted-persisted",
+        result: "ok",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        modelUsage: {},
+      },
+    ]);
+  });
+
+  await runClaudeAgentSdkPrompt("follow-up", chatJid, {});
+
+  await expect(permissionResults[0]).resolves.toMatchObject({
+    behavior: "deny",
+    toolUseID: "toolu-bash-persisted",
+  });
+});
+
 test("Claude Agent SDK logs protocol validation failures", async () => {
   const records: LogRecord[] = [];
   const sink = (record: LogRecord) => records.push(record);
