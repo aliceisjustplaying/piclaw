@@ -28,6 +28,7 @@ export {
   getCodexAppServerThinkingLevel,
   listCodexAppServerModels,
   peekCodexAppServerProviderUsage,
+  resolveCodexAppServerModel,
   setCodexAppServerFastMode,
   setCodexAppServerModel,
   setCodexAppServerThinkingLevel,
