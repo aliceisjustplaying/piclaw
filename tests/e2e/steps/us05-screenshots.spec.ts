@@ -10,36 +10,34 @@ test.describe('US-05: Screenshot & Attachment Workflow', () => {
     await compose.click();
 
     // Create a small test image in clipboard via DataTransfer
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       const canvas = document.createElement('canvas');
       canvas.width = 100;
       canvas.height = 100;
       const ctx = canvas.getContext('2d')!;
       ctx.fillStyle = 'red';
       ctx.fillRect(0, 0, 100, 100);
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const item = new ClipboardItem({ 'image/png': blob });
-        const event = new ClipboardEvent('paste', {
-          clipboardData: new DataTransfer(),
-          bubbles: true,
-        });
-        // Workaround: dispatch on the compose element
-        const composeEl = document.querySelector('[data-testid="compose-input"], .compose-editor [contenteditable], .compose-editor');
-        if (composeEl) {
-          const dt = new DataTransfer();
-          dt.items.add(new File([blob], 'screenshot.png', { type: 'image/png' }));
-          Object.defineProperty(event, 'clipboardData', { value: dt });
-          composeEl.dispatchEvent(event);
-        }
-      }, 'image/png');
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => value ? resolve(value) : reject(new Error('canvas.toBlob returned null')), 'image/png');
+      });
+      const event = new ClipboardEvent('paste', {
+        clipboardData: new DataTransfer(),
+        bubbles: true,
+      });
+      const composeEl = document.querySelector('[data-testid="compose-input"], .compose-box textarea, .compose-editor [contenteditable], .compose-editor');
+      if (composeEl) {
+        const dt = new DataTransfer();
+        dt.items.add(new File([blob], 'screenshot.png', { type: 'image/png' }));
+        Object.defineProperty(event, 'clipboardData', { value: dt });
+        composeEl.dispatchEvent(event);
+      }
     });
 
     await page.waitForTimeout(1000);
 
     // Should show attachment indicator or preview
     const attachmentIndicator = page.locator(
-      '[data-testid="attachment-preview"], .attachment-preview, .compose-attachment, .file-pill'
+      '[data-testid="attachment-preview"], .attachment-preview, .compose-attachment, .file-pill, .compose-file-pill'
     );
     // Note: this may need adjustment based on actual UI
     const hasAttachment = await attachmentIndicator.count();
@@ -72,10 +70,10 @@ test.describe('US-05: Screenshot & Attachment Workflow', () => {
 
     // Should show file attachment or upload indicator
     const indicator = page.locator(
-      '[data-testid="attachment-preview"], .attachment-preview, .compose-attachment, .upload-progress, .file-pill'
+      '[data-testid="attachment-preview"], .attachment-preview, .compose-attachment, .upload-progress, .file-pill, .compose-file-pill'
     );
     const count = await indicator.count();
-    expect(count).toBeGreaterThanOrEqual(0); // Soft assert — DnD simulation varies
+    expect(count).toBeGreaterThan(0);
   });
 
   test('sent images appear in timeline with thumbnail', async ({ authedPage: page }) => {
@@ -94,11 +92,11 @@ test.describe('US-05: Screenshot & Attachment Workflow', () => {
   });
 
   test('clicking thumbnail opens lightbox', async ({ authedPage: page }) => {
-    await page.waitForSelector(sel.post);
-    const images = page.locator(sel.post + ' img, ' + sel.post + ' .thumbnail');
+    await page.locator(sel.timeline).waitFor({ state: 'visible', timeout: 5000 });
+    const images = page.locator(sel.post + ' .file-attachment-preview img, ' + sel.post + ' .thumbnail');
     const count = await images.count();
 
-    if (count === 0) test.skip();
+    if (count === 0) test.skip(true, 'no clickable image attachment thumbnails in the test timeline');
 
     // Click first image
     await images.first().click();

@@ -63,6 +63,9 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
     const [assistantAvatar, setAssistantAvatar] = useState('');
     const [composeUploadLimitMb, setComposeUploadLimitMb] = useState(32);
     const [workspaceUploadLimitMb, setWorkspaceUploadLimitMb] = useState(256);
+    const [widgetToken, setWidgetToken] = useState('');
+    const [widgetTokenCopied, setWidgetTokenCopied] = useState(false);
+    const [widgetTokenBusy, setWidgetTokenBusy] = useState(false);
     const [metersEnabled, setMetersEnabled] = useState(() => readStoredMetersEnabled(false));
     const [appliedHint, setAppliedHint] = useState(false);
     const savedSnapshotRef = useRef('');
@@ -82,6 +85,7 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
         setAssistantAvatar(next.assistantAvatar);
         setComposeUploadLimitMb(next.composeUploadLimitMb);
         setWorkspaceUploadLimitMb(next.workspaceUploadLimitMb);
+        setWidgetToken(data?.widgetToken || '');
         savedSnapshotRef.current = JSON.stringify(next);
     }, []);
 
@@ -140,6 +144,36 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
         otpauth: '',
         qrSvg: '',
     };
+
+    const copyWidgetToken = useCallback(async () => {
+        if (!widgetToken) return;
+        try {
+            await navigator.clipboard?.writeText(widgetToken);
+            setWidgetTokenCopied(true);
+            setTimeout(() => { if (mountedRef.current) setWidgetTokenCopied(false); }, 3000);
+        } catch (error) {
+            console.warn('[settings/general] Failed to copy widget token.', error);
+        }
+    }, [widgetToken]);
+
+    const regenerateWidgetToken = useCallback(async () => {
+        if (widgetTokenBusy) return;
+        if (!confirm('Regenerate the widget token? Existing macOS widgets using the old token will stop updating.')) return;
+        setWidgetTokenBusy(true);
+        try {
+            const response = await fetch('/agent/settings/widget-token/regenerate', { method: 'POST' });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload?.ok || !payload?.settings) throw new Error(payload?.error || 'Failed to regenerate widget token.');
+            setWidgetToken(payload.settings.widgetToken || '');
+            mergeSettingsData?.(payload.settings);
+            setAppliedHint(true);
+            setTimeout(() => { if (mountedRef.current) setAppliedHint(false); }, 4000);
+        } catch (error) {
+            console.warn('[settings/general] Failed to regenerate widget token.', error);
+        } finally {
+            if (mountedRef.current) setWidgetTokenBusy(false);
+        }
+    }, [widgetTokenBusy, mergeSettingsData]);
 
     const isSecureContext = typeof window !== 'undefined' && window.isSecureContext;
 
@@ -227,6 +261,17 @@ export function GeneralSection({ settingsData, setStatus, mergeSettingsData }) {
             </div>
 
             <h3 style="margin-top:20px">Authentication</h3>
+            <div class="settings-row settings-row-vertical">
+                <label>Widget bearer token</label>
+                <div style="display:flex; gap:8px; align-items:center; width:100%;">
+                    <input type="password" readonly value=${widgetToken || ''} style="flex:1; min-width:0; font-family: var(--mono-font, monospace);" />
+                    <button type="button" onClick=${copyWidgetToken} disabled=${!widgetToken}>${widgetTokenCopied ? 'Copied' : 'Copy'}</button>
+                    <button type="button" onClick=${regenerateWidgetToken} disabled=${widgetTokenBusy}>${widgetTokenBusy ? 'Regenerating…' : 'Regenerate'}</button>
+                </div>
+                <span class="settings-hint" style="margin:6px 0 0 0;">
+                    Read-only token for <code>GET /api/state</code> and <code>GET /api/state/events</code>. Use as <code>Authorization: Bearer …</code>.
+                </span>
+            </div>
             <div class="settings-totp-panel">
                 <div class="settings-totp-header">
                     <div>

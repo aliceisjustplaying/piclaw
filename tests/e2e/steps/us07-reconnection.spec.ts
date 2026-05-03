@@ -100,11 +100,12 @@ test.describe('US-07: SSE Reconnection', () => {
     await page.waitForSelector(sel.timeline);
     const postsBefore = await page.locator(sel.post).count();
 
-    // Full page refresh
-    await page.reload({ waitUntil: 'networkidle' });
+    // Full page refresh. The app keeps an SSE connection open, so networkidle is
+    // the wrong readiness signal here.
+    await page.reload({ waitUntil: 'domcontentloaded' });
 
-    // Timeline should reload with same messages
-    await page.waitForSelector(sel.post, { timeout: 10000 });
+    // Timeline should reload with same messages (or remain empty on a fresh test instance).
+    await page.locator(sel.timeline).waitFor({ state: 'visible', timeout: 10000 });
     const postsAfter = await page.locator(sel.post).count();
 
     // Should have roughly same number of posts (± recent activity)

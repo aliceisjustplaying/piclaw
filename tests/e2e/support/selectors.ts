@@ -6,12 +6,12 @@
 
 export const sel = {
   // Compose
-  composeBox: '[data-testid="compose-box"], .compose-editor',
-  composeInput: '[data-testid="compose-input"], .compose-editor [contenteditable], .compose-box textarea',
-  sendButton: '[data-testid="send-button"], .compose-send',
-  stopButton: '[data-testid="stop-button"], .compose-stop',
-  typeaheadPopup: '[data-testid="typeahead"], .typeahead-popup',
-  queueItem: '[data-testid="queue-item"], .queue-item',
+  composeBox: '[data-testid="compose-box"], .compose-box, .compose-editor',
+  composeInput: '[data-testid="compose-input"], .compose-box textarea, .compose-editor [contenteditable], .compose-box textarea',
+  sendButton: '[data-testid="send-button"], .compose-send, button.send-btn:not(.abort-mode)',
+  stopButton: '[data-testid="stop-button"], .compose-stop, button.abort-mode, button[aria-label*="Stop response" i]',
+  typeaheadPopup: '[data-testid="typeahead"], .typeahead-popup, .slash-autocomplete',
+  queueItem: '[data-testid="queue-item"], .queue-item, .compose-queue-stack-item',
 
   // Timeline
   timeline: '[data-testid="timeline"], .timeline',
@@ -23,10 +23,11 @@ export const sel = {
   timestamp: '.post-timestamp',
 
   // Sessions
-  sessionPopup: '[data-testid="session-popup"], .session-popup',
-  sessionItem: '.session-item',
-  sessionActive: '.session-item.active',
-  sessionArchived: '.session-item.archived',
+  sessionSwitcher: '[data-testid="session-switcher"], .compose-session-trigger, .compose-session-trigger-icon-btn, .compose-session-trigger-pill',
+  sessionPopup: '[data-testid="session-popup"], .session-popup, .compose-model-popup',
+  sessionItem: '.session-item, .compose-model-popup-item',
+  sessionActive: '.session-item.active, .compose-model-popup-item.active',
+  sessionArchived: '.session-item.archived, .compose-model-popup-item.archived',
 
   // Settings
   settingsDialog: '[data-testid="settings-dialog"], .settings-dialog',

@@ -728,6 +728,9 @@ export function returnQueuedFollowupToEditor(options) {
         const textarea = textareaRef?.current;
         if (!textarea) return;
         textarea.value = text;
+        // Keep the controlled textarea state in sync even if a render happens
+        // before setContent has flushed.
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
         resizeTextarea();
         const len = text.length;
         textarea.selectionStart = len;
@@ -765,7 +768,7 @@ export function QueuedFollowupStack({
                 const canMoveDown = index < items.length - 1;
                 const canReturnToEditor = true;
                 return html`
-                    <div class="compose-queue-stack-item" role="listitem">
+                    <div class="compose-queue-stack-item" data-testid="queue-item" role="listitem">
                         <div class="compose-queue-stack-content" title=${rowText}>
                             ${parsed.text.trim() && html`<div class="compose-queue-stack-text">${parsed.text}</div>`}
                             ${(parsed.messageRefs.length > 0 || parsed.fileRefs.length > 0 || parsed.attachmentRefs.length > 0) && html`
@@ -806,6 +809,7 @@ export function QueuedFollowupStack({
                             ${items.length > 1 && html`
                                 <button
                                     class="compose-queue-stack-move-btn"
+                                    data-action="move-up"
                                     type="button"
                                     title="Move up"
                                     aria-label="Move up in queue"
@@ -818,6 +822,7 @@ export function QueuedFollowupStack({
                                 </button>
                                 <button
                                     class="compose-queue-stack-move-btn"
+                                    data-action="move-down"
                                     type="button"
                                     title="Move down"
                                     aria-label="Move down in queue"
@@ -831,7 +836,8 @@ export function QueuedFollowupStack({
                             `}
                             ${canReturnToEditor && html`
                                 <button
-                                    class="compose-queue-stack-move-btn"
+                                    class="compose-queue-stack-move-btn queue-edit"
+                                    data-action="edit"
                                     type="button"
                                     title="Edit in compose"
                                     aria-label="Return queued message to editor"
@@ -857,7 +863,8 @@ export function QueuedFollowupStack({
                                 <span>Steer</span>
                             </button>
                             <button
-                                class="compose-queue-stack-close-btn"
+                                class="compose-queue-stack-close-btn queue-remove"
+                                data-action="remove"
                                 type="button"
                                 title="Cancel queued message"
                                 aria-label="Cancel queued message"
@@ -2586,7 +2593,7 @@ export function ComposeBox({
     }, [mentionAgents, currentChatJid, content, searchMode]);
 
     return html`
-        <div class="compose-box">
+        <div class="compose-box" data-testid="compose-box">
             ${speechUiVisible && html`
                 <div class=${`compose-inline-status compose-speech-status compose-speech-status-${speechUiState.kind}`} role="status" aria-live="polite">
                     <div class="compose-inline-status-row">
@@ -2700,6 +2707,7 @@ export function ComposeBox({
                     `}
                     <textarea
                         ref=${textareaRef}
+                        data-testid="compose-input"
                         placeholder=${searchMode ? "Search (Enter to run)..." : "Message (Enter to send, Shift+Enter for newline)..."}
                         value=${searchMode ? searchText : content}
                         onInput=${handleInput}
@@ -2785,7 +2793,7 @@ export function ComposeBox({
                         </div>
                     `}
                     ${showSessionPopup && !searchMode && html`
-                        <div class="compose-model-popup" ref=${sessionPopupRef} tabIndex="-1" onKeyDown=${handlePopupKeyboardEvent}>
+                        <div class="compose-model-popup" data-testid="session-popup" ref=${sessionPopupRef} tabIndex="-1" onKeyDown=${handlePopupKeyboardEvent}>
                             <div class="compose-model-popup-title">Manage sessions & agents</div>
                             <div class="compose-model-popup-menu" role="menu" aria-label="Sessions and agents">
                                 ${!hasSwitchableChatAgents && html`
@@ -2802,7 +2810,8 @@ export function ComposeBox({
                                             <button
                                                 type="button"
                                                 role="menuitem"
-                                                class=${`compose-model-popup-item${archived ? ' archived' : ''}${sessionPopupIndex === listIndex ? ' active' : ''}`}
+                                                class=${`compose-model-popup-item session-item${archived ? ' archived' : ''}${sessionPopupIndex === listIndex ? ' active' : ''}`}
+                                                data-testid="session-item"
                                                 onClick=${() => {
                                                     if (archived) {
                                                         void handleRestoreSession(chat.chat_jid);
@@ -2976,6 +2985,7 @@ export function ComposeBox({
                                 <button
                                     type="button"
                                     class=${`compose-session-trigger compose-session-trigger-pill${showSessionPopup ? ' active' : ''}`}
+                                    data-testid="session-switcher"
                                     onClick=${toggleSessionPopup}
                                     title=${currentSessionAgent?.chat_jid || currentChatJid}
                                     aria-label=${`Manage sessions for @${currentSessionAgent.agent_name}`}
@@ -2987,6 +2997,7 @@ export function ComposeBox({
                             <button
                                 type="button"
                                 class=${`compose-session-trigger compose-session-trigger-icon-btn${showSessionPopup ? ' active' : ''}`}
+                                data-testid="session-switcher"
                                 onClick=${toggleSessionPopup}
                                 title=${currentSessionAgent?.chat_jid || currentChatJid}
                                 aria-label=${currentSessionAgent?.agent_name
@@ -3127,6 +3138,7 @@ export function ComposeBox({
                             ${!searchMode && html`
                                 <button 
                                     class=${submitButtonState.className}
+                                    data-testid="send-button"
                                     type="button"
                                     onClick=${() => {
                                         void handleSubmit();
@@ -3140,6 +3152,7 @@ export function ComposeBox({
                                 ${abortButtonState && html`
                                     <button 
                                         class=${abortButtonState.className}
+                                        data-testid="stop-button"
                                         type="button"
                                         onClick=${() => {
                                             if (isComposeSubmitAbortMode(abortButtonState.mode)) {

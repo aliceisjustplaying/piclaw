@@ -102,7 +102,7 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@lezer/highlight": "1.2.3",
-    "@mariozechner/pi-coding-agent": "0.71.1",
+    "@mariozechner/pi-coding-agent": "0.72.1",
     "@simplewebauthn/server": "13.3.0",
     "adaptivecards": "3.0.6",
     "beautiful-mermaid": "1.1.3",

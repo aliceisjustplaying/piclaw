@@ -9,7 +9,7 @@ test.describe('US-09: Session Lifecycle', () => {
     const newSessionBtn = page.locator('[data-testid="new-session"], .new-session-btn, button[aria-label*="new" i]');
 
     if (await newSessionBtn.isVisible()) {
-      const sessionCountBefore = await page.locator(sel.sessionItem).count().catch(() => 0);
+      const sessionCountBefore = await page.locator(sel.sessionPopup).first().locator(sel.sessionItem).count().catch(() => 0);
       await newSessionBtn.click();
       await page.waitForTimeout(1000);
 
@@ -20,8 +20,8 @@ test.describe('US-09: Session Lifecycle', () => {
 
   test('rename session updates typeahead immediately', async ({ authedPage: page }) => {
     // Open session popup
-    await page.click(sel.sessionPopup + ', [data-testid="session-switcher"]');
-    await page.waitForSelector(sel.sessionItem);
+    await page.click(sel.sessionSwitcher);
+    await page.waitForSelector(sel.sessionPopup, { timeout: 5000 });
 
     // Find rename option (context menu or inline edit)
     const activeSession = page.locator(sel.sessionActive + ', ' + sel.sessionItem + '.active').first();
@@ -57,10 +57,10 @@ test.describe('US-09: Session Lifecycle', () => {
   });
 
   test('archive moves session below active list', async ({ authedPage: page }) => {
-    await page.click(sel.sessionPopup + ', [data-testid="session-switcher"]');
-    await page.waitForSelector(sel.sessionItem);
+    await page.click(sel.sessionSwitcher);
+    await page.waitForSelector(sel.sessionPopup, { timeout: 5000 });
 
-    const sessions = await page.locator(sel.sessionItem).all();
+    const sessions = await page.locator(sel.sessionPopup).first().locator(sel.sessionItem).all();
     if (sessions.length < 2) test.skip();
 
     // Try to archive a non-active session
@@ -81,8 +81,8 @@ test.describe('US-09: Session Lifecycle', () => {
   });
 
   test('delete works for archived sessions', async ({ authedPage: page }) => {
-    await page.click(sel.sessionPopup + ', [data-testid="session-switcher"]');
-    await page.waitForSelector(sel.sessionItem);
+    await page.click(sel.sessionSwitcher);
+    await page.waitForSelector(sel.sessionPopup, { timeout: 5000 });
 
     const archived = page.locator(sel.sessionArchived).first();
     if (!(await archived.isVisible())) test.skip();
@@ -112,11 +112,12 @@ test.describe('US-09: Session Lifecycle', () => {
     const context2 = await browser.newContext();
     const page2 = await context2.newPage();
     await page2.goto(baseURL);
-    await page2.waitForLoadState('networkidle');
+    await page2.waitForLoadState('domcontentloaded');
+    await page2.locator(sel.timeline).waitFor({ state: 'visible', timeout: 5000 });
 
     // Rename session in first page
-    await page.click(sel.sessionPopup + ', [data-testid="session-switcher"]');
-    await page.waitForSelector(sel.sessionItem);
+    await page.click(sel.sessionSwitcher);
+    await page.waitForSelector(sel.sessionPopup, { timeout: 5000 });
     const activeSession = page.locator(sel.sessionActive).first();
     if (await activeSession.isVisible()) {
       await activeSession.click({ button: 'right' });
@@ -129,8 +130,10 @@ test.describe('US-09: Session Lifecycle', () => {
         await page.keyboard.press('Enter');
         await page.waitForTimeout(2000);
 
-        // Second page should reflect the change
-        const page2Sessions = page2.locator(sel.sessionItem);
+        // Second page should reflect the change after opening its session popup.
+        await page2.click(sel.sessionSwitcher);
+        await page2.waitForSelector(sel.sessionPopup, { timeout: 5000 });
+        const page2Sessions = page2.locator(sel.sessionPopup).first().locator(sel.sessionItem);
         const allText = await page2Sessions.allTextContents();
         const found = allText.some((t) => t.includes(newName.slice(0, 8)));
         expect(found).toBe(true);

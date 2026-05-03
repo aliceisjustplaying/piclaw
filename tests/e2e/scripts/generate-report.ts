@@ -64,9 +64,12 @@ function b64(path: string) {
 // ── Collect tests ────────────────────────────────────────────────
 
 interface TestResult {
+  project: string;
   suite: string;
   title: string;
   status: string;
+  playwrightStatus: string;
+  attempts: number;
   duration: number;
   error: string;
   attachments: Array<{ contentType?: string; path?: string; name?: string }>;
@@ -78,16 +81,20 @@ function collect(suite: any, prefix = "") {
   const name = prefix ? `${prefix} › ${suite.title}` : suite.title;
   for (const spec of suite.specs || []) {
     for (const test of spec.tests || []) {
-      for (const result of test.results || []) {
-        allTests.push({
-          suite: name,
-          title: spec.title,
-          status: result.status,
-          duration: result.duration || 0,
-          error: result.error?.message || "",
-          attachments: result.attachments || [],
-        });
-      }
+      const attempts = Array.isArray(test.results) ? test.results : [];
+      const finalResult = attempts[attempts.length - 1] || {};
+      const finalStatus = finalResult.status || (test.status === "expected" ? test.expectedStatus : test.status) || "unknown";
+      allTests.push({
+        project: test.projectName || "default",
+        suite: name,
+        title: spec.title,
+        status: finalStatus,
+        playwrightStatus: test.status || finalStatus,
+        attempts: Math.max(1, attempts.length),
+        duration: attempts.reduce((sum: number, result: any) => sum + (result.duration || 0), 0),
+        error: finalResult.error?.message || "",
+        attachments: finalResult.attachments || [],
+      });
     }
   }
   for (const child of suite.suites || []) collect(child, name);
@@ -95,8 +102,9 @@ function collect(suite: any, prefix = "") {
 for (const s of results.suites || []) collect(s);
 
 const passed = allTests.filter((t) => t.status === "passed").length;
-const failed = allTests.filter((t) => t.status === "failed").length;
+const failed = allTests.filter((t) => t.status === "failed" || t.status === "timedOut" || t.status === "interrupted").length;
 const skipped = allTests.filter((t) => t.status === "skipped").length;
+const retried = allTests.filter((t) => t.attempts > 1).length;
 const total = allTests.length;
 const totalDur = allTests.reduce((s, t) => s + t.duration, 0);
 
@@ -126,14 +134,15 @@ tr.failed{background:#fef2f2}tr.skipped{color:#94a3b8}
 <span class="pass">✅ ${passed} passed</span>
 <span class="fail">${failed > 0 ? "❌" : ""} ${failed} failed</span>
 <span class="skip">⏭️ ${skipped} skipped</span>
-<span>· ${total} total · ${dur(totalDur)}</span>
+<span>↻ ${retried} retried</span>
+<span>· ${total} test/project rows · ${dur(totalDur)}</span>
 </div>`;
 
 // ── Per-suite sections ───────────────────────────────────────────
 
 const bySuite: Record<string, TestResult[]> = {};
 for (const t of allTests) {
-  (bySuite[t.suite] ??= []).push(t);
+  (bySuite[`${t.project} · ${t.suite}`] ??= []).push(t);
 }
 
 let suiteIdx = 0;
@@ -144,13 +153,15 @@ for (const [suite, tests] of Object.entries(bySuite)) {
 
   if (suiteIdx > 0 && suiteIdx % 4 === 0) html += `<div class="page-break"></div>`;
   html += `<h2>${esc(suite)} ${badge} (${sp}/${tests.length})</h2>`;
-  html += `<table><tr><th></th><th>Scenario</th><th>Duration</th></tr>`;
+  html += `<table><tr><th></th><th>Scenario</th><th>Attempts</th><th>Duration</th></tr>`;
 
   for (const t of tests) {
     const rc = t.status === "failed" ? ' class="failed"' : t.status === "skipped" ? ' class="skipped"' : "";
-    html += `<tr${rc}><td>${emoji(t.status)}</td><td>${esc(t.title)}`;
+    const retryBadge = t.attempts > 1 ? ` <span class="badge">retried ×${t.attempts}</span>` : "";
+    const statusNote = t.playwrightStatus === "flaky" ? ` <span class="badge">flaky</span>` : "";
+    html += `<tr${rc}><td>${emoji(t.status)}</td><td>${esc(t.title)}${retryBadge}${statusNote}`;
     if (t.error) html += `<br><span class="error">${esc(t.error.substring(0, 300))}</span>`;
-    html += `</td><td>${dur(t.duration)}</td></tr>`;
+    html += `</td><td>${t.attempts}</td><td>${dur(t.duration)}</td></tr>`;
 
     // Embed failure screenshots
     for (const att of t.attachments.filter((a) => a.contentType === "image/png" && a.path)) {

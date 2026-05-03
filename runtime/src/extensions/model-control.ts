@@ -6,7 +6,7 @@
  */
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { supportsXhigh } from "@mariozechner/pi-ai";
+import { getSupportedThinkingLevels } from "@mariozechner/pi-ai";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { Type } from "typebox";
 import { findModel, parseModelInput } from "../utils/model-utils.js";
@@ -39,9 +39,8 @@ function modelLabel(model: Model<Api> | null | undefined): string | null {
 }
 
 function getAvailableLevels(model: Model<Api> | undefined): ThinkingLevel[] {
-  if (!model?.reasoning) return ["off"];
-  const base: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
-  return supportsXhigh(model) ? [...base, "xhigh"] : base;
+  if (!model) return ["off"];
+  return getSupportedThinkingLevels(model) as ThinkingLevel[];
 }
 
 function clamp(value: number | undefined, fallback: number, min: number, max: number): number {

@@ -318,7 +318,7 @@ export function SettingsDialogContent({ onClose }) {
 
     return html`
         <div class="settings-dialog-backdrop" onClick=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <div ref=${dialogRef} class=${`settings-dialog${layoutMode.compact ? ' settings-dialog-compact' : ''}${layoutMode.narrow ? ' settings-dialog-narrow' : ''}`}>
+            <div ref=${dialogRef} data-testid="settings-dialog" class=${`settings-dialog${layoutMode.compact ? ' settings-dialog-compact' : ''}${layoutMode.narrow ? ' settings-dialog-narrow' : ''}`}>
                 <div class="settings-dialog-header">
                     <span class="settings-dialog-title">Settings</span>
                     ${activeMeta?.searchable && html`
