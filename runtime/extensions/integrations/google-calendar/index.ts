@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 type GoogleCalendarAction = "calendars" | "list" | "create" | "delete";
@@ -20,7 +21,9 @@ type GoogleCalendarParams = {
 const HERMES_GOOGLE_API = process.env.PICLAW_GOOGLE_API_SCRIPT
   || "/workspace/src/hermes-live/skills/productivity/google-workspace/scripts/google_api.py";
 const HERMES_GOOGLE_SCRIPTS_DIR = "/workspace/src/hermes-live/skills/productivity/google-workspace/scripts";
+const HERMES_LIVE_PYTHON = "/workspace/src/hermes-live/.venv/bin/python";
 const HERMES_PYTHON = process.env.PICLAW_GOOGLE_PYTHON
+  || (existsSync(HERMES_LIVE_PYTHON) ? HERMES_LIVE_PYTHON : null)
   || process.env.HERMES_NOTIFY_PYTHON
   || "/workspace/.hermes/venv/bin/python";
 const HERMES_HOME = process.env.HERMES_HOME
