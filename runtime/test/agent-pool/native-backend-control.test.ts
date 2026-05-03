@@ -9,6 +9,10 @@ import {
   setCodexAppServerClientFactoryForTests,
   stopCodexAppServerBackend,
 } from "../../src/agent-pool/codex-app-server-backend.js";
+import {
+  setActiveTurnForChat,
+  setThreadForChat,
+} from "../../src/agent-pool/codex-app-server/state.js";
 import { initDatabase } from "../../src/db.js";
 import { closeDbQuietly } from "../helpers.js";
 
@@ -38,10 +42,26 @@ function deferred() {
 function deps(overrides: Partial<Parameters<typeof applyNativeBackendControlCommand>[2]> = {}) {
   return {
     getContextUsageForChat: async () => null,
-    abortBackendTurnForSwitch: async () => {},
+    abortPiTurnForSwitch: async () => {},
     captureBackendHandoff: async () => false,
     ...overrides,
   };
+}
+
+function codexClient(overrides: Record<string, unknown> = {}) {
+  return {
+    ready: async () => {},
+    request: async (method: string) => method === "model/list"
+      ? { models: [{ id: "gpt-ok", name: "GPT OK" }] }
+      : method === "thread/start"
+        ? { thread: { id: "thread-1" } }
+        : method === "turn/start"
+          ? { turn: { id: "turn-1" } }
+          : {},
+    onNotification: () => () => undefined,
+    stop: () => {},
+    ...overrides,
+  } as any;
 }
 
 test("backend switch commands serialize per chat", async () => {
@@ -99,14 +119,7 @@ test("backend switch handoff can use the agent run lock without deadlocking", as
 test("provider model switch handoff can use the agent run lock without deadlocking", async () => {
   const chatJid = "web:native-model-handoff-lock";
   setChatAgentBackend(chatJid, "pi");
-  setCodexAppServerClientFactoryForTests(() => ({
-    ready: async () => {},
-    request: async (method: string) => method === "model/list"
-      ? { models: [{ id: "gpt-ok", name: "GPT OK" }] }
-      : {},
-    onNotification: () => () => undefined,
-    stop: () => {},
-  } as any));
+  setCodexAppServerClientFactoryForTests(() => codexClient());
   let captured = false;
 
   const result = await Promise.race([
@@ -134,14 +147,7 @@ test("provider model switch handoff can use the agent run lock without deadlocki
 test("provider model switch leaves backend unchanged when model validation fails", async () => {
   const chatJid = "web:native-backend-model-rollback";
   setChatAgentBackend(chatJid, "pi");
-  setCodexAppServerClientFactoryForTests(() => ({
-    ready: async () => {},
-    request: async (method: string) => method === "model/list"
-      ? { models: [{ id: "gpt-ok", name: "GPT OK" }] }
-      : {},
-    onNotification: () => () => undefined,
-    stop: () => {},
-  } as any));
+  setCodexAppServerClientFactoryForTests(() => codexClient());
   let abortCalls = 0;
   let captureCalls = 0;
 
@@ -149,7 +155,7 @@ test("provider model switch leaves backend unchanged when model validation fails
     chatJid,
     { type: "model", provider: "codex", modelId: "gpt-missing", raw: "/model codex/gpt-missing" },
     deps({
-      abortBackendTurnForSwitch: async () => {
+      abortPiTurnForSwitch: async () => {
         abortCalls += 1;
       },
       captureBackendHandoff: async () => {
@@ -169,20 +175,13 @@ test("provider model switch leaves backend unchanged when model validation fails
 test("provider model switch does not leak model state when abort fails", async () => {
   const chatJid = "web:native-backend-model-abort-fail";
   setChatAgentBackend(chatJid, "pi");
-  setCodexAppServerClientFactoryForTests(() => ({
-    ready: async () => {},
-    request: async (method: string) => method === "model/list"
-      ? { models: [{ id: "gpt-ok", name: "GPT OK" }] }
-      : {},
-    onNotification: () => () => undefined,
-    stop: () => {},
-  } as any));
+  setCodexAppServerClientFactoryForTests(() => codexClient());
 
   const result = await applyNativeBackendControlCommand(
     chatJid,
     { type: "model", provider: "codex", modelId: "gpt-ok", raw: "/model codex/gpt-ok" },
     deps({
-      abortBackendTurnForSwitch: async () => {
+      abortPiTurnForSwitch: async () => {
         throw new Error("abort failed");
       },
     }),
@@ -191,4 +190,45 @@ test("provider model switch does not leak model state when abort fails", async (
   expect(result).toMatchObject({ status: "error", message: "abort failed" });
   expect(getChatAgentBackend(chatJid)).toBe("pi");
   expect(getCodexAppServerModelLabel(chatJid)).toBe("codex/default");
+});
+
+test("backend command tolerates native abort failure and still switches", async () => {
+  const chatJid = "web:native-backend-abort-tolerated";
+  setCodexAppServerClientFactoryForTests(() => codexClient({
+    ready: async () => {
+      throw new Error("native abort unavailable");
+    },
+  }));
+
+  setChatAgentBackend(chatJid, "codex");
+
+  const result = await applyNativeBackendControlCommand(
+    chatJid,
+    { type: "backend", backend: "pi", raw: "/backend pi" },
+    deps(),
+  );
+
+  expect(result).toMatchObject({ status: "success" });
+  expect(getChatAgentBackend(chatJid)).toBe("pi");
+});
+
+test("provider model switch keeps state unchanged when native abort fails", async () => {
+  const chatJid = "web:native-model-native-abort-fail";
+  setCodexAppServerClientFactoryForTests(() => codexClient({
+    ready: async () => {
+      throw new Error("native abort unavailable");
+    },
+  }));
+  setChatAgentBackend(chatJid, "codex");
+  setThreadForChat(chatJid, { threadId: "thread-1", dynamicToolSignature: "test" });
+  setActiveTurnForChat(chatJid, { threadId: "thread-1", turnId: "turn-1" });
+
+  const result = await applyNativeBackendControlCommand(
+    chatJid,
+    { type: "model", provider: "claude", modelId: "sonnet", raw: "/model claude/sonnet" },
+    deps(),
+  );
+
+  expect(result).toMatchObject({ status: "error", message: "native abort unavailable" });
+  expect(getChatAgentBackend(chatJid)).toBe("codex-app-server");
 });

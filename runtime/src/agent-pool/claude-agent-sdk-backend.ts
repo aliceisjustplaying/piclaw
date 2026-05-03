@@ -3,7 +3,11 @@ import { type AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { createRequire } from "node:module";
 
 import { WORKSPACE_DIR, getAgentBackendConfig } from "../core/config.js";
-import { extensionKvGet, extensionKvSet } from "../db.js";
+import {
+  getPersistedBackendState,
+  patchClaudeBackendState,
+  type ClaudeBackendPersistedState,
+} from "./backend-state.js";
 import { normalizeContextUsageSnapshot, type ContextUsageSnapshot } from "./context-usage.js";
 import type { AgentOutput, RunAgentOptions } from "./contracts.js";
 import { createLogger } from "../utils/logger.js";
@@ -26,8 +30,6 @@ const log = createLogger("agent-pool.claude-agent-sdk");
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 const ONE_MILLION_CONTEXT_WINDOW = 1_000_000;
 const requireFromHere = createRequire(import.meta.url);
-const STATE_EXTENSION_ID = "claude-agent-sdk";
-const STATE_KEY = "state";
 
 type ClaudeQueryFactory = typeof claudeQuery;
 
@@ -41,12 +43,9 @@ const CLAUDE_MODEL_ALIASES: Record<string, string> = {
   "claude-opus-4.6[1m]": "claude-opus-4-6[1m]",
 };
 
-type PersistedClaudeState = {
-  model?: string | null;
-  thinking?: ClaudeThinkingLevel;
-  providerUsage?: unknown;
+type PersistedClaudeState = ClaudeBackendPersistedState & {
+  thinking?: ClaudeThinkingLevel | string;
   contextUsage?: ContextUsageSnapshot | null;
-  hasUntrustedExternalContent?: boolean;
 };
 
 type ClaudeChatState = {
@@ -85,20 +84,24 @@ function getClaudeChatState(chatJid: string): ClaudeChatState {
 }
 
 function readPersistedState(chatJid: string): PersistedClaudeState {
-  const state = extensionKvGet<PersistedClaudeState>(STATE_EXTENSION_ID, STATE_KEY, "chat", chatJid) ?? {};
+  const state = getPersistedBackendState(chatJid).claude ?? {};
   const contextUsage = normalizeContextUsageSnapshot(state.contextUsage);
   return { ...state, contextUsage };
 }
 
 function writePersistedState(chatJid: string, patch: PersistedClaudeState): void {
-  const next = { ...readPersistedState(chatJid), ...patch };
-  extensionKvSet(STATE_EXTENSION_ID, STATE_KEY, next, "chat", chatJid);
+  patchClaudeBackendState(chatJid, { ...patch });
 }
 
 function normalizeClaudeModelId(value: string | null | undefined): string | null {
   const raw = (value || "").trim();
   if (!raw || raw === "default") return null;
   return CLAUDE_MODEL_ALIASES[raw] ?? raw;
+}
+
+function normalizeClaudeThinkingLevel(value: string | null | undefined): ClaudeThinkingLevel | null {
+  const normalized = (value || "").trim().toLowerCase();
+  return CLAUDE_THINKING_LEVELS.includes(normalized as ClaudeThinkingLevel) ? normalized as ClaudeThinkingLevel : null;
 }
 
 function contextWindowForClaudeModel(id: string | null | undefined): number {
@@ -190,13 +193,14 @@ export function hasClaudeAgentSdkSession(chatJid: string): boolean {
 }
 
 export function getClaudeAgentSdkThinkingLevel(chatJid: string): ClaudeThinkingLevel {
-  return chatStateByChat.get(chatJid)?.thinking ?? readPersistedState(chatJid).thinking ?? DEFAULT_THINKING_LEVEL;
+  return chatStateByChat.get(chatJid)?.thinking
+    ?? normalizeClaudeThinkingLevel(readPersistedState(chatJid).thinking)
+    ?? DEFAULT_THINKING_LEVEL;
 }
 
 export function setClaudeAgentSdkThinkingLevel(chatJid: string, level: string): ClaudeThinkingLevel | null {
-  const normalized = level.trim().toLowerCase();
-  if (!CLAUDE_THINKING_LEVELS.includes(normalized as ClaudeThinkingLevel)) return null;
-  const next = normalized as ClaudeThinkingLevel;
+  const next = normalizeClaudeThinkingLevel(level);
+  if (!next) return null;
   getClaudeChatState(chatJid).thinking = next;
   writePersistedState(chatJid, { thinking: next });
   return next;

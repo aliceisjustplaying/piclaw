@@ -49,12 +49,8 @@ import { withAgentChatRunLock } from "./agent-pool/chat-run-lock.js";
 import { applyNativeBackendControlCommand } from "./agent-pool/native-backend-control.js";
 import { applyProactiveControlCommand } from "./agent-pool/proactive-control.js";
 import {
-  abortCodexAppServerChat,
   hasCodexAppServerThread,
 } from "./agent-pool/codex-app-server-backend.js";
-import {
-  abortClaudeAgentSdkChat,
-} from "./agent-pool/claude-agent-sdk-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import type { ContextUsageSnapshot } from "./agent-pool/context-usage.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
@@ -329,7 +325,7 @@ export class AgentPool {
     if (command.type === "proactive") return withAgentChatRunLock(chatJid, () => applyProactiveControlCommand(chatJid, command));
     const nativeResult = await applyNativeBackendControlCommand(chatJid, command, {
       getContextUsageForChat: (nextChatJid) => this.getContextUsageForChat(nextChatJid),
-      abortBackendTurnForSwitch: (nextChatJid, backend) => this.abortBackendTurnForSwitch(nextChatJid, backend),
+      abortPiTurnForSwitch: (nextChatJid) => this.abortPiTurnForSwitch(nextChatJid),
       captureBackendHandoff: (nextChatJid, from, to) => this.captureBackendHandoff(nextChatJid, from, to),
     });
     if (nativeResult) return nativeResult;
@@ -346,23 +342,15 @@ export class AgentPool {
     );
   }
 
-  private async abortBackendTurnForSwitch(chatJid: string, backend: AgentBackend): Promise<void> {
+  private async abortPiTurnForSwitch(chatJid: string): Promise<void> {
     try {
-      if (backend === "codex-app-server") {
-        await abortCodexAppServerChat(chatJid);
-        return;
-      }
-      if (backend === "claude-agent-sdk") {
-        await abortClaudeAgentSdkChat(chatJid);
-        return;
-      }
       const runtime = this.pool.get(chatJid)?.runtime;
       await runtime?.session.abort?.();
     } catch (error) {
       log.warn("Failed to abort active backend turn before switch", {
         operation: "agent_backend.abort_before_switch_failed",
         chatJid,
-        backend,
+        backend: "pi",
         err: error,
       });
     }

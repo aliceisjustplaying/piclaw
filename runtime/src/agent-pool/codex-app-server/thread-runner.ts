@@ -28,13 +28,22 @@ import {
   updateContextUsageFromTokenUsage,
 } from "./notifications.js";
 import {
-  activeTurnByChat,
-  bridgeSessionByThread,
-  chatByThread,
-  contextUsageByChat,
-  threadsByChat,
-  toolAbortControllersByThread,
-  untrustedExternalContentByThread,
+  clearActiveTurnForChat,
+  clearContextUsageForChat,
+  clearThreadUntrusted,
+  deleteBridgeSessionForThread,
+  deleteThreadForChat,
+  deleteToolAbortControllerForThread,
+  getActiveTurnForChat,
+  getContextUsageForChat,
+  getThreadForChat,
+  getToolAbortControllerForThread,
+  hasThreadForChat,
+  setActiveTurnForChat,
+  setBridgeSessionForThread,
+  setContextUsageForChat,
+  setThreadForChat,
+  setToolAbortControllerForThread,
 } from "./state.js";
 import { emit, log } from "./telemetry.js";
 import type { CodexAppServerClientLike, CodexContextUsage, CodexThreadState, JsonObject, PiclawBridgeSession } from "./types.js";
@@ -53,31 +62,31 @@ function cancelCodexTurn(nextClient: CodexAppServerClientLike, chatJid: string, 
 }
 
 export function getCodexAppServerContextUsage(chatJid: string): CodexContextUsage | null {
-  return contextUsageByChat.get(chatJid) ?? null;
+  return getContextUsageForChat(chatJid);
 }
 
 export function hasCodexAppServerThread(chatJid: string): boolean {
-  return threadsByChat.has(chatJid);
+  return hasThreadForChat(chatJid);
 }
 
 export function willCodexAppServerStartNewThread(chatJid: string, bridgeSession?: PiclawBridgeSession | null, toolFilter?: (toolName: string) => boolean): boolean {
-  const existing = threadsByChat.get(chatJid);
+  const existing = getThreadForChat(chatJid);
   if (!existing) return true;
   return existing.dynamicToolSignature !== dynamicToolSignature(dynamicToolsConfig(bridgeSession, toolFilter));
 }
 
 export function markCodexAppServerThreadUntrustedForTests(chatJid: string): void {
-  markThreadUntrusted(threadsByChat.get(chatJid)?.threadId ?? null);
+  markThreadUntrusted(getThreadForChat(chatJid)?.threadId ?? null);
 }
 
 export function isCodexAppServerThreadUntrustedForTests(chatJid: string): boolean {
-  return isUntrustedThread(threadsByChat.get(chatJid)?.threadId ?? null);
+  return isUntrustedThread(getThreadForChat(chatJid)?.threadId ?? null);
 }
 
 export async function abortCodexAppServerChat(chatJid: string): Promise<boolean> {
-  const active = activeTurnByChat.get(chatJid);
-  const activeThread = active?.threadId ?? threadsByChat.get(chatJid)?.threadId ?? null;
-  if (activeThread) toolAbortControllersByThread.get(activeThread)?.abort();
+  const active = getActiveTurnForChat(chatJid);
+  const activeThread = active?.threadId ?? getThreadForChat(chatJid)?.threadId ?? null;
+  if (activeThread) getToolAbortControllerForThread(activeThread)?.abort();
   if (!active) return false;
   const nextClient = await getClient();
   cancelCodexTurn(nextClient, chatJid, active.threadId, active.turnId);
@@ -90,10 +99,10 @@ export async function compactCodexAppServerChat(chatJid: string): Promise<void> 
 
 async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void> {
   const nextClient = await getClient();
-  const thread = threadsByChat.get(chatJid);
+  const thread = getThreadForChat(chatJid);
   if (!thread) throw new Error("Codex app-server has no active thread to compact.");
-  const previousUsage = contextUsageByChat.get(chatJid) ?? null;
-  contextUsageByChat.delete(chatJid);
+  const previousUsage = getContextUsageForChat(chatJid);
+  clearContextUsageForChat(chatJid);
 
   const timeoutMs = getCompactionRuntimeConfig().timeoutMs;
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -166,8 +175,8 @@ async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void>
     if (completionError) throw completionError;
   } catch (error) {
     if (!usageUpdatedDuringCompaction) {
-      if (previousUsage) contextUsageByChat.set(chatJid, previousUsage);
-      else contextUsageByChat.delete(chatJid);
+      if (previousUsage) setContextUsageForChat(chatJid, previousUsage);
+      else clearContextUsageForChat(chatJid);
     }
     throw error;
   } finally {
@@ -181,7 +190,7 @@ async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void>
 async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, bridgeSession?: PiclawBridgeSession | null, toolFilter?: (toolName: string) => boolean): Promise<CodexThreadState> {
   const toolsConfig = dynamicToolsConfig(bridgeSession, toolFilter);
   const toolSignature = dynamicToolSignature(toolsConfig);
-  const existing = threadsByChat.get(chatJid);
+  const existing = getThreadForChat(chatJid);
   const existingWasUntrusted = existing ? isUntrustedThread(existing.threadId) : false;
   if (existing?.dynamicToolSignature === toolSignature) return existing;
   if (existing) log.info("Restarting Codex app-server thread after dynamic tool set changed", {
@@ -204,17 +213,15 @@ async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, 
   const threadId = response?.thread?.id;
   if (!threadId) throw new Error("Codex app-server did not return a thread id");
   if (existing) {
-    bridgeSessionByThread.delete(existing.threadId);
-    untrustedExternalContentByThread.delete(existing.threadId);
-    toolAbortControllersByThread.delete(existing.threadId);
-    threadsByChat.delete(chatJid);
-    chatByThread.delete(existing.threadId);
-    activeTurnByChat.delete(chatJid);
+    deleteBridgeSessionForThread(existing.threadId);
+    clearThreadUntrusted(existing.threadId);
+    deleteToolAbortControllerForThread(existing.threadId);
+    deleteThreadForChat(chatJid);
+    clearActiveTurnForChat(chatJid);
   }
   const state = { threadId, dynamicToolSignature: toolSignature };
-  threadsByChat.set(chatJid, state);
-  chatByThread.set(threadId, chatJid);
-  if (bridgeSession) bridgeSessionByThread.set(threadId, bridgeSession);
+  setThreadForChat(chatJid, state);
+  if (bridgeSession) setBridgeSessionForThread(threadId, bridgeSession);
   if (existingWasUntrusted) markThreadUntrusted(threadId);
   return state;
 }
@@ -237,12 +244,12 @@ async function runCodexAppServerPromptUnlocked(
   if (runOptions.signal?.aborted) return { status: "error", result: null, error: "Codex app-server aborted" };
   const nextClient = await getClient();
   const thread = await getThread(nextClient, chatJid, bridgeSession, runOptions.toolCeilingFilter);
-  if (bridgeSession) bridgeSessionByThread.set(thread.threadId, bridgeSession);
+  if (bridgeSession) setBridgeSessionForThread(thread.threadId, bridgeSession);
   if (runOptions.hasUntrustedExternalContent === true) markThreadUntrusted(thread.threadId);
 
   const config = getAgentBackendConfig();
   const abortController = new AbortController();
-  toolAbortControllersByThread.set(thread.threadId, abortController);
+  setToolAbortControllerForThread(thread.threadId, abortController);
   let turnId: string | null = null;
   const streamState = createNativeStreamState();
   let completed = false;
@@ -296,7 +303,7 @@ async function runCodexAppServerPromptUnlocked(
       if (method === "turn/started") {
         const turn = params.turn && typeof params.turn === "object" ? params.turn as JsonObject : null;
         if (turn?.id) turnId = String(turn.id);
-        if (turnId) activeTurnByChat.set(chatJid, { threadId: thread.threadId, turnId });
+        if (turnId) setActiveTurnForChat(chatJid, { threadId: thread.threadId, turnId });
         log.info("Codex app-server turn started", {
           operation: "codex_app_server.turn_started",
           chatJid,
@@ -412,7 +419,7 @@ async function runCodexAppServerPromptUnlocked(
     }) as { turn?: { id?: string } };
     if (response?.turn?.id) {
       turnId = String(response.turn.id);
-      activeTurnByChat.set(chatJid, { threadId: thread.threadId, turnId });
+      setActiveTurnForChat(chatJid, { threadId: thread.threadId, turnId });
       const pendingTurn = pendingCompletedTurn as JsonObject | null;
       const completePendingTurn = completeTurn as ((turn: JsonObject | null) => void) | null;
       if (pendingTurn && readString(pendingTurn.id) === turnId && completePendingTurn) completePendingTurn(pendingTurn);
@@ -435,9 +442,9 @@ async function runCodexAppServerPromptUnlocked(
     const cleanup = unsubscribe as (() => void) | null;
     cleanup?.();
     if (abortHandler) runOptions.signal?.removeEventListener("abort", abortHandler);
-    const activeTurn = activeTurnByChat.get(chatJid);
-    if (activeTurn?.threadId === thread.threadId && activeTurn.turnId === turnId) activeTurnByChat.delete(chatJid);
-    if (toolAbortControllersByThread.get(thread.threadId) === abortController) toolAbortControllersByThread.delete(thread.threadId);
+    const activeTurn = getActiveTurnForChat(chatJid);
+    if (activeTurn?.threadId === thread.threadId && activeTurn.turnId === turnId) clearActiveTurnForChat(chatJid);
+    if (getToolAbortControllerForThread(thread.threadId) === abortController) deleteToolAbortControllerForThread(thread.threadId);
     abortController.abort();
     if (timeout) clearTimeout(timeout);
     if (settleTimer) clearTimeout(settleTimer);

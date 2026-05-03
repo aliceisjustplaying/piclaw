@@ -2,19 +2,25 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { WORKSPACE_DIR, getAgentBackendConfig } from "../../core/config.js";
+import { getPersistedBackendState, patchCodexBackendState } from "../backend-state.js";
 import { DEFAULT_CODEX_THINKING_LEVEL, PROVIDER_USAGE_TTL_MS, THINKING_LEVELS } from "./constants.js";
 import { getClient } from "./client.js";
 import {
-  fastByChat,
-  modelByChat,
-  modelOptionsCache,
-  modelOptionsCacheAt,
-  providerUsageCache,
-  providerUsageInFlight,
+  getCodexChatState,
+  getCodexFastModeForChat,
+  getCodexModelForChat,
+  getCodexThinkingForChat,
+  getModelOptionsCache,
+  getProviderUsageCache,
+  getProviderUsageInFlight,
+  isCodexFastModeSetForChat,
+  isCodexModelSetForChat,
+  setCodexFastModeForChat,
+  setCodexModelForChat,
+  setCodexThinkingForChat,
   setModelOptionsCache,
   setProviderUsageCache,
   setProviderUsageInFlight,
-  thinkingByChat,
 } from "./state.js";
 import type { CodexModelOption, CodexProviderUsageSnapshot, CodexProviderUsageWindow, CodexThinkingLevel, JsonObject } from "./types.js";
 import { readString } from "./utils.js";
@@ -108,11 +114,24 @@ export function configuredModel(): string | null {
 }
 
 export function getChatModel(chatJid: string): string | null {
-  return modelByChat.has(chatJid) ? modelByChat.get(chatJid)! : configuredModel();
+  if (isCodexModelSetForChat(chatJid)) return getCodexModelForChat(chatJid) ?? null;
+  const persisted = getPersistedBackendState(chatJid).codex?.model;
+  if (persisted !== undefined) {
+    setCodexModelForChat(chatJid, persisted ?? null);
+    return persisted ?? null;
+  }
+  return configuredModel();
 }
 
 function getChatThinking(chatJid: string): CodexThinkingLevel {
-  return thinkingByChat.get(chatJid) ?? DEFAULT_CODEX_THINKING_LEVEL;
+  const cached = getCodexThinkingForChat(chatJid);
+  if (cached) return cached;
+  const persisted = normalizeThinkingLevel(getPersistedBackendState(chatJid).codex?.thinking);
+  if (persisted) {
+    setCodexThinkingForChat(chatJid, persisted);
+    return persisted;
+  }
+  return DEFAULT_CODEX_THINKING_LEVEL;
 }
 
 function readPersistedFastMode(chatJid: string): boolean {
@@ -228,7 +247,8 @@ export function getCodexAppServerThinkingLevel(chatJid: string): CodexThinkingLe
 export function setCodexAppServerThinkingLevel(chatJid: string, requested: string): CodexThinkingLevel | null {
   const level = normalizeThinkingLevel(requested);
   if (!level) return null;
-  thinkingByChat.set(chatJid, level);
+  setCodexThinkingForChat(chatJid, level);
+  patchCodexBackendState(chatJid, { thinking: level });
   return level;
 }
 
@@ -236,20 +256,22 @@ export function cycleCodexAppServerThinkingLevel(chatJid: string): CodexThinking
   const current = getChatThinking(chatJid);
   const index = THINKING_LEVELS.indexOf(current);
   const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length] ?? DEFAULT_CODEX_THINKING_LEVEL;
-  thinkingByChat.set(chatJid, next);
+  setCodexThinkingForChat(chatJid, next);
+  patchCodexBackendState(chatJid, { thinking: next });
   return next;
 }
 
 export function setCodexAppServerFastMode(chatJid: string, enabled: boolean): boolean {
-  fastByChat.set(chatJid, enabled);
+  setCodexFastModeForChat(chatJid, enabled);
+  patchCodexBackendState(chatJid, { fast: enabled });
   writePersistedFastMode(chatJid, enabled);
   return enabled;
 }
 
 export function getCodexAppServerFastMode(chatJid: string): boolean {
-  if (fastByChat.has(chatJid)) return fastByChat.get(chatJid) === true;
-  const persisted = readPersistedFastMode(chatJid);
-  fastByChat.set(chatJid, persisted);
+  if (isCodexFastModeSetForChat(chatJid)) return getCodexFastModeForChat(chatJid) === true;
+  const persisted = getPersistedBackendState(chatJid).codex?.fast ?? readPersistedFastMode(chatJid);
+  setCodexFastModeForChat(chatJid, persisted);
   return persisted;
 }
 
@@ -266,13 +288,19 @@ export async function resolveCodexAppServerModel(modelInput: string | null | und
 
 export async function setCodexAppServerModel(chatJid: string, modelInput: string | null | undefined): Promise<string> {
   const { model, label } = await resolveCodexAppServerModel(modelInput);
-  modelByChat.set(chatJid, model);
+  setResolvedCodexAppServerModel(chatJid, model);
   return label;
+}
+
+export function setResolvedCodexAppServerModel(chatJid: string, model: string | null): void {
+  setCodexModelForChat(chatJid, model);
+  patchCodexBackendState(chatJid, { model });
 }
 
 export async function listCodexAppServerModels(): Promise<CodexModelOption[]> {
   const now = Date.now();
-  if (modelOptionsCache && now - modelOptionsCacheAt < 60_000) return modelOptionsCache;
+  const cachedModels = getModelOptionsCache();
+  if (cachedModels.value && now - cachedModels.at < 60_000) return cachedModels.value;
   const nextClient = await getClient();
   const response = await nextClient.request("model/list", { cursor: null, limit: null }).catch(() => null);
   const options = getModelArray(response).map(normalizeModelOption).filter((option): option is CodexModelOption => Boolean(option));
@@ -290,13 +318,16 @@ export async function listCodexAppServerModels(): Promise<CodexModelOption[]> {
 }
 
 export function peekCodexAppServerProviderUsage(): CodexProviderUsageSnapshot | null {
-  if (!providerUsageCache || providerUsageCache.expiresAt <= Date.now()) return null;
-  return providerUsageCache.value;
+  const cache = getProviderUsageCache();
+  if (!cache || cache.expiresAt <= Date.now()) return null;
+  return cache.value;
 }
 
 export async function warmCodexAppServerProviderUsage(): Promise<CodexProviderUsageSnapshot | null> {
-  if (providerUsageCache && providerUsageCache.expiresAt > Date.now()) return providerUsageCache.value;
-  if (providerUsageInFlight) return await providerUsageInFlight;
+  const cache = getProviderUsageCache();
+  if (cache && cache.expiresAt > Date.now()) return cache.value;
+  const inFlightExisting = getProviderUsageInFlight();
+  if (inFlightExisting) return await inFlightExisting;
 
   const inFlight = (async () => {
     try {
@@ -310,7 +341,7 @@ export async function warmCodexAppServerProviderUsage(): Promise<CodexProviderUs
         operation: "codex_app_server.rate_limits_read_failed",
         err: error,
       });
-      return providerUsageCache?.value ?? null;
+      return getProviderUsageCache()?.value ?? null;
     } finally {
       setProviderUsageInFlight(null);
     }
