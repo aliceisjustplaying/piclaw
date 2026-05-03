@@ -1,3 +1,5 @@
+import type { ContextUsageSnapshot } from "../context-usage.js";
+
 export type JsonRpcId = string | number;
 export type JsonObject = Record<string, unknown>;
 
@@ -21,11 +23,7 @@ export interface CodexThreadState {
   dynamicToolSignature: string;
 }
 
-export interface CodexContextUsage {
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
-}
+export type CodexContextUsage = ContextUsageSnapshot;
 
 export interface CodexProviderUsageWindow {
   label: string;

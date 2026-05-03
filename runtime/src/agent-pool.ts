@@ -56,6 +56,7 @@ import {
   abortClaudeAgentSdkChat,
 } from "./agent-pool/claude-agent-sdk-backend.js";
 import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
+import type { ContextUsageSnapshot } from "./agent-pool/context-usage.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
 import { loadAgentPoolConfig } from "./agent-pool/config.js";
@@ -388,11 +389,7 @@ export class AgentPool {
   }
 
   /** Return the current context token usage for a chat session, or null if unknown. */
-  async getContextUsageForChat(chatJid: string): Promise<{
-    tokens: number | null;
-    contextWindow: number;
-    percent: number | null;
-  } | null> {
+  async getContextUsageForChat(chatJid: string): Promise<ContextUsageSnapshot | null> {
     return await getNativeContextUsageForChat(chatJid, this.runtimeFacade);
   }
 

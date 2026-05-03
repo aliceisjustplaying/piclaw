@@ -1,18 +1,55 @@
 import { expect, test } from 'bun:test';
 
 import {
+  persistContextUsage,
   normalizeContextUsage,
   refreshAutoresearchStatusForChat,
   refreshContextUsageForChat,
   refreshCurrentView,
   refreshModelAndQueueState,
   refreshQueueStateForChat,
+  restoreContextUsage,
 } from '../../web/src/ui/app-status-refresh-orchestration.js';
 
 type QueueRow = { row_id: string | number; content?: string };
 
+function contextSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    backend: 'claude-agent-sdk',
+    source: 'claude-native-context',
+    tokens: 8000,
+    contextWindow: 128000,
+    percent: 6.25,
+    model: 'claude-opus-4-6[1m]',
+    updatedAt: '2026-05-03T00:00:00.000Z',
+    sessionId: 'session-1',
+    ...overrides,
+  };
+}
+
 test('normalizeContextUsage rejects impossible cached context snapshots', () => {
-  expect(normalizeContextUsage({ tokens: 1_211_529, contextWindow: 1_000_000, percent: 121.1529 })).toBeNull();
+  expect(normalizeContextUsage(contextSnapshot({ tokens: 1_211_529, contextWindow: 1_000_000, percent: 121.1529 }))).toBeNull();
+  expect(normalizeContextUsage({ tokens: 72, contextWindow: 1_000_000, percent: 0.0072 })).toBeNull();
+});
+
+test('restoreContextUsage clears legacy untyped browser cache entries', () => {
+  const storage = new Map<string, string>();
+  (globalThis as any).window = {
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => { storage.set(key, value); },
+      removeItem: (key: string) => { storage.delete(key); },
+    },
+  };
+
+  storage.set('piclaw:ctx:chat:alpha', JSON.stringify({ tokens: 72, contextWindow: 1_000_000, percent: 0.0072 }));
+
+  expect(restoreContextUsage('chat:alpha')).toBeNull();
+  expect(storage.has('piclaw:ctx:chat:alpha')).toBe(false);
+
+  persistContextUsage('chat:alpha', contextSnapshot());
+  expect(restoreContextUsage('chat:alpha')).toEqual(contextSnapshot());
+  delete (globalThis as any).window;
 });
 
 test('refreshQueueStateForChat keeps only newest non-dismissed queue rows', async () => {
@@ -149,7 +186,7 @@ test('refreshContextUsageForChat ignores stale chat responses', async () => {
 
 test('refreshContextUsageForChat clears cached state with null-percent API response', async () => {
   const activeChatJidRef = { current: 'chat:alpha' };
-  let contextState: any = { tokens: 5000, contextWindow: 128000, percent: 3.9 };
+  let contextState: any = contextSnapshot({ tokens: 5000, percent: 3.9 });
 
   await refreshContextUsageForChat({
     currentChatJid: 'chat:alpha',
@@ -170,13 +207,13 @@ test('refreshContextUsageForChat updates state when API returns real data', asyn
   await refreshContextUsageForChat({
     currentChatJid: 'chat:alpha',
     activeChatJidRef,
-    getAgentContext: async () => ({ tokens: 8000, contextWindow: 128000, percent: 6.25 }),
+    getAgentContext: async () => contextSnapshot(),
     setContextUsage: (next) => {
       contextState = typeof next === 'function' ? next(contextState) : next;
     },
   });
 
-  expect(contextState).toEqual({ tokens: 8000, contextWindow: 128000, percent: 6.25 });
+  expect(contextState).toEqual(contextSnapshot());
 });
 
 test('refreshAutoresearchStatusForChat updates panels and clears autoresearch pending actions', async () => {

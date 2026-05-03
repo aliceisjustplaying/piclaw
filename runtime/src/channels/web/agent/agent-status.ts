@@ -3,6 +3,7 @@
  */
 
 import type { WebAgentBufferEntry } from "./agent-buffers.js";
+import type { ContextUsageSnapshot } from "../../../agent-pool/context-usage.js";
 import { appendServerTiming, measureAsync, measureSync } from "../http/server-timing.js";
 
 /** Context contract used by web agent status/context/model endpoint handlers. */
@@ -14,7 +15,7 @@ export interface AgentStatusContext {
   getBuffer(turnId: string, panel: "thought" | "draft"): WebAgentBufferEntry | undefined;
   getContextUsageForChat(
     chatJid: string
-  ): Promise<{ tokens: number | null; contextWindow: number; percent: number | null } | null>;
+  ): Promise<ContextUsageSnapshot | null>;
   getAvailableModels(chatJid: string): Promise<unknown>;
   getProviderReadyCompletedForInstance(): boolean;
 }
@@ -62,9 +63,14 @@ export async function handleAgentContextRequest(req: Request, ctx: AgentStatusCo
     }
 
     return ctx.json({
+      backend: usage.backend,
+      source: usage.source,
       tokens: usage.tokens,
       contextWindow: usage.contextWindow,
       percent: usage.percent,
+      model: usage.model ?? null,
+      updatedAt: usage.updatedAt,
+      sessionId: usage.sessionId ?? null,
     });
   });
   return appendServerTiming(result, {

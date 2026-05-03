@@ -207,7 +207,9 @@ test("Codex app-server registers bridge tools on thread start and compacts exist
     await compactCodexAppServerChat("web:codex-stub");
     expect(client.requests.filter((request) => request.method === "thread/start").length).toBe(1);
     expect(client.requests.some((request) => request.method === "thread/compact/start")).toBe(true);
-    expect(getCodexAppServerContextUsage("web:codex-stub")).toEqual({
+    expect(getCodexAppServerContextUsage("web:codex-stub")).toMatchObject({
+      backend: "codex-app-server",
+      source: "codex-app-server-token-usage",
       tokens: 4321,
       contextWindow: 128000,
       percent: (4321 / 128000) * 100,

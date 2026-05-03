@@ -4,6 +4,7 @@
 
 import { getDb, replaceMessageContent } from "../../../db.js";
 import { getChatAgentBackend } from "../../../agent-pool/backend-state.js";
+import { normalizeContextUsageSnapshot } from "../../../agent-pool/context-usage.js";
 import { resolveAvatarUrl } from "../media/avatar-service.js";
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import type { AuthEndpointsContext } from "../auth/auth-endpoints.js";
@@ -21,8 +22,6 @@ import type { ContentEndpointsContext } from "./content-endpoints.js";
 import type { AgentsEndpointContext, AvatarEndpointContext } from "./identity-endpoints.js";
 import type { PostMutationsContext } from "../post-mutations.js";
 import type { UiEndpointsContext } from "./ui-endpoints.js";
-
-type ContextUsageSnapshot = { tokens: number | null; contextWindow: number; percent: number | null };
 
 /** Live identity/avatar snapshot consumed by endpoint facade/context builders. */
 export interface WebChannelIdentitySnapshot {
@@ -81,20 +80,6 @@ export function createWebChannelEndpointContexts(
   let contentContext: ContentEndpointsContext | null = null;
   let uiContext: UiEndpointsContext | null = null;
   let authContext: AuthEndpointsContext | null = null;
-
-  const normalizeContextUsageSnapshot = (usage: Record<string, unknown> | null): ContextUsageSnapshot | null => {
-    if (!usage) return null;
-    const tokens = usage.tokens == null ? null : Number(usage.tokens);
-    const contextWindow = Number(usage.contextWindow);
-    const percent = usage.percent == null ? null : Number(usage.percent);
-    if (!Number.isFinite(contextWindow) || contextWindow <= 0) return null;
-    if (tokens != null && Number.isFinite(tokens) && tokens > contextWindow) return null;
-    return {
-      tokens: tokens == null || Number.isFinite(tokens) ? tokens : null,
-      contextWindow,
-      percent: percent == null || Number.isFinite(percent) ? percent : null,
-    };
-  };
 
   return {
     postMutations: () => createPostMutationsContext({

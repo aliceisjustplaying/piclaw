@@ -3,6 +3,7 @@
  */
 
 import type { AgentPool } from "../../../agent-pool.js";
+import type { ContextUsageSnapshot } from "../../../agent-pool/context-usage.js";
 import type { InteractionRow } from "../../../db.js";
 import type { WebAgentBufferEntry } from "../agent/agent-buffers.js";
 import type { AgentStatusContext } from "../agent/agent-status.js";
@@ -54,7 +55,7 @@ export interface AgentStatusContextDeps extends JsonLike {
   getBuffer(turnId: string, panel: "thought" | "draft"): WebAgentBufferEntry | undefined;
   getContextUsageForChat(
     chatJid: string
-  ): Promise<{ tokens: number | null; contextWindow: number; percent: number | null } | null>;
+  ): Promise<ContextUsageSnapshot | null>;
   getAvailableModels(chatJid: string): Promise<unknown>;
   getProviderReadyCompletedForInstance(): boolean;
 }

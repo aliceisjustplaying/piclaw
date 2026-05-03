@@ -21,6 +21,17 @@ function createIdentitySnapshot(overrides: Partial<WebChannelIdentitySnapshot> =
 }
 
 describe("web channel endpoint context factory", () => {
+  const contextSnapshot = {
+    backend: "pi",
+    source: "pi-session-context",
+    tokens: 10,
+    contextWindow: 100,
+    percent: 10,
+    model: "openai/gpt-test",
+    updatedAt: "2026-05-03T00:00:00.000Z",
+    sessionId: null,
+  } as const;
+
   test("reuses stable auth/ui/content/agent-status contexts", async () => {
     const panelCalls: Array<{ turnId: string; panel: "thought" | "draft"; expanded: boolean }> = [];
     const watcherSyncCalls: string[] = [];
@@ -48,7 +59,7 @@ describe("web channel endpoint context factory", () => {
         createWebauthnEnrolPageContext: () => ({ kind: "enrol" }),
       },
       agentPool: {
-        getContextUsageForChat: async () => ({ tokens: 10, contextWindow: 100, percent: 10 }),
+        getContextUsageForChat: async () => contextSnapshot,
         getAvailableModels: async () => ({ current: "openai/gpt-4o", models: ["openai/gpt-4o"] }),
       },
     };
@@ -119,6 +130,32 @@ describe("web channel endpoint context factory", () => {
     );
 
     expect(await contexts.agentStatus().getContextUsageForChat("web:claude-context")).toBeNull();
+  });
+
+  test("uses typed persisted fallback only for Pi chats", async () => {
+    setChatAgentBackend("web:pi-context", "pi");
+    const channel = {
+      json: (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status }),
+      getAgentStatus: () => null,
+      recoverStaleInflightRun: () => false,
+      getBuffer: () => undefined,
+      getContextUsage: () => contextSnapshot,
+      agentPool: {
+        getContextUsageForChat: async () => null,
+        getAvailableModels: async () => ({}),
+      },
+    };
+
+    const contexts = createWebChannelEndpointContexts(
+      channel as unknown as Parameters<typeof createWebChannelEndpointContexts>[0],
+      {
+        defaultChatJid: "web:pi-context",
+        defaultAgentId: "default",
+        getIdentitySnapshot: () => createIdentitySnapshot(),
+      },
+    );
+
+    expect(await contexts.agentStatus().getContextUsageForChat("web:pi-context")).toEqual(contextSnapshot);
   });
 
   test("rebuilds agents/avatar contexts from the latest identity snapshot", () => {
