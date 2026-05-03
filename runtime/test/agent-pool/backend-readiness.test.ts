@@ -13,6 +13,8 @@ import {
   resetClaudeAgentSdkBackendForTests,
   setClaudeAgentSdkQueryFactoryForTests,
 } from "../../src/agent-pool/claude-agent-sdk-backend.js";
+import { getNativeAvailableModels } from "../../src/agent-pool/native-model-status.js";
+import { clearProviderUsageCache } from "../../src/agent-pool/provider-usage.js";
 import { closeDbQuietly } from "../helpers.js";
 import { initDatabase } from "../../src/db.js";
 
@@ -115,6 +117,7 @@ beforeEach(async () => {
 afterEach(() => {
   stopCodexAppServerBackend();
   resetClaudeAgentSdkBackendForTests();
+  clearProviderUsageCache();
   closeDbQuietly(dbModule);
   dbModule = null;
 });
@@ -185,5 +188,38 @@ test("available model picker options stay scoped to the active backend", async (
     expect(claudeModels.models.every((model) => model.startsWith("claude/"))).toBe(true);
   } finally {
     await pool.shutdown();
+  }
+});
+
+test("Claude model status waits for Anthropic usage on first refresh", async () => {
+  const chatJid = `web:claude-usage-${Date.now()}`;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/api/oauth/usage")) {
+      return new Response(JSON.stringify({
+        five_hour: { utilization: 3, resets_at: "2026-05-03T18:40:00.000Z" },
+        seven_day: { utilization: 7, resets_at: "2026-05-09T19:00:00.000Z" },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    setChatAgentBackend(chatJid, "claude");
+    const status = await getNativeAvailableModels(
+      chatJid,
+      { get: () => ({ type: "oauth", access: "anthropic-token", expires: Date.now() + 60_000 }) } as any,
+      {
+        getCurrentModelLabel: async () => null,
+        getAvailableModels: async () => ({ current: null, models: [] }),
+        getContextUsageForChat: () => null,
+      },
+    );
+
+    expect((status.provider_usage as any)?.primary?.remaining_percent).toBe(97);
+    expect((status.provider_usage as any)?.secondary?.remaining_percent).toBe(93);
+  } finally {
+    globalThis.fetch = previousFetch;
   }
 });

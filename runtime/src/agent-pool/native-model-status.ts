@@ -81,12 +81,9 @@ export async function getNativeAvailableModels(
     const usage = getClaudeAgentSdkContextUsage(chatJid);
     const models = listClaudeAgentSdkModels();
     const thinking = getClaudeAgentSdkThinkingLevel(chatJid);
-    const providerUsage = eagerWarmup.enabled
-      ? (await withWarmupTimeout(warmProviderUsage(authStorage, "anthropic"), eagerWarmup.providerUsageTimeoutMs)
-        ?? peekProviderUsage("anthropic", { allowStale: true })
-        ?? getClaudeAgentSdkProviderUsage(chatJid))
-      : (peekProviderUsage("anthropic", { allowStale: true }) ?? getClaudeAgentSdkProviderUsage(chatJid));
-    if (!eagerWarmup.enabled) void warmProviderUsage(authStorage, "anthropic");
+    const providerUsage = peekProviderUsage("anthropic", { allowStale: true })
+      ?? await withWarmupTimeout(warmProviderUsage(authStorage, "anthropic"), eagerWarmup.providerUsageTimeoutMs)
+      ?? getClaudeAgentSdkProviderUsage(chatJid);
     return {
       current,
       models: models.map((model) => model.label),
