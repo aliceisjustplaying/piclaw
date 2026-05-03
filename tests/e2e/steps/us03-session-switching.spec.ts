@@ -69,10 +69,9 @@ test.describe('US-03: Session Switching', () => {
   });
 });
 
-test.describe.skip('US-03: iPad Session Switching', () => {
-  // iPad-only — skipped in desktop-chrome project
-
-  test('finger swipe on timeline edge switches sessions', async ({ authedPage: page }) => {
+test.describe('US-03: iPad Session Switching', () => {
+  test('finger swipe on timeline edge switches sessions', async ({ authedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'ipad', 'iPad-only touch gesture coverage');
     await page.waitForSelector(sel.timeline);
     const timeline = page.locator(sel.timeline);
     const box = await timeline.boundingBox();
@@ -86,15 +85,17 @@ test.describe.skip('US-03: iPad Session Switching', () => {
     await page.evaluate(({ sx, sy }) => {
       const el = document.elementFromPoint(sx, sy);
       if (!el) return;
-      el.dispatchEvent(new TouchEvent('touchstart', {
-        touches: [new Touch({ identifier: 1, target: el, clientX: sx, clientY: sy })],
-        bubbles: true,
+      // WebKit does not expose a constructible Touch in all automation modes;
+      // pointer events are enough to exercise the app's touch/edge guard path.
+      el.dispatchEvent(new PointerEvent('pointerdown', {
+        pointerId: 1, pointerType: 'touch', clientX: sx, clientY: sy, bubbles: true,
       }));
-      el.dispatchEvent(new TouchEvent('touchmove', {
-        touches: [new Touch({ identifier: 1, target: el, clientX: sx + 150, clientY: sy })],
-        bubbles: true,
+      el.dispatchEvent(new PointerEvent('pointermove', {
+        pointerId: 1, pointerType: 'touch', clientX: sx + 150, clientY: sy, bubbles: true,
       }));
-      el.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+      el.dispatchEvent(new PointerEvent('pointerup', {
+        pointerId: 1, pointerType: 'touch', clientX: sx + 150, clientY: sy, bubbles: true,
+      }));
     }, { sx: startX, sy: startY });
 
     await page.waitForTimeout(500);
@@ -103,7 +104,8 @@ test.describe.skip('US-03: iPad Session Switching', () => {
     await expect(page.locator(sel.timeline)).toBeVisible();
   });
 
-  test('Apple Pencil does NOT trigger session swipe', async ({ authedPage: page }) => {
+  test('Apple Pencil does NOT trigger session swipe', async ({ authedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'ipad', 'iPad-only pen gesture coverage');
     await page.waitForSelector(sel.timeline);
     const timeline = page.locator(sel.timeline);
     const box = await timeline.boundingBox();

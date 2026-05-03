@@ -103,10 +103,9 @@ test.describe('US-08: Pane Stability', () => {
   });
 });
 
-test.describe.skip('US-08: iPad Pane Interaction', () => {
-  // iPad-only — skipped in desktop-chrome project
-
-  test('terminal works with touch keyboard', async ({ authedPage: page }) => {
+test.describe('US-08: iPad Pane Interaction', () => {
+  test('terminal works with touch keyboard', async ({ authedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'ipad', 'iPad-only touch keyboard coverage');
     const terminal = page.locator(sel.terminalContainer + ', .xterm');
     if (!(await terminal.isVisible())) test.skip();
 

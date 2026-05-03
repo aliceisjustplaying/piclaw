@@ -60,6 +60,25 @@ function dur(ms: number) {
 function b64(path: string) {
   try { return `data:image/png;base64,${readFileSync(path).toString("base64")}`; } catch { return ""; }
 }
+function skipReason(test: any, suite: string, title: string) {
+  const annotations = Array.isArray(test?.annotations) ? test.annotations : [];
+  const annotated = annotations
+    .map((annotation: any) => String(annotation?.description || "").trim())
+    .filter(Boolean)
+    .join("; ");
+  if (annotated) return annotated;
+  const label = `${suite} ${title}`.toLowerCase();
+  if (label.includes("timeline rendering")) return "required timeline fixture content was absent";
+  if (label.includes("queue and steer")) return "agent/model completed before queued state was observable";
+  if (label.includes("workspace file")) return "workspace sidebar/file fixture unavailable in this viewport";
+  if (label.includes("vnc")) return "no VNC pane fixture was open";
+  if (label.includes("pane popout")) return "no popout-capable pane fixture was open";
+  if (label.includes("editor stability")) return "required editor tab fixture was absent";
+  if (label.includes("screenshots") || label.includes("lightbox") || label.includes("external links")) return "required attachment/link fixture was absent";
+  if (label.includes("session")) return "requires additional switchable/archived session state";
+  if (label.includes("number fields")) return "settings pane has no visible numeric field in this fixture";
+  return "conditional skip: required fixture/state not present";
+}
 
 // ── Collect tests ────────────────────────────────────────────────
 
@@ -72,6 +91,7 @@ interface TestResult {
   attempts: number;
   duration: number;
   error: string;
+  skipReason: string;
   attachments: Array<{ contentType?: string; path?: string; name?: string }>;
 }
 
@@ -93,6 +113,7 @@ function collect(suite: any, prefix = "") {
         attempts: Math.max(1, attempts.length),
         duration: attempts.reduce((sum: number, result: any) => sum + (result.duration || 0), 0),
         error: finalResult.error?.message || "",
+        skipReason: finalStatus === "skipped" ? skipReason(test, name, spec.title) : "",
         attachments: finalResult.attachments || [],
       });
     }
@@ -153,7 +174,7 @@ for (const [suite, tests] of Object.entries(bySuite)) {
 
   if (suiteIdx > 0 && suiteIdx % 4 === 0) html += `<div class="page-break"></div>`;
   html += `<h2>${esc(suite)} ${badge} (${sp}/${tests.length})</h2>`;
-  html += `<table><tr><th></th><th>Scenario</th><th>Attempts</th><th>Duration</th></tr>`;
+  html += `<table><tr><th></th><th>Scenario</th><th>Skip reason</th><th>Attempts</th><th>Duration</th></tr>`;
 
   for (const t of tests) {
     const rc = t.status === "failed" ? ' class="failed"' : t.status === "skipped" ? ' class="skipped"' : "";
@@ -161,7 +182,7 @@ for (const [suite, tests] of Object.entries(bySuite)) {
     const statusNote = t.playwrightStatus === "flaky" ? ` <span class="badge">flaky</span>` : "";
     html += `<tr${rc}><td>${emoji(t.status)}</td><td>${esc(t.title)}${retryBadge}${statusNote}`;
     if (t.error) html += `<br><span class="error">${esc(t.error.substring(0, 300))}</span>`;
-    html += `</td><td>${t.attempts}</td><td>${dur(t.duration)}</td></tr>`;
+    html += `</td><td>${esc(t.skipReason)}</td><td>${t.attempts}</td><td>${dur(t.duration)}</td></tr>`;
 
     // Embed failure screenshots
     for (const att of t.attachments.filter((a) => a.contentType === "image/png" && a.path)) {
