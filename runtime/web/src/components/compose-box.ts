@@ -3050,7 +3050,7 @@ export function ComposeBox({
                                 <div class="compose-model-meta-subline">
                                     ${!switchingModel && showModelUsageSection && html`
                                         <span class="compose-model-usage-hint" title=${modelHintTitle}>
-                                            ${modelThinkingLabel}${showFastIndicator && html`<span class="compose-model-fast-glyph" aria-label="Fast mode on">↯</span>`}${showModelUsageSeparator ? ' • ' : ''}${modelUsageLabel}
+                                            ${modelThinkingLabel}${showFastIndicator && html`<span class="compose-model-fast-glyph" aria-label="Fast mode on">⚡️</span>`}${showModelUsageSeparator ? ' • ' : ''}${modelUsageLabel}
                                         </span>
                                     `}
                                 </div>
