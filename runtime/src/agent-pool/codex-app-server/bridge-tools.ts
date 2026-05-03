@@ -1,5 +1,10 @@
 import { ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS, CODEX_BRIDGE_EXCLUDED_TOOLS, PICLAW_DYNAMIC_TOOLS } from "./constants.js";
-import { bridgeSessionByThread, chatByThread, contextUsageByChat, toolAbortControllersByThread } from "./state.js";
+import {
+  getBridgeSessionForThread,
+  getChatForThread,
+  getContextUsageForChat,
+  getToolAbortControllerForThread,
+} from "./state.js";
 import type { JsonObject, PiclawBridgeSession, PiclawBridgeTool } from "./types.js";
 import { contentItemsFrom, parseArgs, readString, workspaceCwd } from "./utils.js";
 import { markThreadUntrusted } from "./notifications.js";
@@ -152,7 +157,7 @@ export function isCodexExternalDataToolForTests(toolName: string): boolean {
 
 export async function handleDynamicToolCall(params: JsonObject): Promise<{ contentItems: Array<{ type: "inputText"; text: string }>; success: boolean }> {
   const threadId = readString(params.threadId);
-  const chatJid = threadId ? chatByThread.get(threadId) : null;
+  const chatJid = threadId ? getChatForThread(threadId) : null;
   const tool = readString(params.tool);
   const namespace = readString(params.namespace);
   const args = parseArgs(params.arguments);
@@ -162,14 +167,14 @@ export async function handleDynamicToolCall(params: JsonObject): Promise<{ conte
   if (!tool) return contentItemsFrom("Missing Piclaw dynamic tool name.", false);
 
   if (namespace === "piclaw_tool") {
-    const session = threadId ? bridgeSessionByThread.get(threadId) : null;
+    const session = threadId ? getBridgeSessionForThread(threadId) : null;
     const bridgeTool = getBridgeTools(session).find((candidate) => bridgeToolName(candidate) === tool);
     if (!bridgeTool || typeof bridgeTool.execute !== "function") {
       return contentItemsFrom(`Piclaw tool is not available to Codex: ${tool || "(missing)"}`, false);
     }
     try {
       if (isExternalDataTool(tool)) markThreadUntrusted(threadId);
-      const signal = threadId ? toolAbortControllersByThread.get(threadId)?.signal : undefined;
+      const signal = threadId ? getToolAbortControllerForThread(threadId)?.signal : undefined;
       const result = await bridgeTool.execute(`codex-bridge-${Date.now().toString(36)}`, args, signal, () => undefined, makeBridgeContext(chatJid));
       const text = bridgeResultToText(result);
       if (!text.trim()) {
@@ -193,6 +198,6 @@ export async function handleDynamicToolCall(params: JsonObject): Promise<{ conte
     }
   }
 
-  const result = executePiclawBuiltinTool(chatJid, tool, args, () => contextUsageByChat.get(chatJid) ?? null);
+  const result = executePiclawBuiltinTool(chatJid, tool, args, () => getContextUsageForChat(chatJid));
   return contentItemsFrom(result.value, result.isError !== true);
 }

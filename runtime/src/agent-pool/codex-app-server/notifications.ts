@@ -1,13 +1,17 @@
-import { contextUsageByChat, untrustedExternalContentByThread } from "./state.js";
+import {
+  isThreadUntrusted as isThreadUntrustedState,
+  markThreadUntrusted as markThreadUntrustedState,
+  setContextUsageForChat,
+} from "./state.js";
 import type { CodexContextUsage, JsonObject } from "./types.js";
 import { readString } from "./utils.js";
 
 export function isUntrustedThread(threadId: string | null): boolean {
-  return Boolean(threadId && untrustedExternalContentByThread.get(threadId));
+  return isThreadUntrustedState(threadId);
 }
 
 export function markThreadUntrusted(threadId: string | null): void {
-  if (threadId) untrustedExternalContentByThread.set(threadId, true);
+  markThreadUntrustedState(threadId);
 }
 
 export function resolveApprovalResponse(method: string, params: JsonObject, threadIsUntrusted: boolean): unknown | null {
@@ -74,6 +78,6 @@ export function isToolItem(item: JsonObject): boolean {
 
 export function updateContextUsageFromTokenUsage(chatJid: string, tokenUsage: unknown): CodexContextUsage | null {
   const usage = tokenUsage && typeof tokenUsage === "object" ? normalizeContextUsage(tokenUsage as JsonObject) : null;
-  if (usage) contextUsageByChat.set(chatJid, usage);
+  if (usage) setContextUsageForChat(chatJid, usage);
   return usage;
 }

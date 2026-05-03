@@ -8,7 +8,7 @@ import type {
   PiclawBridgeSession,
 } from "./types.js";
 
-type ActiveCodexTurn = { threadId: string; turnId: string };
+export type ActiveCodexTurn = { threadId: string; turnId: string };
 
 export interface CodexChatState {
   thread: CodexThreadState | null;
@@ -22,15 +22,15 @@ export interface CodexChatState {
   toolAbortControllersByThread: Map<string, AbortController>;
 }
 
+let client: CodexAppServerClientLike | null = null;
+let providerUsageCache: { expiresAt: number; value: CodexProviderUsageSnapshot | null } | null = null;
+let providerUsageInFlight: Promise<CodexProviderUsageSnapshot | null> | null = null;
+let modelOptionsCache: CodexModelOption[] | null = null;
+let modelOptionsCacheAt = 0;
+let testClientFactory: (() => CodexAppServerClientLike) | null = null;
+
 const chatStateByChat = new Map<string, CodexChatState>();
 const chatByThreadIndex = new Map<string, string>();
-
-export let client: CodexAppServerClientLike | null = null;
-export let providerUsageCache: { expiresAt: number; value: CodexProviderUsageSnapshot | null } | null = null;
-export let providerUsageInFlight: Promise<CodexProviderUsageSnapshot | null> | null = null;
-export let modelOptionsCache: CodexModelOption[] | null = null;
-export let modelOptionsCacheAt = 0;
-export let testClientFactory: (() => CodexAppServerClientLike) | null = null;
 
 function createCodexChatState(): CodexChatState {
   return {
@@ -55,12 +55,8 @@ export function getCodexChatState(chatJid: string): CodexChatState {
   return state;
 }
 
-function chatForThread(threadId: string): string | null {
-  return chatByThreadIndex.get(threadId) ?? null;
-}
-
 function stateForThread(threadId: string): CodexChatState | null {
-  const chatJid = chatForThread(threadId);
+  const chatJid = chatByThreadIndex.get(threadId);
   if (chatJid) return chatStateByChat.get(chatJid) ?? null;
   for (const state of chatStateByChat.values()) {
     if (
@@ -72,247 +68,166 @@ function stateForThread(threadId: string): CodexChatState | null {
   return null;
 }
 
-function indexThread(chatJid: string, threadId: string): void {
-  chatByThreadIndex.set(threadId, chatJid);
+export function getThreadForChat(chatJid: string): CodexThreadState | null {
+  return chatStateByChat.get(chatJid)?.thread ?? null;
 }
 
-function unindexThread(threadId: string): void {
-  chatByThreadIndex.delete(threadId);
+export function hasThreadForChat(chatJid: string): boolean {
+  return Boolean(chatStateByChat.get(chatJid)?.thread);
 }
 
-export const threadsByChat: {
-  get(chatJid: string): CodexThreadState | undefined;
-  set(chatJid: string, thread: CodexThreadState): void;
-  has(chatJid: string): boolean;
-  delete(chatJid: string): boolean;
-  clear(): void;
-} = {
-  get(chatJid: string): CodexThreadState | undefined {
-    return chatStateByChat.get(chatJid)?.thread ?? undefined;
-  },
-  set(chatJid: string, thread: CodexThreadState): void {
-    const state = getCodexChatState(chatJid);
-    if (state.thread?.threadId && state.thread.threadId !== thread.threadId) unindexThread(state.thread.threadId);
-    state.thread = thread;
-    indexThread(chatJid, thread.threadId);
-  },
-  has(chatJid: string): boolean {
-    return Boolean(chatStateByChat.get(chatJid)?.thread);
-  },
-  delete(chatJid: string): boolean {
-    const state = chatStateByChat.get(chatJid);
-    if (!state?.thread) return false;
-    unindexThread(state.thread.threadId);
-    state.thread = null;
-    return true;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.thread = null;
-    chatByThreadIndex.clear();
-  },
-};
+export function setThreadForChat(chatJid: string, thread: CodexThreadState): void {
+  const state = getCodexChatState(chatJid);
+  if (state.thread?.threadId && state.thread.threadId !== thread.threadId) chatByThreadIndex.delete(state.thread.threadId);
+  state.thread = thread;
+  chatByThreadIndex.set(thread.threadId, chatJid);
+}
 
-export const chatByThread: {
-  get(threadId: string): string | undefined;
-  set(threadId: string, chatJid: string): void;
-  delete(threadId: string): boolean;
-  clear(): void;
-} = {
-  get(threadId: string): string | undefined {
-    return chatByThreadIndex.get(threadId);
-  },
-  set(threadId: string, chatJid: string): void {
-    indexThread(chatJid, threadId);
-  },
-  delete(threadId: string): boolean {
-    const existed = chatByThreadIndex.has(threadId);
-    unindexThread(threadId);
-    return existed;
-  },
-  clear(): void {
-    chatByThreadIndex.clear();
-  },
-};
+export function deleteThreadForChat(chatJid: string): boolean {
+  const state = chatStateByChat.get(chatJid);
+  if (!state?.thread) return false;
+  chatByThreadIndex.delete(state.thread.threadId);
+  state.thread = null;
+  return true;
+}
 
-export const contextUsageByChat: {
-  get(chatJid: string): CodexContextUsage | undefined;
-  set(chatJid: string, usage: CodexContextUsage): void;
-  delete(chatJid: string): boolean;
-  clear(): void;
-} = {
-  get(chatJid: string): CodexContextUsage | undefined {
-    return chatStateByChat.get(chatJid)?.contextUsage ?? undefined;
-  },
-  set(chatJid: string, usage: CodexContextUsage): void {
-    getCodexChatState(chatJid).contextUsage = usage;
-  },
-  delete(chatJid: string): boolean {
-    const state = chatStateByChat.get(chatJid);
-    if (!state?.contextUsage) return false;
-    state.contextUsage = null;
-    return true;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.contextUsage = null;
-  },
-};
+export function getChatForThread(threadId: string): string | null {
+  return chatByThreadIndex.get(threadId) ?? null;
+}
 
-export const activeTurnByChat: {
-  get(chatJid: string): ActiveCodexTurn | undefined;
-  set(chatJid: string, turn: ActiveCodexTurn): void;
-  delete(chatJid: string): boolean;
-  clear(): void;
-} = {
-  get(chatJid: string): ActiveCodexTurn | undefined {
-    return chatStateByChat.get(chatJid)?.activeTurn ?? undefined;
-  },
-  set(chatJid: string, turn: ActiveCodexTurn): void {
-    getCodexChatState(chatJid).activeTurn = turn;
-  },
-  delete(chatJid: string): boolean {
-    const state = chatStateByChat.get(chatJid);
-    if (!state?.activeTurn) return false;
-    state.activeTurn = null;
-    return true;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.activeTurn = null;
-  },
-};
+export function getContextUsageForChat(chatJid: string): CodexContextUsage | null {
+  return chatStateByChat.get(chatJid)?.contextUsage ?? null;
+}
 
-export const modelByChat: {
-  get(chatJid: string): string | null | undefined;
-  set(chatJid: string, model: string | null): void;
-  has(chatJid: string): boolean;
-  clear(): void;
-} = {
-  get(chatJid: string): string | null | undefined {
-    return chatStateByChat.get(chatJid)?.model;
-  },
-  set(chatJid: string, model: string | null): void {
-    getCodexChatState(chatJid).model = model;
-  },
-  has(chatJid: string): boolean {
-    return chatStateByChat.has(chatJid) && chatStateByChat.get(chatJid)!.model !== undefined;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.model = undefined;
-  },
-};
+export function setContextUsageForChat(chatJid: string, usage: CodexContextUsage): void {
+  getCodexChatState(chatJid).contextUsage = usage;
+}
 
-export const thinkingByChat: {
-  get(chatJid: string): CodexThinkingLevel | undefined;
-  set(chatJid: string, thinking: CodexThinkingLevel): void;
-  clear(): void;
-} = {
-  get(chatJid: string): CodexThinkingLevel | undefined {
-    return chatStateByChat.get(chatJid)?.thinking;
-  },
-  set(chatJid: string, thinking: CodexThinkingLevel): void {
-    getCodexChatState(chatJid).thinking = thinking;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.thinking = undefined;
-  },
-};
+export function clearContextUsageForChat(chatJid: string): boolean {
+  const state = chatStateByChat.get(chatJid);
+  if (!state?.contextUsage) return false;
+  state.contextUsage = null;
+  return true;
+}
 
-export const fastByChat: {
-  get(chatJid: string): boolean | undefined;
-  set(chatJid: string, fast: boolean): void;
-  has(chatJid: string): boolean;
-  clear(): void;
-} = {
-  get(chatJid: string): boolean | undefined {
-    return chatStateByChat.get(chatJid)?.fast;
-  },
-  set(chatJid: string, fast: boolean): void {
-    getCodexChatState(chatJid).fast = fast;
-  },
-  has(chatJid: string): boolean {
-    return chatStateByChat.has(chatJid) && chatStateByChat.get(chatJid)!.fast !== undefined;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.fast = undefined;
-  },
-};
+export function getActiveTurnForChat(chatJid: string): ActiveCodexTurn | null {
+  return chatStateByChat.get(chatJid)?.activeTurn ?? null;
+}
 
-export const untrustedExternalContentByThread: {
-  get(threadId: string): boolean | undefined;
-  set(threadId: string, value: boolean): void;
-  delete(threadId: string): boolean;
-  clear(): void;
-} = {
-  get(threadId: string): boolean | undefined {
-    return stateForThread(threadId)?.untrustedThreadIds.has(threadId) || undefined;
-  },
-  set(threadId: string, value: boolean): void {
-    const state = stateForThread(threadId);
-    if (state && value) state.untrustedThreadIds.add(threadId);
-    if (state && !value) state.untrustedThreadIds.delete(threadId);
-  },
-  delete(threadId: string): boolean {
-    const state = stateForThread(threadId);
-    return state?.untrustedThreadIds.delete(threadId) ?? false;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.untrustedThreadIds.clear();
-  },
-};
+export function setActiveTurnForChat(chatJid: string, turn: ActiveCodexTurn): void {
+  getCodexChatState(chatJid).activeTurn = turn;
+}
 
-export const bridgeSessionByThread: {
-  get(threadId: string): PiclawBridgeSession | undefined;
-  set(threadId: string, session: PiclawBridgeSession): void;
-  delete(threadId: string): boolean;
-  clear(): void;
-} = {
-  get(threadId: string): PiclawBridgeSession | undefined {
-    return stateForThread(threadId)?.bridgeSessionsByThread.get(threadId);
-  },
-  set(threadId: string, session: PiclawBridgeSession): void {
-    stateForThread(threadId)?.bridgeSessionsByThread.set(threadId, session);
-  },
-  delete(threadId: string): boolean {
-    return stateForThread(threadId)?.bridgeSessionsByThread.delete(threadId) ?? false;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.bridgeSessionsByThread.clear();
-  },
-};
+export function clearActiveTurnForChat(chatJid: string): boolean {
+  const state = chatStateByChat.get(chatJid);
+  if (!state?.activeTurn) return false;
+  state.activeTurn = null;
+  return true;
+}
 
-export const toolAbortControllersByThread: {
-  get(threadId: string): AbortController | undefined;
-  set(threadId: string, controller: AbortController): void;
-  delete(threadId: string): boolean;
-  clear(): void;
-} = {
-  get(threadId: string): AbortController | undefined {
-    return stateForThread(threadId)?.toolAbortControllersByThread.get(threadId);
-  },
-  set(threadId: string, controller: AbortController): void {
-    stateForThread(threadId)?.toolAbortControllersByThread.set(threadId, controller);
-  },
-  delete(threadId: string): boolean {
-    return stateForThread(threadId)?.toolAbortControllersByThread.delete(threadId) ?? false;
-  },
-  clear(): void {
-    for (const state of chatStateByChat.values()) state.toolAbortControllersByThread.clear();
-  },
-};
+export function isCodexModelSetForChat(chatJid: string): boolean {
+  return chatStateByChat.has(chatJid) && chatStateByChat.get(chatJid)!.model !== undefined;
+}
+
+export function getCodexModelForChat(chatJid: string): string | null | undefined {
+  return chatStateByChat.get(chatJid)?.model;
+}
+
+export function setCodexModelForChat(chatJid: string, model: string | null): void {
+  getCodexChatState(chatJid).model = model;
+}
+
+export function getCodexThinkingForChat(chatJid: string): CodexThinkingLevel | undefined {
+  return chatStateByChat.get(chatJid)?.thinking;
+}
+
+export function setCodexThinkingForChat(chatJid: string, thinking: CodexThinkingLevel): void {
+  getCodexChatState(chatJid).thinking = thinking;
+}
+
+export function isCodexFastModeSetForChat(chatJid: string): boolean {
+  return chatStateByChat.has(chatJid) && chatStateByChat.get(chatJid)!.fast !== undefined;
+}
+
+export function getCodexFastModeForChat(chatJid: string): boolean | undefined {
+  return chatStateByChat.get(chatJid)?.fast;
+}
+
+export function setCodexFastModeForChat(chatJid: string, fast: boolean): void {
+  getCodexChatState(chatJid).fast = fast;
+}
+
+export function isThreadUntrusted(threadId: string | null): boolean {
+  return Boolean(threadId && stateForThread(threadId)?.untrustedThreadIds.has(threadId));
+}
+
+export function markThreadUntrusted(threadId: string | null): void {
+  const state = threadId ? stateForThread(threadId) : null;
+  if (threadId && state) state.untrustedThreadIds.add(threadId);
+}
+
+export function clearThreadUntrusted(threadId: string): boolean {
+  return stateForThread(threadId)?.untrustedThreadIds.delete(threadId) ?? false;
+}
+
+export function getBridgeSessionForThread(threadId: string): PiclawBridgeSession | undefined {
+  return stateForThread(threadId)?.bridgeSessionsByThread.get(threadId);
+}
+
+export function setBridgeSessionForThread(threadId: string, session: PiclawBridgeSession): void {
+  stateForThread(threadId)?.bridgeSessionsByThread.set(threadId, session);
+}
+
+export function deleteBridgeSessionForThread(threadId: string): boolean {
+  return stateForThread(threadId)?.bridgeSessionsByThread.delete(threadId) ?? false;
+}
+
+export function getToolAbortControllerForThread(threadId: string): AbortController | undefined {
+  return stateForThread(threadId)?.toolAbortControllersByThread.get(threadId);
+}
+
+export function setToolAbortControllerForThread(threadId: string, controller: AbortController): void {
+  stateForThread(threadId)?.toolAbortControllersByThread.set(threadId, controller);
+}
+
+export function deleteToolAbortControllerForThread(threadId: string): boolean {
+  return stateForThread(threadId)?.toolAbortControllersByThread.delete(threadId) ?? false;
+}
+
+export function getClientState(): CodexAppServerClientLike | null {
+  return client;
+}
 
 export function setClient(next: CodexAppServerClientLike | null): void {
   client = next;
+}
+
+export function getTestClientFactory(): (() => CodexAppServerClientLike) | null {
+  return testClientFactory;
 }
 
 export function setTestClientFactory(factory: (() => CodexAppServerClientLike) | null): void {
   testClientFactory = factory;
 }
 
+export function getProviderUsageCache(): { expiresAt: number; value: CodexProviderUsageSnapshot | null } | null {
+  return providerUsageCache;
+}
+
 export function setProviderUsageCache(next: { expiresAt: number; value: CodexProviderUsageSnapshot | null } | null): void {
   providerUsageCache = next;
 }
 
+export function getProviderUsageInFlight(): Promise<CodexProviderUsageSnapshot | null> | null {
+  return providerUsageInFlight;
+}
+
 export function setProviderUsageInFlight(next: Promise<CodexProviderUsageSnapshot | null> | null): void {
   providerUsageInFlight = next;
+}
+
+export function getModelOptionsCache(): { value: CodexModelOption[] | null; at: number } {
+  return { value: modelOptionsCache, at: modelOptionsCacheAt };
 }
 
 export function setModelOptionsCache(next: CodexModelOption[] | null, at = Date.now()): void {

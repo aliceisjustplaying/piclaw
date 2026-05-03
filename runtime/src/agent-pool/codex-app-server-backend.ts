@@ -33,6 +33,7 @@ export {
   setCodexAppServerFastMode,
   setCodexAppServerModel,
   setCodexAppServerThinkingLevel,
+  setResolvedCodexAppServerModel,
   warmCodexAppServerProviderUsage,
 } from "./codex-app-server/models.js";
 export {

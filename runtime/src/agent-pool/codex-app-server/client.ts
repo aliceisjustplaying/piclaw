@@ -6,11 +6,11 @@ import { registerPreShutdownHook } from "../../runtime/shutdown-registry.js";
 import { handleDynamicToolCall } from "./bridge-tools.js";
 import { resolveApprovalResponse, isUntrustedThread } from "./notifications.js";
 import {
-  client,
+  getClientState,
+  getTestClientFactory,
   resetCodexAppServerState,
   setClient,
   setTestClientFactory,
-  testClientFactory,
 } from "./state.js";
 import { log } from "./telemetry.js";
 import type { CodexAppServerClientLike, JsonObject, JsonRpcId, NotificationHandler, PendingRequest } from "./types.js";
@@ -55,7 +55,7 @@ class CodexAppServerClient implements CodexAppServerClientLike {
     this.child.on("error", (error) => {
       this.failAll(error);
       resetCodexAppServerState();
-      if (client === this) setClient(null);
+      if (getClientState() === this) setClient(null);
       log.warn("Codex app-server process error", { operation: "codex_app_server.process_error", error });
     });
     this.child.on("exit", (code, signal) => {
@@ -67,7 +67,7 @@ class CodexAppServerClient implements CodexAppServerClientLike {
         this.stopKillTimer = null;
       }
       resetCodexAppServerState();
-      if (client === this) setClient(null);
+      if (getClientState() === this) setClient(null);
       log.warn("Codex app-server exited", { operation: "codex_app_server.exit", code, signal });
     });
 
@@ -194,13 +194,14 @@ class CodexAppServerClient implements CodexAppServerClientLike {
 }
 
 export async function getClient(): Promise<CodexAppServerClientLike> {
-  if (!client) setClient(testClientFactory ? testClientFactory() : new CodexAppServerClient());
-  const current = client!;
+  const factory = getTestClientFactory();
+  if (!getClientState()) setClient(factory ? factory() : new CodexAppServerClient());
+  const current = getClientState()!;
   try {
     await current.ready();
     return current;
   } catch (error) {
-    if (client === current) setClient(null);
+    if (getClientState() === current) setClient(null);
     current.stop();
     throw error;
   }
@@ -212,7 +213,7 @@ export function setCodexAppServerClientFactoryForTests(factory: (() => CodexAppS
 }
 
 export function stopCodexAppServerBackend(): void {
-  client?.stop();
+  getClientState()?.stop();
   setClient(null);
   resetCodexAppServerState();
 }
