@@ -310,6 +310,11 @@ EOF`;
     expect(cmd).toEqual({ type: "session_rotate", instructions: "keep active work only", raw: "/session-rotate keep active work only" });
   });
 
+  test("/rollup", () => {
+    const cmd = parseControlCommand("/rollup");
+    expect(cmd).toEqual({ type: "rollup", raw: "/rollup" });
+  });
+
   test("/fork with entryId", () => {
     const cmd = parseControlCommand("/fork abc123");
     expect(cmd).toEqual({ type: "fork", entryId: "abc123", raw: "/fork abc123" });

@@ -410,7 +410,7 @@ function getLatestSessionFile(sessionDir: string): string | null {
 async function sanitizePersistedSessionFileBeforeLoad(sessionDir: string): Promise<void> {
   const latestFile = getLatestSessionFile(sessionDir);
   if (!latestFile) return;
-  let fileSize = 0;
+  let fileSize: number;
   try {
     fileSize = statSync(latestFile).size;
   } catch {
@@ -425,7 +425,6 @@ async function sanitizePersistedSessionFileBeforeLoad(sessionDir: string): Promi
   });
   const writer = createWriteStream(tempPath, { encoding: "utf8" });
   let changedEntries = 0;
-  let writtenBytes = 0;
 
   try {
     for await (const line of reader) {
@@ -446,7 +445,6 @@ async function sanitizePersistedSessionFileBeforeLoad(sessionDir: string): Promi
         });
       }
       writer.write(`${output}\n`);
-      writtenBytes += Buffer.byteLength(output) + 1;
     }
     writer.end();
     await finished(writer);
@@ -462,7 +460,7 @@ async function sanitizePersistedSessionFileBeforeLoad(sessionDir: string): Promi
     });
     writer.destroy();
     rmSync(tempPath, { force: true });
-    throw new Error(`Failed to sanitize persisted session file before load: ${latestFile}`);
+    throw new Error(`Failed to sanitize persisted session file before load: ${latestFile}`, { cause: error });
   }
 }
 

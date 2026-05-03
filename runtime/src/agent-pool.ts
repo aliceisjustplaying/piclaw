@@ -34,6 +34,7 @@ import {
 
 import { type AgentControlCommand, type AgentControlResult } from "./agent-control/index.js";
 import { SESSIONS_DIR, WORKSPACE_DIR, getAgentBackendConfig, type AgentBackend } from "./core/config.js";
+import { getChatChannel, getChatJid } from "./core/chat-context.js";
 import { createTrackedBashOperations } from "./tools/tracked-bash.js";
 import {
   type AgentOutput,
@@ -58,6 +59,7 @@ import { type AvailableModelsResult } from "./agent-pool/runtime-facade.js";
 import type { ContextUsageSnapshot } from "./agent-pool/context-usage.js";
 import { createAgentPoolServices, type AgentPoolServices } from "./agent-pool/service-factory.js";
 import { type AgentSessionManagerInstrumentationSnapshot, type PoolEntry } from "./agent-pool/session-manager.js";
+import type { ActiveChatAgent } from "./agent-pool/branch-manager.js";
 import { loadAgentPoolConfig } from "./agent-pool/config.js";
 import { applyPendingBackendHandoff, captureBackendHandoffSummary } from "./agent-pool/backend-handoff-control.js";
 import {
@@ -74,6 +76,8 @@ import {
   markBackendHandoffUsed,
 } from "./agent-pool/backend-state.js";
 import {
+  type ChatBranchRecord,
+  type MergeChatBranchIntoParentResult,
   type SshConfig,
   type SshConfigClearResult,
   type SshConfigSetResult,
@@ -109,6 +113,8 @@ export interface AgentPoolRecoveryInstrumentationSnapshot {
 }
 
 interface RuntimeInteropBridge {
+  getChatJid?: (defaultValue?: string) => string;
+  getChatChannel?: (defaultValue?: string) => string;
   getExtensionKvStore?: () => {
     get<T = unknown>(extensionId: string, key: string, scope?: string, scopeKey?: string): T | null;
     set(extensionId: string, key: string, value: unknown, scope?: string, scopeKey?: string): void;
@@ -220,6 +226,8 @@ export class AgentPool {
       clear: extensionKvClear,
     });
     const runtimeInterop = ((globalThis as { __piclawRuntimeInterop?: RuntimeInteropBridge }).__piclawRuntimeInterop ||= {});
+    runtimeInterop.getChatJid = getChatJid;
+    runtimeInterop.getChatChannel = getChatChannel;
     runtimeInterop.getExtensionKvStore = () => ({
       get: extensionKvGet,
       set: extensionKvSet,
@@ -297,6 +305,27 @@ export class AgentPool {
   }
 
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {
+    if (command.type === "rollup") {
+      try {
+        const result = await this.mergeChatBranchIntoParent(chatJid);
+        const counts = result.counts;
+        return {
+          status: "success",
+          message: [
+            `Rolled up ${result.source.chat_jid} into parent ${result.parent.chat_jid}.`,
+            `Moved: ${counts.messages} message(s), ${counts.token_usage} token-usage row(s), ${counts.scheduled_tasks} scheduled task(s).`,
+            "Note: Pi JSONL session files were not merged.",
+          ].join("\n"),
+          rolled_up_to: result.parent.chat_jid,
+          source_chat_jid: result.source.chat_jid,
+        };
+      } catch (error) {
+        return {
+          status: "error",
+          message: error instanceof Error ? error.message : String(error || "Failed to roll up branch."),
+        };
+      }
+    }
     if (command.type === "proactive") return withAgentChatRunLock(chatJid, () => applyProactiveControlCommand(chatJid, command));
     const nativeResult = await applyNativeBackendControlCommand(chatJid, command, {
       getContextUsageForChat: (nextChatJid) => this.getContextUsageForChat(nextChatJid),
@@ -380,6 +409,90 @@ export class AgentPool {
 
   async disposeChatSession(chatJid: string): Promise<void> {
     await this.sessionManager.recreate(chatJid);
+  }
+
+  hasProviderModels(provider: string): boolean {
+    return this.runtimeFacade.hasProviderModels(provider);
+  }
+
+  registerModelProvider(
+    providerName: string,
+    config: Parameters<ModelRegistry["registerProvider"]>[1]
+  ): void {
+    this.runtimeFacade.registerModelProvider(providerName, config);
+  }
+
+  resolveModelInput(input: string): { model?: string; error?: string } {
+    return this.runtimeFacade.resolveModelInput(input);
+  }
+
+  isStreaming(chatJid: string): boolean {
+    return this.runtimeFacade.isStreaming(chatJid);
+  }
+
+  isActive(chatJid: string): boolean {
+    return this.runtimeFacade.isActive(chatJid);
+  }
+
+  private ensureBranchRegistration(chatJid: string, session?: AgentSession | null): ChatBranchRecord {
+    return this.branchManager.ensureBranchRegistration(chatJid, session);
+  }
+
+  async renameChatBranch(
+    chatJid: string,
+    options: { agentName?: string | null } = {},
+  ): Promise<ChatBranchRecord> {
+    return this.branchManager.renameChatBranch(chatJid, options);
+  }
+
+  async pruneChatBranch(chatJid: string): Promise<ChatBranchRecord> {
+    return this.branchManager.pruneChatBranch(chatJid);
+  }
+
+  async mergeChatBranchIntoParent(chatJid: string): Promise<MergeChatBranchIntoParentResult> {
+    return this.branchManager.mergeChatBranchIntoParent(chatJid);
+  }
+
+  async renameChatJid(
+    oldJid: string,
+    newJid: string,
+  ): Promise<{ oldJid: string; newJid: string; branch: ChatBranchRecord }> {
+    return this.branchManager.renameChatJid(oldJid, newJid);
+  }
+
+  async restoreChatBranch(
+    chatJid: string,
+    options: { agentName?: string | null } = {},
+  ): Promise<ChatBranchRecord> {
+    return this.branchManager.restoreChatBranch(chatJid, options);
+  }
+
+  async permanentPurgeChatBranch(
+    chatJid: string,
+  ): Promise<{ branch: ChatBranchRecord; removedSessionArtifacts: string[] }> {
+    return this.branchManager.permanentPurgeChatBranch(chatJid);
+  }
+
+  async createForkedChatBranch(
+    sourceChatJid: string,
+    options: { agentName?: string | null } = {},
+  ): Promise<ChatBranchRecord> {
+    return this.branchManager.createForkedChatBranch(sourceChatJid, options);
+  }
+
+  async createRootChatSession(agentName: string): Promise<ChatBranchRecord> {
+    return this.branchManager.createRootChatSession(agentName);
+  }
+
+  listActiveChats(): ActiveChatAgent[] {
+    return this.branchManager.listActiveChats();
+  }
+
+  listKnownChats(
+    rootChatJid?: string | null,
+    options?: { includeArchived?: boolean }
+  ): ActiveChatAgent[] {
+    return this.branchManager.listKnownChats(rootChatJid, options);
   }
 
   getMemoryInstrumentationSnapshot(): AgentPoolMemoryInstrumentationSnapshot {

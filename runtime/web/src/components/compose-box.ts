@@ -57,6 +57,7 @@ export const SLASH_COMMANDS = [
   { name: "/new-session", description: "Start a new session" },
   { name: "/switch-session", description: "Switch to a session file" },
   { name: "/session-rotate", description: "Rotate the current persisted session into an archived file" },
+  { name: "/rollup", description: "Merge the current branch chat back into its parent chat" },
   { name: "/clone", description: "Duplicate the current active branch into a new session" },
   { name: "/fork", description: "Fork from a previous message" },
   { name: "/forks", description: "List forkable messages" },
@@ -527,6 +528,47 @@ export function resolveComposeModelPickerState(activeModel, agentModelsPayload) 
     };
 }
 
+function normalizeRoutedModelLabel(value) {
+    const label = typeof value === 'string' ? value.trim() : '';
+    return label || null;
+}
+
+function normalizeComparableModelLabel(value) {
+    return normalizeRoutedModelLabel(value)?.toLowerCase() ?? null;
+}
+
+function areModelLabelsCompatible(left, right) {
+    const a = normalizeComparableModelLabel(left);
+    const b = normalizeComparableModelLabel(right);
+    if (!a || !b) return false;
+    return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+}
+
+export function resolveComposeRoutedModelStatus(activeModel, agentModelsPayload) {
+    const payload = agentModelsPayload && typeof agentModelsPayload === 'object' ? agentModelsPayload : {};
+    const responseModel = normalizeRoutedModelLabel(
+        payload.latest_response_model ?? payload.response_model ?? payload.responseModel ?? payload.routed_model ?? payload.routedModel
+    );
+    if (!responseModel) return null;
+
+    const requestedModel = normalizeRoutedModelLabel(
+        payload.latest_requested_model ?? payload.requested_model ?? payload.requestedModel ?? payload.current ?? payload.model ?? activeModel
+    );
+    if (requestedModel && areModelLabelsCompatible(responseModel, requestedModel)) return null;
+
+    const currentModel = normalizeRoutedModelLabel(activeModel ?? payload.current ?? payload.model);
+    if (currentModel && requestedModel && !areModelLabelsCompatible(currentModel, requestedModel)) return null;
+
+    return {
+        label: `Routed: ${responseModel}`,
+        title: requestedModel
+            ? `Requested model: ${requestedModel} • Routed model: ${responseModel}`
+            : `Routed model: ${responseModel}`,
+        requestedModel,
+        responseModel,
+    };
+}
+
 function unwrapQueuedTranscriptContent(value) {
     if (!value) return value;
     const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -746,6 +788,12 @@ export function returnQueuedFollowupToEditor(options) {
         const textarea = textareaRef?.current;
         if (!textarea) return;
         textarea.value = text;
+        // Keep the controlled textarea state in sync even if a render happens
+        // before setContent has flushed. Some tests provide a lightweight
+        // textarea stub, so only dispatch when a DOM-like surface is present.
+        if (typeof textarea.dispatchEvent === 'function') {
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
         resizeTextarea();
         const len = text.length;
         textarea.selectionStart = len;
@@ -783,7 +831,7 @@ export function QueuedFollowupStack({
                 const canMoveDown = index < items.length - 1;
                 const canReturnToEditor = true;
                 return html`
-                    <div class="compose-queue-stack-item" role="listitem">
+                    <div class="compose-queue-stack-item" data-testid="queue-item" role="listitem">
                         <div class="compose-queue-stack-content" title=${rowText}>
                             ${parsed.text.trim() && html`<div class="compose-queue-stack-text">${parsed.text}</div>`}
                             ${(parsed.messageRefs.length > 0 || parsed.fileRefs.length > 0 || parsed.attachmentRefs.length > 0) && html`
@@ -824,6 +872,7 @@ export function QueuedFollowupStack({
                             ${items.length > 1 && html`
                                 <button
                                     class="compose-queue-stack-move-btn"
+                                    data-action="move-up"
                                     type="button"
                                     title="Move up"
                                     aria-label="Move up in queue"
@@ -836,6 +885,7 @@ export function QueuedFollowupStack({
                                 </button>
                                 <button
                                     class="compose-queue-stack-move-btn"
+                                    data-action="move-down"
                                     type="button"
                                     title="Move down"
                                     aria-label="Move down in queue"
@@ -849,7 +899,8 @@ export function QueuedFollowupStack({
                             `}
                             ${canReturnToEditor && html`
                                 <button
-                                    class="compose-queue-stack-move-btn"
+                                    class="compose-queue-stack-move-btn queue-edit"
+                                    data-action="edit"
                                     type="button"
                                     title="Edit in compose"
                                     aria-label="Return queued message to editor"
@@ -875,7 +926,8 @@ export function QueuedFollowupStack({
                                 <span>Steer</span>
                             </button>
                             <button
-                                class="compose-queue-stack-close-btn"
+                                class="compose-queue-stack-close-btn queue-remove"
+                                data-action="remove"
                                 type="button"
                                 title="Cancel queued message"
                                 aria-label="Cancel queued message"
@@ -944,6 +996,7 @@ export function ComposeBox({
     onRenameSession,
     isRenameSessionInProgress = false,
     onCreateSession,
+    onCreateRootSession,
     onDeleteSession,
     onPurgeArchivedSession,
     onRestoreSession,
@@ -973,6 +1026,7 @@ export function ComposeBox({
     const [modelPopupIndex, setModelPopupIndex] = useState(0);
     const [sessionPopupIndex, setSessionPopupIndex] = useState(0);
     const [loadingModels, setLoadingModels] = useState(false);
+    const [rollingUpSession, setRollingUpSession] = useState(false);
     const [footerWidth, setFooterWidth] = useState(0);
     const [submitError, setSubmitError] = useState(null);
     const [submitNotice, setSubmitNotice] = useState(null);
@@ -1140,6 +1194,21 @@ export function ComposeBox({
         && currentSessionAgent.chat_jid === (currentSessionAgent.root_chat_jid || currentSessionAgent.chat_jid)
     );
     const isCurrentDefaultRootSession = Boolean(isCurrentRootSession && (currentSessionAgent?.chat_jid || currentChatJid) === 'web:default');
+    const currentRollupParent = (() => {
+        const parentBranchId = typeof currentSessionAgent?.parent_branch_id === 'string' ? currentSessionAgent.parent_branch_id.trim() : '';
+        const branchId = typeof currentSessionAgent?.branch_id === 'string' ? currentSessionAgent.branch_id.trim() : '';
+        if (!currentSessionAgent || !parentBranchId || !branchId || currentSessionAgent.archived_at) return null;
+        const children = (Array.isArray(activeChatAgents) ? activeChatAgents : []).filter((chat) => {
+            const candidateParent = typeof chat?.parent_branch_id === 'string' ? chat.parent_branch_id.trim() : '';
+            return candidateParent && candidateParent === branchId;
+        });
+        if (children.length > 0) return null;
+        const parent = (Array.isArray(activeChatAgents) ? activeChatAgents : []).find((chat) => {
+            const candidateId = typeof chat?.branch_id === 'string' ? chat.branch_id.trim() : '';
+            return candidateId && candidateId === parentBranchId && !chat?.archived_at;
+        });
+        return parent || null;
+    })();
     const switchableChatAgents = useMemo(() => resolveSessionPopupChats(activeChatAgents, currentChatJid), [activeChatAgents, currentChatJid]);
     const hasSwitchableChatAgents = switchableChatAgents.length > 0;
     const canSwitchSession = hasSwitchableChatAgents && typeof onSwitchChat === 'function';
@@ -1147,9 +1216,11 @@ export function ComposeBox({
     const renameInProgress = Boolean(isRenameSessionInProgress || renameSessionInProgressRef.current);
     const canRenameSession = !searchMode && typeof onRenameSession === 'function' && !renameInProgress;
     const canCreateSession = !searchMode && typeof onCreateSession === 'function';
+    const canCreateRootSession = !searchMode && typeof onCreateRootSession === 'function';
+    const canRollupSession = !searchMode && !isAgentActive && !rollingUpSession && Boolean(currentRollupParent?.chat_jid);
     const canDeleteSession = !searchMode && typeof onDeleteSession === 'function' && !isCurrentDefaultRootSession;
     const canPurgeArchivedSession = !searchMode && typeof onPurgeArchivedSession === 'function';
-    const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canDeleteSession || canPurgeArchivedSession);
+    const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canCreateRootSession || canRollupSession || canDeleteSession || canPurgeArchivedSession);
     const modelPickerState = resolveComposeModelPickerState(activeModel, agentModelsPayload);
     const showModelPickerHint = modelPickerState.showPicker;
     const modelHintLabel = modelPickerState.label;
@@ -1157,15 +1228,22 @@ export function ComposeBox({
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelThinkingLabel = modelHintSuffix.trim() ? `${thinkingLevel}` : '';
     const modelFastLabel = fastMode === true ? 'Fast on' : null;
-    const modelUsageLabel = formatCompactModelUsageLabel(modelUsage);
+    const routedModelStatus = resolveComposeRoutedModelStatus(activeModel, agentModelsPayload);
+    const compactModelUsageLabel = formatCompactModelUsageLabel(modelUsage);
+    const modelUsageLabel = compactModelUsageLabel || (typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '');
     const modelExtraUsageResetLabel = typeof modelUsage?.extra_usage?.reset_description === 'string'
         ? modelUsage.extra_usage.reset_description.trim()
         : '';
-    const showFastIndicator = fastMode === true && Boolean(modelThinkingLabel);
-    const showModelUsageSeparator = Boolean((modelThinkingLabel || showFastIndicator) && modelUsageLabel);
-    const showModelUsageSection = Boolean(modelThinkingLabel || showFastIndicator || modelUsageLabel);
+    const modelUsageSectionLabel = [
+        modelThinkingLabel || null,
+        modelFastLabel || null,
+        routedModelStatus?.label || null,
+        modelUsageLabel || null,
+    ].filter(Boolean).join(' • ');
+    const showModelUsageSection = Boolean(modelUsageSectionLabel);
     const modelUsageTitleParts = [
         activeModel ? `Current model: ${modelHintLabel}${modelHintSuffix}` : null,
+        routedModelStatus?.title || null,
         modelUsage?.plan ? `Plan: ${modelUsage.plan}` : null,
         modelUsageLabel || null,
         modelFastLabel,
@@ -1185,6 +1263,7 @@ export function ComposeBox({
         const modelLabel = payload.model ?? payload.current;
         if (typeof onModelStateChange === 'function') {
             onModelStateChange({
+                ...payload,
                 model: modelLabel ?? null,
                 thinking_level: payload.thinking_level ?? null,
                 thinking_level_label: payload.thinking_level_label ?? null,
@@ -1367,7 +1446,19 @@ export function ComposeBox({
             });
         }
         if (canCreateSession) {
-            entries.push({ type: 'action', key: 'action:new', label: 'New session', action: 'new', disabled: false });
+            entries.push({ type: 'action', key: 'action:new', label: 'New branch', action: 'new', disabled: false });
+        }
+        if (canCreateRootSession) {
+            entries.push({ type: 'action', key: 'action:new-root', label: 'New root session…', action: 'new-root', disabled: false });
+        }
+        if (currentRollupParent?.chat_jid) {
+            entries.push({
+                type: 'action',
+                key: 'action:rollup',
+                label: 'Merge current w/ parent',
+                action: 'rollup',
+                disabled: !canRollupSession,
+            });
         }
         if (canRenameSession) {
             entries.push({ type: 'action', key: 'action:rename', label: 'Rename current session', action: 'rename', disabled: renameInProgress });
@@ -1376,7 +1467,7 @@ export function ComposeBox({
             entries.push({ type: 'action', key: 'action:delete', label: 'Delete current session', action: 'delete', disabled: false });
         }
         return entries;
-    }, [switchableChatAgents, canRestoreSession, canSwitchSession, canCreateSession, canRenameSession, canDeleteSession, renameInProgress]);
+    }, [switchableChatAgents, canRestoreSession, canSwitchSession, canCreateSession, canCreateRootSession, currentRollupParent, canRollupSession, canRenameSession, canDeleteSession, renameInProgress]);
 
     const handleRenameSession = async (event) => {
         if (event?.preventDefault) event.preventDefault();
@@ -1402,6 +1493,58 @@ export function ComposeBox({
             await onCreateSession();
         } catch (error) {
             console.warn('Failed to create session:', error);
+        }
+        requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+
+    const handleCreateRootSession = async () => {
+        if (typeof onCreateRootSession !== 'function') return;
+        setShowSessionPopup(false);
+        const rawName = typeof window !== 'undefined'
+            ? window.prompt('New root session handle (for example: ops)')
+            : '';
+        const rootName = String(rawName || '').trim();
+        if (!rootName) {
+            requestAnimationFrame(() => textareaRef.current?.focus());
+            return;
+        }
+        try {
+            await onCreateRootSession(rootName);
+        } catch (error) {
+            console.warn('Failed to create root session:', error);
+        }
+        requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+
+    const handleRollupSession = async () => {
+        const parentChatJid = typeof currentRollupParent?.chat_jid === 'string' ? currentRollupParent.chat_jid.trim() : '';
+        if (!parentChatJid || rollingUpSession || isAgentActive) return;
+        setShowSessionPopup(false);
+        setSubmitError(null);
+        setSubmitNotice(null);
+        setRollingUpSession(true);
+        try {
+            const response = await sendAgentMessage('default', '/rollup', null, [], null, currentChatJid);
+            onMessageResponse?.(response);
+            onPost?.(response);
+            const command = response?.command;
+            if (command?.status === 'error') {
+                const message = command?.message || 'Failed to merge current session with parent.';
+                setSubmitError(message);
+                onSubmitError?.(message);
+                return;
+            }
+            const rolledUpTo = typeof command?.rolled_up_to === 'string' && command.rolled_up_to.trim()
+                ? command.rolled_up_to.trim()
+                : parentChatJid;
+            onSwitchChat?.(rolledUpTo);
+        } catch (error) {
+            const message = error?.message || 'Failed to merge current session with parent.';
+            setSubmitError(message);
+            onSubmitError?.(message);
+            console.warn('Failed to merge session with parent:', error);
+        } finally {
+            setRollingUpSession(false);
         }
         requestAnimationFrame(() => textareaRef.current?.focus());
     };
@@ -1677,6 +1820,14 @@ export function ComposeBox({
         if (entry.type === 'action') {
             if (entry.action === 'new') {
                 void handleCreateSession();
+                return;
+            }
+            if (entry.action === 'new-root') {
+                void handleCreateRootSession();
+                return;
+            }
+            if (entry.action === 'rollup') {
+                void handleRollupSession();
                 return;
             }
             if (entry.action === 'rename') {
@@ -2532,7 +2683,7 @@ export function ComposeBox({
     }, [mentionAgents, currentChatJid, content, searchMode]);
 
     return html`
-        <div class="compose-box">
+        <div class="compose-box" data-testid="compose-box">
             ${speechUiVisible && html`
                 <div class=${`compose-inline-status compose-speech-status compose-speech-status-${speechUiState.kind}`} role="status" aria-live="polite">
                     <div class="compose-inline-status-row">
@@ -2646,6 +2797,7 @@ export function ComposeBox({
                     `}
                     <textarea
                         ref=${textareaRef}
+                        data-testid="compose-input"
                         placeholder=${searchMode ? "Search (Enter to run)..." : "Message (Enter to send, Shift+Enter for newline)..."}
                         value=${searchMode ? searchText : content}
                         onInput=${handleInput}
@@ -2733,7 +2885,7 @@ export function ComposeBox({
                         </div>
                     `}
                     ${showSessionPopup && !searchMode && html`
-                        <div class="compose-model-popup" ref=${sessionPopupRef} tabIndex="-1" onKeyDown=${handlePopupKeyboardEvent}>
+                        <div class="compose-model-popup" data-testid="session-popup" ref=${sessionPopupRef} tabIndex="-1" onKeyDown=${handlePopupKeyboardEvent}>
                             <div class="compose-model-popup-title">Manage sessions & agents</div>
                             <div class="compose-model-popup-menu" role="menu" aria-label="Sessions and agents">
                                 ${!hasSwitchableChatAgents && html`
@@ -2750,7 +2902,8 @@ export function ComposeBox({
                                             <button
                                                 type="button"
                                                 role="menuitem"
-                                                class=${`compose-model-popup-item${archived ? ' archived' : ''}${sessionPopupIndex === listIndex ? ' active' : ''}`}
+                                                class=${`compose-model-popup-item session-item${archived ? ' archived' : ''}${sessionPopupIndex === listIndex ? ' active' : ''}`}
+                                                data-testid="session-item"
                                                 onClick=${() => {
                                                     if (archived) {
                                                         void handleRestoreSession(chat.chat_jid);
@@ -2820,16 +2973,37 @@ export function ComposeBox({
                                     `;
                                 })}
                             </div>
-                            ${(canCreateSession || canRenameSession || canDeleteSession) && html`
+                            ${(canCreateSession || canCreateRootSession || canRenameSession || canDeleteSession) && html`
                                 <div class="compose-model-popup-actions">
                                     ${canCreateSession && html`
                                         <button
                                             type="button"
                                             class=${`compose-model-popup-btn primary${sessionPopupEntries.findIndex((entry) => entry.key === 'action:new') === sessionPopupIndex ? ' active' : ''}`}
                                             onClick=${() => { void handleCreateSession(); }}
-                                            title="Create a new agent/session branch from this chat"
+                                            title="Create a new branch from this chat"
                                         >
-                                            New
+                                            New branch
+                                        </button>
+                                    `}
+                                    ${canCreateRootSession && html`
+                                        <button
+                                            type="button"
+                                            class=${`compose-model-popup-btn${sessionPopupEntries.findIndex((entry) => entry.key === 'action:new-root') === sessionPopupIndex ? ' active' : ''}`}
+                                            onClick=${() => { void handleCreateRootSession(); }}
+                                            title="Create a clean root session such as web:ops"
+                                        >
+                                            New root…
+                                        </button>
+                                    `}
+                                    ${currentRollupParent?.chat_jid && html`
+                                        <button
+                                            type="button"
+                                            class=${`compose-model-popup-btn${sessionPopupEntries.findIndex((entry) => entry.key === 'action:rollup') === sessionPopupIndex ? ' active' : ''}`}
+                                            onClick=${() => { void handleRollupSession(); }}
+                                            title=${canRollupSession ? `Merge this branch into ${currentRollupParent.agent_name ? `@${currentRollupParent.agent_name}` : currentRollupParent.chat_jid}` : 'This branch cannot be merged while active or while it has children'}
+                                            disabled=${!canRollupSession}
+                                        >
+                                            Merge current w/ parent
                                         </button>
                                     `}
                                     ${canRenameSession && html`
@@ -2837,7 +3011,7 @@ export function ComposeBox({
                                             type="button"
                                             class=${`compose-model-popup-btn${sessionPopupEntries.findIndex((entry) => entry.key === 'action:rename') === sessionPopupIndex ? ' active' : ''}`}
                                             onClick=${(e) => { void handleRenameSession(e); }}
-                                            title="Rename the current branch handle"
+                                            title="Rename the current session"
                                             disabled=${renameInProgress}
                                         >
                                             Rename current…
@@ -2877,7 +3051,7 @@ export function ComposeBox({
                                 <div class="compose-model-meta-subline">
                                     ${!switchingModel && showModelUsageSection && html`
                                         <span class="compose-model-usage-hint" title=${modelHintTitle}>
-                                            ${modelThinkingLabel}${showFastIndicator && html`<span class="compose-model-fast-glyph" aria-label="Fast mode on">↯</span>`}${showModelUsageSeparator ? ' • ' : ''}${modelUsageLabel}
+                                            ${modelUsageSectionLabel}
                                         </span>
                                     `}
                                 </div>
@@ -2903,6 +3077,7 @@ export function ComposeBox({
                                 <button
                                     type="button"
                                     class=${`compose-session-trigger compose-session-trigger-pill${showSessionPopup ? ' active' : ''}`}
+                                    data-testid="session-switcher"
                                     onClick=${toggleSessionPopup}
                                     title=${currentSessionAgent?.chat_jid || currentChatJid}
                                     aria-label=${`Manage sessions for @${currentSessionAgent.agent_name}`}
@@ -2914,6 +3089,7 @@ export function ComposeBox({
                             <button
                                 type="button"
                                 class=${`compose-session-trigger compose-session-trigger-icon-btn${showSessionPopup ? ' active' : ''}`}
+                                data-testid="session-switcher"
                                 onClick=${toggleSessionPopup}
                                 title=${currentSessionAgent?.chat_jid || currentChatJid}
                                 aria-label=${currentSessionAgent?.agent_name
@@ -3054,6 +3230,7 @@ export function ComposeBox({
                             ${!searchMode && html`
                                 <button 
                                     class=${submitButtonState.className}
+                                    data-testid="send-button"
                                     type="button"
                                     onClick=${() => {
                                         void handleSubmit();
@@ -3067,6 +3244,7 @@ export function ComposeBox({
                                 ${abortButtonState && html`
                                     <button 
                                         class=${abortButtonState.className}
+                                        data-testid="stop-button"
                                         type="button"
                                         onClick=${() => {
                                             if (isComposeSubmitAbortMode(abortButtonState.mode)) {

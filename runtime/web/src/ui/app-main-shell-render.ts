@@ -235,6 +235,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     clearMessageRefs,
     setMessageRefsFromCompose,
     handleCreateSessionFromCompose,
+    handleCreateRootSessionFromCompose,
     handleRestoreBranch,
     attachActiveEditorFile,
     followupQueueCount,
@@ -282,7 +283,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
               void handleRenameCurrentBranch(renameBranchNameDraft);
             }}
           >
-            <div class="rename-branch-title">Rename branch handle</div>
+            <div class="rename-branch-title">Rename session</div>
             <input
               ref=${renameBranchNameInputRef}
               value=${renameBranchNameDraft}
@@ -297,7 +298,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
                 }
               }}
               autocomplete="off"
-              placeholder="Handle (letters, numbers, - and _ only)"
+              placeholder="Session handle (letters, numbers, - and _ only)"
             />
             <div class=${`rename-branch-help ${renameBranchDraftState.kind || 'info'}`}>
               ${renameBranchDraftState.message}
@@ -570,6 +571,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           onRenameSession=${handleRenameCurrentBranch}
           isRenameSessionInProgress=${isRenamingBranch}
           onCreateSession=${handleCreateSessionFromCompose}
+          onCreateRootSession=${handleCreateRootSessionFromCompose}
           onDeleteSession=${handlePruneCurrentBranch}
           onPurgeArchivedSession=${handlePurgeArchivedBranch}
           onRestoreSession=${handleRestoreBranch}

@@ -21,13 +21,8 @@ let cleanupWorkspace: (() => void) | null = null;
 let deriveInstanceId: (publicKey: string) => string;
 let resetInteropIdentityForTests: () => void;
 let signPayload: (identity: InteropIdentity, payload: string) => string;
-let buildCanonicalRequest: (params: any) => string;
-let hashBody: (body: Uint8Array) => string;
-let signRequest: (identity: InteropIdentity, canonical: string) => string;
 let getRemotePeer: (id: string) => any;
-let getRemotePeerByFingerprint: (fp: string) => any;
 let upsertRemotePeer: (peer: any) => void;
-let updateRemotePeer: (id: string, updates: any) => void;
 let initDatabase: () => void;
 let RemoteInteropService: any;
 let getMyBaseUrl: (chatJid?: string) => string;
@@ -39,7 +34,6 @@ let runBlockPairFlow: (id: string, pi: any) => Promise<void>;
 let runSetPermissionsFlow: (id: string, profile: string, pi: any) => Promise<void>;
 let runSetModeFlow: (id: string, mode: string, pi: any) => Promise<void>;
 let createPairRequest: (req: any) => void;
-let getPendingPairRequests: () => any[];
 
 let originalFetch: typeof fetch | null = null;
 let restoreTrustProxyRuntimeConfig: (() => void) | null = null;
@@ -181,21 +175,13 @@ describe("remote pair commands", () => {
     resetInteropIdentityForTests = identityMod.resetInteropIdentityForTests;
     signPayload = identityMod.signPayload;
 
-    const signatureMod = await importFresh("../src/remote/signature.js");
-    buildCanonicalRequest = signatureMod.buildCanonicalRequest;
-    hashBody = signatureMod.hashBody;
-    signRequest = signatureMod.signRequest;
-
     const dbMod = await importFresh("../src/db.js");
     initDatabase = dbMod.initDatabase;
 
     const remoteDbMod = await importFresh("../src/db/remote-interop.js");
     getRemotePeer = remoteDbMod.getRemotePeer;
-    getRemotePeerByFingerprint = remoteDbMod.getRemotePeerByFingerprint;
     upsertRemotePeer = remoteDbMod.upsertRemotePeer;
-    updateRemotePeer = remoteDbMod.updateRemotePeer;
     createPairRequest = remoteDbMod.createPairRequest;
-    getPendingPairRequests = remoteDbMod.getPendingPairRequests;
 
     const serviceMod = await importFresh("../src/remote/service.js");
     RemoteInteropService = serviceMod.RemoteInteropService;

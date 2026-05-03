@@ -11,6 +11,7 @@ import {
   normalizeModelPickerOptions,
   resolveComposeExtensionWorkingDisplay,
   resolveComposeModelPickerState,
+  resolveComposeRoutedModelStatus,
   buildReturnedQueuedDraft,
   parseQueuedContent,
   returnQueuedFollowupToEditor,
@@ -353,6 +354,33 @@ test('shouldOpenModelPickerCommand only intercepts bare /model', () => {
   expect(shouldOpenModelPickerCommand('/MODEL')).toBe(true);
   expect(shouldOpenModelPickerCommand('/model claude/sonnet')).toBe(false);
   expect(shouldOpenModelPickerCommand('/models')).toBe(false);
+});
+
+test('resolveComposeRoutedModelStatus shows latest routed model when it differs from the requested model', () => {
+  expect(resolveComposeRoutedModelStatus('openrouter/auto', {
+    current: 'openrouter/auto',
+    latest_requested_model: 'openrouter/auto',
+    latest_response_model: 'anthropic/claude-sonnet-4-5',
+  })).toEqual({
+    label: 'Routed: anthropic/claude-sonnet-4-5',
+    title: 'Requested model: openrouter/auto • Routed model: anthropic/claude-sonnet-4-5',
+    requestedModel: 'openrouter/auto',
+    responseModel: 'anthropic/claude-sonnet-4-5',
+  });
+});
+
+test('resolveComposeRoutedModelStatus hides matching or stale routed model state', () => {
+  expect(resolveComposeRoutedModelStatus('openrouter/auto', {
+    current: 'openrouter/auto',
+    latest_requested_model: 'openrouter/auto',
+    latest_response_model: 'openrouter/auto',
+  })).toBeNull();
+
+  expect(resolveComposeRoutedModelStatus('anthropic/claude-opus-4-5', {
+    current: 'anthropic/claude-opus-4-5',
+    latest_requested_model: 'openrouter/auto',
+    latest_response_model: 'anthropic/claude-sonnet-4-5',
+  })).toBeNull();
 });
 
 test('resolveComposeModelPickerState keeps the model picker visible for cold chats with available models', () => {

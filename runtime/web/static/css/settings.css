@@ -1386,8 +1386,9 @@
 
 .settings-provider-card {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
     padding: 10px 12px;
     border: 1px solid var(--border-color, rgba(128,128,128,0.2));
     border-radius: 8px;
@@ -1404,16 +1405,27 @@
 }
 
 .settings-provider-card-header {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto auto;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+    width: 100%;
+}
+
+.settings-provider-card-title {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
-    flex: 1;
     flex-wrap: wrap;
 }
 
 .settings-provider-card-header strong {
     font-size: 0.9em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -1422,6 +1434,7 @@
     color: var(--text-secondary);
     opacity: 0.6;
     font-family: var(--font-mono, monospace);
+    overflow-wrap: anywhere;
 }
 
 .settings-provider-card-meta {
@@ -1429,25 +1442,25 @@
     gap: 4px;
     flex-shrink: 0;
     flex-wrap: wrap;
+    justify-content: flex-start;
 }
 
 .settings-provider-card-actions {
     display: flex;
     gap: 6px;
     flex-shrink: 0;
-    margin-left: auto;
     flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
-@media (max-width: 640px) {
-    .settings-provider-card {
-        flex-direction: column;
+@media (max-width: 760px) {
+    .settings-provider-card-header {
+        grid-template-columns: minmax(0, 1fr);
         align-items: stretch;
-        gap: 6px;
     }
-    .settings-provider-card-actions {
-        margin-left: 0;
-        justify-content: flex-end;
+    .settings-provider-card-actions,
+    .settings-provider-card-meta {
+        justify-content: flex-start;
     }
 }
 
@@ -1672,46 +1685,76 @@
 /* ── Provider setup form ─────────────────────────────────────── */
 
 .settings-provider-setup {
-    padding: 8px 12px 4px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 0 2px;
     border-top: 1px solid var(--border-color, rgba(128,128,128,0.15));
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
 }
 
 .settings-provider-setup-hint {
-    margin-top: 0;
-}
-
-.settings-provider-inline-row {
-    flex-wrap: wrap;
-    align-items: stretch;
-}
-
-.settings-provider-inline-row > input,
-.settings-provider-inline-row > textarea,
-.settings-provider-inline-row > button {
-    min-width: 0;
+    margin: 0;
 }
 
 .settings-provider-method {
-    padding: 4px 0;
+    padding: 0;
 }
 
-.settings-provider-setup .settings-row input[type="text"],
-.settings-provider-setup .settings-row input[type="password"] {
-    flex: 1;
+.settings-provider-field-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 180px) minmax(180px, 1fr) auto;
+    align-items: center;
+    gap: 8px 10px;
+    margin-bottom: 8px;
+}
+
+.settings-provider-field-row label {
+    min-width: 0;
+    font-weight: 600;
+    font-size: 0.88em;
+    color: var(--text-secondary);
+}
+
+.settings-provider-field-row input[type="text"],
+.settings-provider-field-row input[type="password"] {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
     padding: 6px 10px;
     border: 1px solid var(--border-color, rgba(128,128,128,0.3));
     border-radius: 6px;
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: 0.86em;
-    min-width: 0;
+}
+
+.settings-provider-field-row > button {
+    white-space: nowrap;
+}
+
+.settings-provider-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 2px;
 }
 
 .settings-provider-card-header {
     cursor: pointer;
+}
+
+@media (max-width: 760px) {
+    .settings-provider-field-row {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+
+    .settings-provider-field-row > button,
+    .settings-provider-form-actions > button {
+        width: 100%;
+    }
 }
 
 .settings-local-only-hint {

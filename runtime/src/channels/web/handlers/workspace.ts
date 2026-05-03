@@ -8,8 +8,6 @@
  */
 
 import { closeSync, existsSync, openSync, readSync, statSync } from "fs";
-import * as path from "path";
-
 import { errorJson, jsonResponse } from "../http/http-utils.js";
 import { WorkspaceService } from "../workspace/service.js";
 import { isRealWorkspacePath, resolveWorkspacePath, toRelativePath } from "../workspace/paths.js";

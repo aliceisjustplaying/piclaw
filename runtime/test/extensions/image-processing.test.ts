@@ -3,7 +3,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, statSync } from "fs";
+import { writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import "../helpers.js";
 import { createTempWorkspace, setEnv } from "../helpers.js";
@@ -201,7 +201,7 @@ test("spritesheet_to_gif creates an animated GIF from a horizontal strip", async
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws2.workspace });
 
   // Create a 150x50 horizontal strip (3 frames of 50x50)
-  const strip = await sharp!({
+  await sharp({
     create: { width: 150, height: 50, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
   .composite([
@@ -242,7 +242,7 @@ test("spritesheet_to_gif supports vertical strips", async () => {
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws2.workspace });
 
   // Create a 50x100 vertical strip (2 frames of 50x50)
-  const strip = await sharp!({
+  await sharp({
     create: { width: 50, height: 100, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
   .composite([

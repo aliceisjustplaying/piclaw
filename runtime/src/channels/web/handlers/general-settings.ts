@@ -9,11 +9,11 @@ import {
 } from "../../../extensions/session-status.js";
 import {
   getIdentityConfig,
+  getOrCreateWebWidgetToken,
   getSessionStorageConfig,
   getToolUseMessageBudget,
   getWebRuntimeConfig,
   getSearchMatchMode,
-  getUiThemeConfig,
   setAssistantAvatar,
   setAssistantName,
   setSessionStorageConfig,
@@ -21,10 +21,10 @@ import {
   getToolOutputStoreThreshold,
   setToolOutputStoreThreshold,
   setSearchMatchMode,
-  setUiThemeConfig,
   setUserAvatar,
   setUserAvatarBackground,
   setUserName,
+  rotateWebWidgetToken,
   setWebComposeUploadLimitMb,
   setWebTerminalEnabled,
   setWebWorkspaceUploadLimitMb,
@@ -32,6 +32,7 @@ import {
 } from "../../../core/config.js";
 import { updateAssistantConfig, updateUserConfig } from "../../../agent-control/agent-control-helpers.js";
 import { generateTotpQr } from "../../../utils/totp-qr.js";
+import { getServerUiThemeConfig, setServerUiThemeConfig } from "../ui-state.js";
 
 export interface GeneralSettingsData {
   assistantName: string;
@@ -60,6 +61,7 @@ export interface GeneralSettingsData {
   searchMatchMode: "or" | "and";
   uiTheme: string;
   uiTint: string | null;
+  widgetToken: string;
 }
 
 export interface GeneralSettingsInput {
@@ -132,6 +134,7 @@ export function getGeneralSettingsData(): GeneralSettingsData {
   const identity = getIdentityConfig();
   const session = getSessionStorageConfig();
   const web = getWebRuntimeConfig();
+  const uiTheme = getServerUiThemeConfig();
   return {
     assistantName: identity.assistantName || "PiClaw",
     assistantAvatar: identity.assistantAvatar || "",
@@ -150,9 +153,15 @@ export function getGeneralSettingsData(): GeneralSettingsData {
     instanceTotp: buildTotpSettingsData(),
     sessionIsolation: getSessionIsolationLevel(),
     searchMatchMode: getSearchMatchMode(),
-    uiTheme: getUiThemeConfig().theme,
-    uiTint: getUiThemeConfig().tint,
+    uiTheme: uiTheme.theme,
+    uiTint: uiTheme.tint,
+    widgetToken: getOrCreateWebWidgetToken(),
   };
+}
+
+export function rotateWidgetTokenSettings(): GeneralSettingsData {
+  rotateWebWidgetToken();
+  return getGeneralSettingsData();
 }
 
 export async function saveGeneralSettings(input: GeneralSettingsInput): Promise<GeneralSettingsData> {
@@ -250,7 +259,7 @@ export async function saveGeneralSettings(input: GeneralSettingsInput): Promise<
       ? input.uiTint.trim()
       : null;
   if (nextUiTheme !== undefined || nextUiTint !== undefined) {
-    setUiThemeConfig({
+    setServerUiThemeConfig({
       ...(nextUiTheme !== undefined ? { theme: nextUiTheme || "default" } : {}),
       ...(nextUiTint !== undefined ? { tint: nextUiTint } : {}),
     });

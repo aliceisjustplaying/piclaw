@@ -100,9 +100,11 @@ export function ProvidersSection({ providers, setStatus }) {
                 ${list.map(p => html`
                     <div class=${`settings-provider-card${p.configured ? ' configured' : ''}`}>
                         <div class="settings-provider-card-header" onClick=${() => !p.configured && toggle(p.id)}>
-                            <strong>${p.name}</strong>
-                            <span class="settings-provider-id">${p.id}</span>
-                            ${p.configured && html`<span class="settings-tag settings-tag-skill">${formatAuthTypeLabel(p.authType)}</span>`}
+                            <div class="settings-provider-card-title">
+                                <strong>${p.name}</strong>
+                                <span class="settings-provider-id">${p.id}</span>
+                                ${p.configured && html`<span class="settings-tag settings-tag-skill">${formatAuthTypeLabel(p.authType)}</span>`}
+                            </div>
                             <div class="settings-provider-card-meta">
                                 ${p.hasOAuth && html`<span class="settings-tag">OAuth</span>`}
                                 ${p.hasApiKey && html`<span class="settings-tag">API Key</span>`}
@@ -138,7 +140,7 @@ export function ProvidersSection({ providers, setStatus }) {
                                 `}
                                 ${p.hasApiKey && html`
                                     <div class="settings-provider-method">
-                                        <div class="settings-row settings-provider-inline-row" style="margin-bottom:6px">
+                                        <div class="settings-provider-field-row">
                                             <label>API Key</label>
                                             <input type="password" value=${formData.apiKey || ''}
                                                 onInput=${e => updateForm('apiKey', e.target.value)}
@@ -154,18 +156,20 @@ export function ProvidersSection({ providers, setStatus }) {
                                 ${p.isCustom && html`
                                     <div class="settings-provider-method">
                                         ${(p.customFields || []).map(f => html`
-                                            <div class="settings-row settings-provider-inline-row" style="margin-bottom:6px">
+                                            <div class="settings-provider-field-row">
                                                 <label>${f.label}${f.required ? ' *' : ''}</label>
                                                 <input type="text" value=${formData[f.key] || ''}
                                                     onInput=${e => updateForm(f.key, e.target.value)}
                                                     placeholder=${f.placeholder || ''} />
                                             </div>
                                         `)}
-                                        <button class="settings-addon-btn settings-addon-btn-install"
-                                            disabled=${busy === p.id}
-                                            onClick=${() => setupCustom(p.id, p)}>
-                                            ${busy === p.id ? 'Configuring…' : 'Save configuration'}
-                                        </button>
+                                        <div class="settings-provider-form-actions">
+                                            <button class="settings-addon-btn settings-addon-btn-install"
+                                                disabled=${busy === p.id}
+                                                onClick=${() => setupCustom(p.id, p)}>
+                                                ${busy === p.id ? 'Configuring…' : 'Save configuration'}
+                                            </button>
+                                        </div>
                                     </div>
                                 `}
                             </div>

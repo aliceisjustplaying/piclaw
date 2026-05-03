@@ -279,6 +279,7 @@ export function composeMainAppActionCompositionOptions(options: UseMainAppOrches
     branchLoaderMode: routeState.branchLoaderMode,
     branchLoaderSourceChatJid: routeState.branchLoaderSourceChatJid,
     forkChatBranch: services.forkChatBranch,
+    createRootChatSession: services.createRootChatSession,
     setBranchLoaderState: setters.setBranchLoaderState,
     isWebAppMode: routeState.isWebAppMode,
     setActiveChatAgents: setters.setActiveChatAgents,

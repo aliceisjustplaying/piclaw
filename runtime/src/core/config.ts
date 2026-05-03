@@ -20,6 +20,7 @@
  * update identity settings at runtime without a restart.
  */
 
+import { randomBytes } from "node:crypto";
 import { resolve } from "path";
 import { existsSync } from "fs";
 import { readEnvFile } from "./env.js";
@@ -89,6 +90,7 @@ const envConfig = readEnvFile([
   "PICLAW_WEB_TOTP_WINDOW",
   "PICLAW_WEB_SESSION_TTL",
   "PICLAW_WEB_INTERNAL_SECRET",
+  "PICLAW_WEB_WIDGET_TOKEN",
   "PICLAW_WEB_PASSKEY_MODE",
   "PICLAW_WEB_TERMINAL_ENABLED",
   "PICLAW_WEB_COMPOSE_UPLOAD_LIMIT_MB",
@@ -306,6 +308,13 @@ const configWebInternalSecret = pickString(webConfig, [
   "web_internal_secret",
   "PICLAW_WEB_INTERNAL_SECRET",
   "PICLAW_INTERNAL_SECRET",
+]);
+const configWebWidgetToken = pickString(webConfig, [
+  "widgetToken",
+  "widget_token",
+  "webWidgetToken",
+  "web_widget_token",
+  "PICLAW_WEB_WIDGET_TOKEN",
 ]);
 const configWebPasskeyMode = pickString(webConfig, [
   "passkeyMode",
@@ -604,6 +613,7 @@ export interface WebRuntimeConfig {
   totpWindow: number;
   sessionTtl: number;
   internalSecret: string;
+  widgetToken: string;
   passkeyMode: string;
   terminalEnabled: boolean;
   composeUploadLimitMb: number;
@@ -680,6 +690,11 @@ export const WEB_RUNTIME_CONFIG: WebRuntimeConfig = Object.seal({
     envConfig.PICLAW_INTERNAL_SECRET ||
     envConfig.PICLAW_WEB_INTERNAL_SECRET ||
     configWebInternalSecret ||
+    "",
+  widgetToken:
+    process.env.PICLAW_WEB_WIDGET_TOKEN ||
+    envConfig.PICLAW_WEB_WIDGET_TOKEN ||
+    configWebWidgetToken ||
     "",
   passkeyMode: (
     process.env.PICLAW_WEB_PASSKEY_MODE ||
@@ -806,6 +821,55 @@ export function setWebWorkspaceUploadLimitMb(limitMb: number): number {
     runtimeKey: "workspaceUploadLimitMb",
     clamp: clampWorkspaceUploadLimitMb,
   });
+}
+
+export function generateWebWidgetToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export function setWebWidgetToken(token: string): string {
+  const next = String(token || "").trim();
+  const config = readJsonConfig(getConfigPath());
+  const web =
+    config.web && typeof config.web === "object"
+      ? { ...(config.web as Record<string, unknown>) }
+      : {};
+  const widgetTokenKeys = [
+    "widgetToken",
+    "widget_token",
+    "webWidgetToken",
+    "web_widget_token",
+    "PICLAW_WEB_WIDGET_TOKEN",
+  ];
+
+  for (const key of widgetTokenKeys) {
+    delete web[key];
+    delete config[key];
+  }
+
+  if (next) {
+    web.widgetToken = next;
+  }
+  config.web = web;
+  writeJsonConfig(getConfigPath(), config);
+
+  WEB_RUNTIME_CONFIG.widgetToken = next;
+  if (next) {
+    process.env.PICLAW_WEB_WIDGET_TOKEN = next;
+  } else {
+    delete process.env.PICLAW_WEB_WIDGET_TOKEN;
+  }
+  return WEB_RUNTIME_CONFIG.widgetToken;
+}
+
+export function getOrCreateWebWidgetToken(): string {
+  const existing = WEB_RUNTIME_CONFIG.widgetToken.trim();
+  if (existing) return existing;
+  return setWebWidgetToken(generateWebWidgetToken());
+}
+
+export function rotateWebWidgetToken(): string {
+  return setWebWidgetToken(generateWebWidgetToken());
 }
 
 // ---------------------------------------------------------------------------
@@ -960,7 +1024,7 @@ export interface CompactionRuntimeConfig {
   backoffMaxMs: number;
   progressWatchdogEnabled: boolean;
   progressWatchdogTimeoutMs: number;
-  /** Context utilization % at which auto-compaction triggers (0-100). Default 50. */
+  /** Context utilization % at which auto-compaction triggers (0-100). Default 75. */
   thresholdPercent: number;
   /** Multiplier applied to backoff duration after a successful compaction (0-1). Default 0.5. */
   backoffDecayFactor: number;
@@ -1122,7 +1186,7 @@ let COMPACTION_RUNTIME_CONFIG: CompactionRuntimeConfig = Object.seal({
     ? Math.max(0, Math.round(Number(configProgressWatchdogTimeoutMs)))
     : DEFAULT_PROGRESS_WATCHDOG_TIMEOUT_MS,
   thresholdPercent: typeof configCompactionThresholdPercent === "number" && configCompactionThresholdPercent > 0 && configCompactionThresholdPercent <= 100
-    ? configCompactionThresholdPercent : 50,
+    ? configCompactionThresholdPercent : 75,
   backoffDecayFactor: typeof configCompactionBackoffDecayFactor === "number" && configCompactionBackoffDecayFactor > 0 && configCompactionBackoffDecayFactor <= 1
     ? configCompactionBackoffDecayFactor : 0.5,
 });
@@ -1221,6 +1285,12 @@ export function setCompactionRuntimeConfig(patch: {
     "progressWatchdogTimeoutMs",
     "progress_watchdog_timeout_ms",
     "watchdogTimeoutMs",
+    "thresholdPercent",
+    "threshold_percent",
+    "PICLAW_COMPACTION_THRESHOLD_PERCENT",
+    "backoffDecayFactor",
+    "backoff_decay_factor",
+    "PICLAW_COMPACTION_BACKOFF_DECAY_FACTOR",
     "PICLAW_COMPACTION_TIMEOUT_MS",
     "PICLAW_COMPACTION_BACKOFF_BASE_MS",
     "PICLAW_COMPACTION_BACKOFF_MAX_MS",
@@ -1236,6 +1306,8 @@ export function setCompactionRuntimeConfig(patch: {
   compaction.backoffMaxMs = next.backoffMaxMs;
   compaction.progressWatchdogEnabled = next.progressWatchdogEnabled;
   compaction.progressWatchdogTimeoutMs = next.progressWatchdogTimeoutMs;
+  compaction.thresholdPercent = next.thresholdPercent;
+  compaction.backoffDecayFactor = next.backoffDecayFactor;
   config.compaction = compaction;
   writeJsonConfig(getConfigPath(), config);
 

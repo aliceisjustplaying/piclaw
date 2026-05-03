@@ -158,7 +158,7 @@ export async function executeSlashCommand(
       return { status: "error", message: "Not a slash command." };
     }
 
-    const { trimmed, rawCommand, commandName } = parsed;
+    const { rawCommand, commandName } = parsed;
     const kind = resolveSlashCommandKind(session, rawCommand, commandName);
     if (!kind.known) {
       return { status: "error", message: kind.message };

@@ -160,6 +160,10 @@ export type AgentControlCommand =
       raw: string;
     }
   | {
+      type: "rollup";
+      raw: string;
+    }
+  | {
       type: "fork";
       entryId?: string;
       raw: string;
@@ -288,6 +292,8 @@ export interface AgentControlResult {
   fast_mode?: boolean | null;
   supports_thinking?: boolean;
   available_thinking_levels?: string[];
+  rolled_up_to?: string;
+  source_chat_jid?: string;
   /** Optional media attachment ids to include with the response message. */
   mediaIds?: number[];
   /** Optional adaptive card content blocks to include with the response message. */

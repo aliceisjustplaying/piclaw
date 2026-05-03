@@ -96,6 +96,7 @@ const {
     getTimeline,
     sendAgentMessage,
     forkChatBranch,
+    createRootChatSession,
 } = appApi;
 
 function MainApp({ locationParams, navigate }) {
@@ -111,6 +112,9 @@ function MainApp({ locationParams, navigate }) {
 
     useEffect(() => {
         if (currentChatJid) setLocalStorageItem(LAST_CHAT_JID_KEY, currentChatJid);
+        if (typeof window === 'undefined') return;
+        window.__piclawCurrentChatJid = currentChatJid;
+        window.dispatchEvent?.(new CustomEvent('piclaw:current-chat-changed', { detail: { chatJid: currentChatJid } }));
     }, [currentChatJid]);
 
     const surface = useMainAppSurfaceState({
@@ -511,6 +515,7 @@ function MainApp({ locationParams, navigate }) {
             purgeChatBranch,
             restoreChatBranch,
             forkChatBranch,
+            createRootChatSession,
             steerAgentQueueItem,
             removeAgentQueueItem,
             getAgentThought,

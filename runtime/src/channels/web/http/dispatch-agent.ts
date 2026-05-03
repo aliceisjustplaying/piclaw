@@ -3,7 +3,6 @@
  */
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
-import { PICLAW_CONFIG_PATH } from "../../../core/config.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -20,15 +19,16 @@ import {
   handleUninstallAddon,
 } from "../handlers/addons.js";
 import { getCompactionSettingsData, resetCompactionBackoff, saveCompactionSettings } from "../handlers/compaction-settings.js";
-import { getGeneralSettingsData, saveGeneralSettings } from "../handlers/general-settings.js";
+import { getGeneralSettingsData, rotateWidgetTokenSettings, saveGeneralSettings } from "../handlers/general-settings.js";
 import { getQuickActionsSettingsData, saveQuickActionsSettings } from "../handlers/quick-actions-settings.js";
 import { getWorkspaceSettingsData, saveWorkspaceSettings } from "../handlers/workspace-settings.js";
+import { getServerUiState, setServerUiMetersConfig, setServerUiThemeConfig } from "../ui-state.js";
 import {
   clearEnvironmentOverride,
   getEnvironmentSettingsData,
   setEnvironmentOverride,
 } from "../../../environment-overrides.js";
-import { PROVIDER_DEFS } from "../../../agent-control/provider-defs.js";
+import { getProviderDefs } from "../../../agent-control/provider-defs.js";
 import {
   listKeychainEntriesForUi,
   getKeychainEntry,
@@ -245,6 +245,11 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   },
   {
     method: "POST",
+    path: "/agent/root-session",
+    handle: (channel, req) => channel.handleAgentRootSessionCreate(req),
+  },
+  {
+    method: "POST",
     path: "/agent/branch-rename",
     handle: (channel, req) => channel.handleAgentBranchRename(req),
   },
@@ -252,6 +257,11 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
     method: "POST",
     path: "/agent/rename-jid",
     handle: (channel, req) => channel.handleAgentRenameJid(req),
+  },
+  {
+    method: "POST",
+    path: "/agent/branch-merge-parent",
+    handle: (channel, req) => channel.handleAgentBranchMergeParent(req),
   },
   {
     method: "POST",
@@ -339,6 +349,38 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
   },
   {
     method: "GET",
+    path: "/agent/ui-state",
+    handle: (channel) => channel.json({ ok: true, ...getServerUiState() }, 200),
+  },
+  {
+    method: "POST",
+    path: "/agent/ui-state",
+    handle: async (channel, req) => {
+      const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+      const response: Record<string, unknown> = { ok: true };
+      if (body?.ui_theme && typeof body.ui_theme === "object") {
+        const themeBody = body.ui_theme as Record<string, unknown>;
+        const nextTheme = setServerUiThemeConfig({
+          ...(typeof themeBody.theme === "string" ? { theme: themeBody.theme } : {}),
+          ...(themeBody.tint !== undefined ? { tint: typeof themeBody.tint === "string" ? themeBody.tint : null } : {}),
+        });
+        response.ui_theme = nextTheme;
+        channel.broadcastEvent("ui_theme", { ...nextTheme });
+      }
+      if (body?.ui_meters && typeof body.ui_meters === "object") {
+        const metersBody = body.ui_meters as Record<string, unknown>;
+        const nextMeters = setServerUiMetersConfig({
+          ...(typeof metersBody.enabled === "boolean" ? { enabled: metersBody.enabled } : {}),
+          ...(typeof metersBody.collapsed === "boolean" ? { collapsed: metersBody.collapsed } : {}),
+        });
+        response.ui_meters = nextMeters;
+        channel.broadcastEvent("ui_meters", { mode: "set", ...nextMeters });
+      }
+      return channel.json(response, 200);
+    },
+  },
+  {
+    method: "GET",
     path: "/agent/settings-data",
     handle: (channel) => {
       const themes = THEME_PRESETS.map((p) => {
@@ -351,16 +393,6 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         }
         return { name: p.name, label: p.label, mode: p.mode, colors };
       });
-      // Read raw config for extra fields
-      let rawConfig: Record<string, unknown> = {};
-      try {
-        if (existsSync(PICLAW_CONFIG_PATH)) {
-          rawConfig = JSON.parse(readFileSync(PICLAW_CONFIG_PATH, "utf-8"));
-        }
-      } catch (e) { /* context usage non-critical — best effort */ void e; }
-      const assistantSection = typeof rawConfig.assistant === "object" && rawConfig.assistant ? rawConfig.assistant as Record<string, unknown> : rawConfig;
-      const userSection = typeof rawConfig.user === "object" && rawConfig.user ? rawConfig.user as Record<string, unknown> : rawConfig;
-
       // Read auth + custom provider state
       const piAgentDir = process.env.PICLAW_PI_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
       let authProviders: Record<string, unknown> = {};
@@ -377,7 +409,7 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         }
       } catch (e) { /* context usage non-critical — best effort */ void e; }
 
-      const providers = PROVIDER_DEFS.map((p) => {
+      const providers = getProviderDefs().map((p) => {
         const auth = authProviders[p.id] as Record<string, unknown> | undefined;
         const authTypeFromAuth = typeof auth?.type === "string" ? auth.type : null;
         const hasCustomConfig = Boolean(p.isCustom && modelProviders[p.id]);
@@ -445,6 +477,14 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
         const message = error instanceof Error ? error.message : String(error);
         return channel.json({ error: message || "Failed to save general settings." }, 400);
       }
+    },
+  },
+  {
+    method: "POST",
+    path: "/agent/settings/widget-token/regenerate",
+    handle: (channel) => {
+      const settings = rotateWidgetTokenSettings();
+      return channel.json({ ok: true, settings }, 200);
     },
   },
   {

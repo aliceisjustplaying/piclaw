@@ -2,15 +2,15 @@
 /**
  * SCRIPT_JDOC:
  * {
- *   "summary": "Collect GitHub issues and pull requests into normalized JSON and Markdown digests, while maintaining a rolling repository metrics history in YAML.",
+ *   "summary": "Collect GitHub issues and pull requests into normalized JSON and Markdown digests, while maintaining a SQLite repository metrics history.",
  *   "aliases": ["github digest", "collate issues prs", "github metrics history"],
  *   "domains": ["github", "reporting", "issues", "pull-requests", "analytics"],
  *   "verbs": ["collect", "collate", "report", "trend", "history"],
  *   "nouns": ["issues", "pull requests", "repos", "digest", "history", "stars"],
- *   "keywords": ["github", "issues", "prs", "markdown", "json", "yaml", "snapshot", "star", "trend"],
+ *   "keywords": ["github", "issues", "prs", "markdown", "json", "sqlite", "snapshot", "star", "trend"],
  *   "guidance": [
  *     "Skips private repositories by default; pass --include-private to opt in.",
- *     "Writes normalized JSON, Markdown, and optional YAML history artifacts for follow-up plotting.",
+ *     "Writes normalized JSON, Markdown, SQLite history, and optional YAML compatibility artifacts.",
  *     "History is incremental: each scheduled run appends one metric snapshot per repository."
  *   ],
  *   "examples": [
@@ -28,13 +28,14 @@
  *
  * Collect issues + pull requests across GitHub repositories visible to the
  * current token, write a normalized JSON snapshot, render a Markdown report,
- * and maintain a YAML-backed rolling history of issue/PR/star metrics for
- * trend charting.
+ * and maintain a SQLite-backed rolling history of issue/PR/star metrics for
+ * trend charting. YAML history output is kept as a compatibility artifact.
  *
- * Auth env vars (first match wins):
+ * Auth sources (first match wins):
  * - GITHUB_TOKEN
  * - GITHUB_PICLAW_BOT_PAT
  * - GH_TOKEN
+ * - gh auth token
  */
 
 import Database from "bun:sqlite";
@@ -183,6 +184,13 @@ type SyncRunRowResult = {
   started_at: string;
 };
 
+type RepoSnapshotRow = {
+  collected_at: string;
+  stars: number;
+  issues: number;
+  pull_requests: number;
+};
+
 type Report = {
   generated_at: string;
   state: "open" | "closed" | "all";
@@ -258,7 +266,7 @@ function readOptions(argv: string[]): Options {
   const maxRepos = parsePositiveInt(maxReposRaw, Infinity);
   const activeWithinHours = Number.parseInt(readOption(argv, "--active-within-hours") ?? "", 10);
   const historyPoints = parsePositiveInt(readOption(argv, "--history-points"), DEFAULT_HISTORY_POINTS);
-  const chartPoints = parsePositiveInt(readOption(argv, "--chart-points"), DEFAULT_CHART_POINTS);
+  const chartPoints = parsePositiveInt(readOption(argv, "--chart-points") ?? readOption(argv, "--chart-days"), DEFAULT_CHART_POINTS);
 
   return {
     state,
@@ -278,10 +286,23 @@ function readOptions(argv: string[]): Options {
   };
 }
 
+function readGithubCliToken(): string {
+  try {
+    const result = Bun.spawnSync(["gh", "auth", "token"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (result.exitCode !== 0) return "";
+    return Buffer.from(result.stdout).toString("utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 function requireGithubToken(): string {
-  const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PICLAW_BOT_PAT || process.env.GH_TOKEN || "";
+  const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PICLAW_BOT_PAT || process.env.GH_TOKEN || readGithubCliToken();
   if (!token.trim()) {
-    throw new Error("Missing GitHub token. Set GITHUB_TOKEN, GITHUB_PICLAW_BOT_PAT, or GH_TOKEN.");
+    throw new Error("Missing GitHub token. Set GITHUB_TOKEN, GITHUB_PICLAW_BOT_PAT, GH_TOKEN, or run gh auth login.");
   }
   return token.trim();
 }
@@ -1175,6 +1196,62 @@ function finishSyncRun(db: Database, run: SyncRunRowResult, finishedAt: string, 
   db.query(`UPDATE sync_runs SET finished_at = ?, status = 'ok', result_json = ? WHERE id = ?`).run(finishedAt, JSON.stringify(result), run.id);
 }
 
+function loadRepoTrendsFromDb(db: Database, summaries: RepoSummary[], maxPoints: number): RepoTrend[] {
+  const pointLimit = Math.max(2, maxPoints);
+  const statement = db.query(`
+    SELECT
+      s.collected_at,
+      s.stars,
+      s.open_issues AS issues,
+      s.open_prs AS pull_requests
+    FROM repo_snapshots s
+    JOIN repos r ON r.id = s.repo_id
+    WHERE r.full_name = ?
+    ORDER BY s.collected_at DESC
+    LIMIT ?
+  `);
+
+  return summaries
+    .map((repo) => {
+      const rows = (statement.all(repo.full_name, pointLimit) as RepoSnapshotRow[]).reverse();
+      const points = rows.map((row, index): HistorySnapshot => {
+        const previous = rows[index - 1];
+        return {
+          at: row.collected_at,
+          issues: normalizeNumber(row.issues),
+          pull_requests: normalizeNumber(row.pull_requests),
+          stars: normalizeNumber(row.stars),
+          deltas: {
+            issues: previous ? normalizeNumber(row.issues) - normalizeNumber(previous.issues) : 0,
+            pull_requests: previous ? normalizeNumber(row.pull_requests) - normalizeNumber(previous.pull_requests) : 0,
+            stars: previous ? normalizeNumber(row.stars) - normalizeNumber(previous.stars) : 0,
+          },
+        };
+      });
+
+      const current = points.at(-1);
+      const previous = points.at(-2);
+      const deltas = current && previous
+        ? {
+            issues: current.issues - previous.issues,
+            pull_requests: current.pull_requests - previous.pull_requests,
+            stars: current.stars - previous.stars,
+          }
+        : { issues: 0, pull_requests: 0, stars: 0 };
+
+      return {
+        full_name: repo.full_name,
+        html_url: repo.html_url,
+        stars: current?.stars ?? repo.stars,
+        issues: current?.issues ?? repo.issues,
+        pull_requests: current?.pull_requests ?? repo.pull_requests,
+        deltas,
+        points,
+      };
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
 async function mapWithConcurrency<T, R>(
   values: readonly T[],
   concurrency: number,
@@ -1341,7 +1418,8 @@ async function main(): Promise<void> {
   });
   for (const entry of perRepo) syncRepoToDb(db, entry, generatedAt);
 
-  const trends = upsertRepoHistory(history, repoSummariesAll, generatedAt, options.historyPoints);
+  upsertRepoHistory(history, repoSummariesAll, generatedAt, options.historyPoints);
+  const trends = loadRepoTrendsFromDb(db, repoSummariesAll, options.chartPoints);
   const starChanges = trends.filter((trend) => trend.deltas.stars !== 0);
   const starGains = trends.filter((trend) => trend.deltas.stars > 0);
 

@@ -205,9 +205,9 @@ async function maybeAutoRotateSession(
   const exceedsLines = sessionStorageConfig.maxLines > 0
     && sessionFileLines !== null
     && sessionFileLines >= sessionStorageConfig.maxLines;
-  const compactionSuccessCount = getCompactionSuccessCount(chatJid);
+  const compactionCount = getCompactionSuccessCount(chatJid);
   const exceedsCompactions = sessionStorageConfig.maxCompactionsBeforeRotation > 0
-    && compactionSuccessCount >= sessionStorageConfig.maxCompactionsBeforeRotation;
+    && compactionCount >= sessionStorageConfig.maxCompactionsBeforeRotation;
   if (!exceedsSize && !exceedsLines && !exceedsCompactions) return session;
 
   if (session.isStreaming || session.isCompacting || session.isRetrying) {
@@ -239,7 +239,7 @@ async function maybeAutoRotateSession(
       chatJid,
       previousSize: result.previousSize ?? sessionFileSize,
       previousLines: sessionFileLines,
-      previousCompactions: compactionSuccessCount,
+      previousCompactions: compactionCount,
       nextSize: result.nextSize ?? "unknown",
       trigger: exceedsCompactions ? "compactions" : exceedsLines ? "lines" : "size",
     });
@@ -445,6 +445,20 @@ async function runPromptAttempt(
 
     if (event.type === "tool_execution_start" || event.type === "tool_execution_end") {
       toolExecutionWatchdogHeartbeat.handleEvent(event as ToolExecutionWatchdogEvent);
+    }
+
+    if ((event as { type?: unknown }).type === "thinking_level_changed") {
+      const level = typeof (event as { level?: unknown }).level === "string"
+        ? (event as { level: string }).level
+        : session.thinkingLevel ?? null;
+      updateSessionModel(chatJid, modelLabel, level);
+      options.onInfo?.("Thinking level changed", {
+        operation: "model.thinking_level_changed",
+        chatJid,
+        model: modelLabel,
+        thinkingLevel: level,
+        ...getRunObservabilityDetails(runOptions),
+      });
     }
 
     // Track session activity for cross-session visibility

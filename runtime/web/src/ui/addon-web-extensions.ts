@@ -19,6 +19,7 @@ export interface AddonWebApiSurface {
   registerSettingsPane: (definition: any) => () => void;
   registerStandaloneTabUrlResolver: (resolver: (path: string, context?: AddonStandaloneTabUrlContext) => string | null | undefined) => () => void;
   registerAttachmentPreview: (definition: AddonAttachmentPreviewDefinition) => () => void;
+  getCurrentChatJid: () => string;
 }
 
 const addonPaneIds = new Set<string>();
@@ -27,6 +28,22 @@ const standaloneTabUrlResolvers = new Set<(path: string, context?: AddonStandalo
 const attachmentPreviewDefinitions = new Map<string, AddonAttachmentPreviewDefinition>();
 let addonWebApiInstalled = false;
 let addonWebEntryLoadPromise: Promise<void> | null = null;
+
+function resolveCurrentChatJid(runtimeWindow: (Window & typeof globalThis) | null = typeof window !== 'undefined' ? window : null): string {
+  const globalValue = typeof (runtimeWindow as any)?.__piclawCurrentChatJid === 'string'
+    ? (runtimeWindow as any).__piclawCurrentChatJid.trim()
+    : '';
+  if (globalValue) return globalValue;
+  try {
+    const href = runtimeWindow?.location?.href || 'http://localhost/';
+    const fromUrl = new URL(href).searchParams.get('chat_jid')?.trim() || '';
+    if (fromUrl) return fromUrl;
+  } catch (e) {
+    // ignore and fall back
+    void e;
+  }
+  return 'web:default';
+}
 
 function normalizeUrl(value: unknown, base: string): string | null {
   const input = typeof value === 'string' ? value.trim() : '';
@@ -135,18 +152,19 @@ export function buildAddonAttachmentPreviewFrameUrl(kind: string | null | undefi
   }
 }
 
-export function createAddonWebApi(): AddonWebApiSurface {
+export function createAddonWebApi(runtimeWindow: (Window & typeof globalThis) | null = typeof window !== 'undefined' ? window : null): AddonWebApiSurface {
   return {
     registerPane: registerAddonPane,
     registerWorkspacePane: registerAddonWorkspacePane,
     registerSettingsPane: registerAddonSettingsPane,
     registerStandaloneTabUrlResolver: registerAddonStandaloneTabUrlResolver,
     registerAttachmentPreview: registerAddonAttachmentPreview,
+    getCurrentChatJid: () => resolveCurrentChatJid(runtimeWindow),
   };
 }
 
 export function installAddonWebApi(runtimeWindow: (Window & typeof globalThis) | null = typeof window !== 'undefined' ? window : null): AddonWebApiSurface {
-  const api = createAddonWebApi();
+  const api = createAddonWebApi(runtimeWindow);
   if (!runtimeWindow || addonWebApiInstalled) return api;
   (runtimeWindow as any).__piclaw_web = api;
   (runtimeWindow as any).__piclaw_registerPane = api.registerPane;

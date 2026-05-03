@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { AgentSession, AgentSessionRuntime, ModelRegistry, AuthStorage } from "@mariozechner/pi-coding-agent";
 
 import { applyControlCommand, type AgentControlCommand, type AgentControlResult } from "../agent-control/index.js";
+import { getLatestTokenUsageModel } from "../db.js";
 import { formatThinkingLevelForDisplay } from "../agent-control/agent-control-helpers.js";
 import { SESSIONS_DIR } from "../core/config.js";
 import { detectChannel } from "../router.js";
@@ -70,6 +71,28 @@ function getMostRecentSessionFile(sessionDir: string): string | null {
   }
 }
 
+function normalizeTokenUsageModelLabel(value: string | null | undefined): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || null;
+}
+
+function formatLatestRequestedModel(provider: string | null | undefined, model: string | null | undefined): string | null {
+  const modelLabel = normalizeTokenUsageModelLabel(model);
+  if (!modelLabel) return null;
+  if (modelLabel.includes("/")) return modelLabel;
+  const providerLabel = normalizeTokenUsageModelLabel(provider);
+  return providerLabel ? `${providerLabel}/${modelLabel}` : modelLabel;
+}
+
+function getLatestTokenUsageModelForStatus(chatJid: string): ReturnType<typeof getLatestTokenUsageModel> {
+  try {
+    return getLatestTokenUsageModel(chatJid);
+  } catch (error) {
+    if (error instanceof Error && (error.message === "Database not initialized" || error.message.includes("closed database"))) return null;
+    throw error;
+  }
+}
+
 function getPersistedSessionState(chatJid: string): { current: string | null; thinkingLevel: string | null } {
   const sessionDir = join(SESSIONS_DIR, sanitiseJid(chatJid));
   if (!existsSync(sessionDir)) {
@@ -82,7 +105,7 @@ function getPersistedSessionState(chatJid: string): { current: string | null; th
     persistedModelStateCache.delete(chatJid);
     return { current: null, thinkingLevel: null };
   }
-  let signature = fullPath;
+  let signature: string;
   try {
     const stat = statSync(fullPath);
     signature = `${fullPath}:${stat.size}:${Math.round(stat.mtimeMs)}`;
@@ -459,6 +482,8 @@ export interface AvailableModelsResult {
   supports_thinking: boolean;
   available_thinking_levels: string[];
   provider_usage: Awaited<ReturnType<typeof warmProviderUsage>>;
+  latest_requested_model: string | null;
+  latest_response_model: string | null;
 }
 
 /** Dependencies required by AgentRuntimeFacade. */
@@ -540,6 +565,11 @@ export class AgentRuntimeFacade {
     const thinkingLevelLabel = thinkingLevel && thinkingProvider
       ? formatThinkingLevelForDisplay(thinkingLevel, thinkingProvider)
       : thinkingLevel;
+    const latestUsageModel = getLatestTokenUsageModelForStatus(chatJid);
+    const latestRequestedModel = latestUsageModel
+      ? formatLatestRequestedModel(latestUsageModel.provider, latestUsageModel.model)
+      : null;
+    const latestResponseModel = normalizeTokenUsageModelLabel(latestUsageModel?.response_model);
     return {
       current: currentModel,
       models,
@@ -549,6 +579,8 @@ export class AgentRuntimeFacade {
       supports_thinking: supportsThinking,
       available_thinking_levels: availableThinkingLevels,
       provider_usage: providerUsage,
+      latest_requested_model: latestRequestedModel,
+      latest_response_model: latestResponseModel,
     };
   }
 

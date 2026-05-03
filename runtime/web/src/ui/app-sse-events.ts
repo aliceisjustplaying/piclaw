@@ -253,6 +253,9 @@ export function handleAppSseEvent(
       const serverTint = data.ui_theme.tint || null;
       applyThemeFromEvent({ theme: serverTheme, tint: serverTint });
     }
+    if (data?.ui_meters) {
+      applyMetersFromEvent(data.ui_meters);
+    }
     const resyncGeneration = previewResyncGenerationRef.current + 1;
     previewResyncGenerationRef.current = resyncGeneration;
     previewResyncPendingRef.current = true;
@@ -345,7 +348,7 @@ export function handleAppSseEvent(
       clearAgentRunState();
       dismissedQueueRowIdsRef.current.clear();
       void refreshActiveChatAgents();
-      void refreshQueueState();
+      refreshModelAndQueueState();
       setAgentDraft({ text: '', totalLines: 0 });
       setAgentPlan('');
       setAgentThought({ text: '', totalLines: 0 });

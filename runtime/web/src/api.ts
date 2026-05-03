@@ -144,6 +144,13 @@ export async function getSystemMetrics() {
     return request('/agent/system-metrics');
 }
 
+export async function saveUiState(payload) {
+    return request('/agent/ui-state', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+    });
+}
+
 /**
  * Create a new post
  */
@@ -260,6 +267,16 @@ export async function forkChatBranch(sourceChatJid, options = {}) {
 }
 
 /**
+ * Create a clean root chat session family.
+ */
+export async function createRootChatSession(agentName) {
+    return request('/agent/root-session', {
+        method: 'POST',
+        body: JSON.stringify({ agent_name: agentName }),
+    });
+}
+
+/**
  * Rename a registry-backed chat branch / agent identity.
  */
 export async function renameChatBranch(chatJid, options = {}) {
@@ -269,6 +286,16 @@ export async function renameChatBranch(chatJid, options = {}) {
             chat_jid: chatJid,
             ...(options && Object.prototype.hasOwnProperty.call(options, 'agentName') ? { agent_name: options.agentName } : {}),
         }),
+    });
+}
+
+/**
+ * Merge a child branch's SQLite chat state back into its parent branch.
+ */
+export async function mergeChatBranchIntoParent(chatJid) {
+    return request('/agent/branch-merge-parent', {
+        method: 'POST',
+        body: JSON.stringify({ chat_jid: chatJid }),
     });
 }
 

@@ -1,3 +1,4 @@
+import { saveUiState } from '../api.js';
 import { getLocalStorageBoolean, setLocalStorageItem } from '../utils/storage.js';
 
 export const METERS_STORAGE_KEY = 'piclaw_system_meters_enabled';
@@ -10,6 +11,13 @@ function dispatchMetersChange(enabled) {
     window.dispatchEvent(new CustomEvent(METERS_EVENT_NAME, {
         detail: { enabled: Boolean(enabled) },
     }));
+}
+
+function persistMetersState(patch) {
+    if (typeof fetch !== 'function') return;
+    void saveUiState({ ui_meters: patch }).catch((error) => {
+        console.debug('[meters] Failed to persist meters UI state.', error);
+    });
 }
 
 function dispatchMetersCollapsedChange(collapsed) {
@@ -29,10 +37,12 @@ export function readStoredMetersCollapsed(defaultValue = false) {
 
 export function applyMetersEnabled(enabled, options = {}) {
     const persist = options.persist !== false;
+    const persistServer = options.persistServer !== false;
     const next = Boolean(enabled);
     if (persist) {
         setLocalStorageItem(METERS_STORAGE_KEY, next ? 'true' : 'false');
     }
+    if (persistServer) persistMetersState({ enabled: next });
     dispatchMetersChange(next);
     return next;
 }
@@ -44,10 +54,12 @@ export function toggleMetersEnabled() {
 
 export function applyMetersCollapsed(collapsed, options = {}) {
     const persist = options.persist !== false;
+    const persistServer = options.persistServer !== false;
     const next = Boolean(collapsed);
     if (persist) {
         setLocalStorageItem(METERS_COLLAPSED_STORAGE_KEY, next ? 'true' : 'false');
     }
+    if (persistServer) persistMetersState({ collapsed: next });
     dispatchMetersCollapsedChange(next);
     return next;
 }
@@ -59,11 +71,13 @@ export function toggleMetersCollapsed() {
 
 export function applyMetersFromEvent(payload) {
     const mode = typeof payload?.mode === 'string' ? payload.mode.trim().toLowerCase() : '';
-    if (mode === 'toggle') {
-        toggleMetersEnabled();
-        return;
+    if (typeof payload?.enabled === 'boolean') {
+        applyMetersEnabled(Boolean(payload.enabled), { persistServer: false });
+    } else if (mode === 'toggle') {
+        const next = !readStoredMetersEnabled(false);
+        applyMetersEnabled(next, { persistServer: false });
     }
-    if (mode === 'set' || typeof payload?.enabled === 'boolean') {
-        applyMetersEnabled(Boolean(payload?.enabled));
+    if (typeof payload?.collapsed === 'boolean') {
+        applyMetersCollapsed(Boolean(payload.collapsed), { persistServer: false });
     }
 }

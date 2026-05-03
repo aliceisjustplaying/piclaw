@@ -29,7 +29,7 @@ export interface OpenRenameBranchFormOptions {
   now?: number;
 }
 
-/** Open the branch-rename form when no local/global submit lock is active. */
+/** Open the session-rename form when no local/global submit lock is active. */
 export function openRenameBranchForm(options: OpenRenameBranchFormOptions): boolean {
   const {
     hasWindow = typeof window !== 'undefined',
@@ -65,7 +65,7 @@ export interface CloseRenameBranchFormOptions {
   setRenameBranchNameDraft?: (value: string) => void;
 }
 
-/** Close the branch-rename form and clear its draft. */
+/** Close the session-rename form and clear its draft. */
 export function closeRenameBranchForm(options: CloseRenameBranchFormOptions): void {
   const { setIsRenameBranchFormOpen, setRenameBranchNameDraft } = options;
   setIsRenameBranchFormOpen?.(false);
@@ -92,7 +92,7 @@ export interface RenameCurrentBranchOptions {
   now?: () => number;
 }
 
-/** Rename the current chat branch and refresh local branch caches. */
+/** Rename the current session handle and refresh local branch caches. The chat JID path is immutable. */
 export async function renameCurrentBranch(options: RenameCurrentBranchOptions): Promise<boolean> {
   const {
     hasWindow = typeof window !== 'undefined',
@@ -141,7 +141,7 @@ export async function renameCurrentBranch(options: RenameCurrentBranchOptions): 
     const currentHandle = currentBranchRecord.agent_name || '';
     const draftState = getBranchHandleDraftState(nextName, currentHandle);
     if (!draftState.canSubmit) {
-      showIntentToast?.('Could not rename branch', draftState.message || 'Enter a valid branch handle.', 'warning', 4000);
+      showIntentToast?.('Could not rename session', draftState.message || 'Enter a valid session handle.', 'warning', 4000);
       return false;
     }
 
@@ -152,21 +152,15 @@ export async function renameCurrentBranch(options: RenameCurrentBranchOptions): 
       refreshCurrentChatBranches?.(),
     ]);
     const savedHandle = response?.branch?.agent_name || nextAgentName || currentHandle;
-    // If the server renamed the JID (agent_name → web:<agent>), navigate to it.
-    const newChatJid = response?.branch?.chat_jid;
-    if (newChatJid && newChatJid !== currentBranchRecord.chat_jid) {
-      const nextUrl = buildChatWindowUrl(baseHref, newChatJid, { chatOnly: chatOnlyMode });
-      navigate?.(nextUrl);
-    }
-    showIntentToast?.('Branch renamed', `@${savedHandle}`, 'info', 3500);
+    showIntentToast?.('Session renamed', `@${savedHandle}`, 'info', 3500);
     closeRenameForm?.();
     return true;
   } catch (error) {
-    const rawMessage = error instanceof Error ? error.message : String(error || 'Could not rename branch.');
+    const rawMessage = error instanceof Error ? error.message : String(error || 'Could not rename session.');
     const message = /already in use/i.test(rawMessage || '')
       ? `${rawMessage} Switch to or restore that existing session from the session manager.`
       : rawMessage;
-    showIntentToast?.('Could not rename branch', message || 'Could not rename branch.', 'warning', 5000);
+    showIntentToast?.('Could not rename session', message || 'Could not rename session.', 'warning', 5000);
     return false;
   } finally {
     renameBranchInFlightRef.current = false;

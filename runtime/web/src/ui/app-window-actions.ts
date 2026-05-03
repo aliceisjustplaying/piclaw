@@ -88,6 +88,57 @@ export async function createSessionFromCompose(options: CreateSessionFromCompose
   }
 }
 
+export interface CreateRootSessionFromComposeOptions {
+  rootName: string;
+  chatOnlyMode?: boolean;
+  createRootChatSession: (agentName: string) => Promise<{ branch?: BranchRecord | null }>;
+  refreshActiveChatAgents?: () => Promise<unknown> | unknown;
+  refreshCurrentChatBranches?: () => Promise<unknown> | unknown;
+  showIntentToast?: ToastFn;
+  navigate?: NavigateFn;
+  baseHref: string;
+}
+
+/** Create a clean root session family and navigate into it. */
+export async function createRootSessionFromCompose(options: CreateRootSessionFromComposeOptions): Promise<boolean> {
+  const {
+    rootName,
+    chatOnlyMode,
+    createRootChatSession,
+    refreshActiveChatAgents,
+    refreshCurrentChatBranches,
+    showIntentToast,
+    navigate,
+    baseHref,
+  } = options;
+
+  const trimmed = String(rootName || '').trim();
+  if (!trimmed) return false;
+
+  try {
+    const response = await createRootChatSession(trimmed);
+    const branch = response?.branch;
+    const nextChatJid = typeof branch?.chat_jid === 'string' && branch.chat_jid.trim() ? branch.chat_jid.trim() : null;
+    if (!nextChatJid) {
+      throw new Error('Root session creation did not return a chat id.');
+    }
+
+    await Promise.allSettled([
+      refreshActiveChatAgents?.(),
+      refreshCurrentChatBranches?.(),
+    ]);
+
+    const label = branch?.agent_name ? `@${branch.agent_name}` : nextChatJid;
+    showIntentToast?.('Root session created', `Switched to ${label}.`, 'info', 2500);
+    const url = buildChatWindowUrl(baseHref, nextChatJid, { chatOnly: chatOnlyMode });
+    navigate?.(url);
+    return true;
+  } catch (error) {
+    showIntentToast?.('Could not create root session', describeBranchOpenError(error), 'warning', 5000);
+    return false;
+  }
+}
+
 export interface PopOutPaneOptions {
   hasWindow?: boolean;
   isWebAppMode?: boolean;

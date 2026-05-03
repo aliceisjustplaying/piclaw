@@ -429,6 +429,14 @@
     opacity: 1;
 }
 
+.agent-thinking[data-panel-key="thought"][data-expanded="true"] .agent-thinking-body-collapsible {
+    max-height: min(52vh, 34rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 0.35rem;
+    scrollbar-gutter: stable;
+}
+
 .agent-thinking-body,
 .agent-thinking-body * {
     line-height: 1.35;

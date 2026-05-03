@@ -10,7 +10,7 @@ function normalizeCompactionSettings(data = {}) {
         compactionTimeoutSec: data.compactionTimeoutSec ?? 180,
         compactionBackoffBaseMin: data.compactionBackoffBaseMin ?? 15,
         compactionBackoffMaxMin: data.compactionBackoffMaxMin ?? 360,
-        compactionThresholdPercent: data.compactionThresholdPercent ?? 50,
+        compactionThresholdPercent: data.compactionThresholdPercent ?? 75,
         compactionBackoffDecayFactor: data.compactionBackoffDecayFactor ?? 0.5,
         progressWatchdogEnabled: Boolean(data.progressWatchdogEnabled ?? false),
         progressWatchdogTimeoutSec: data.progressWatchdogTimeoutSec ?? 120,
@@ -31,7 +31,7 @@ export function CompactionSection({ settingsData, setStatus, mergeSettingsData }
     const [compactionTimeoutSec, setCompactionTimeoutSec] = useState(180);
     const [compactionBackoffBaseMin, setCompactionBackoffBaseMin] = useState(15);
     const [compactionBackoffMaxMin, setCompactionBackoffMaxMin] = useState(360);
-    const [compactionThresholdPercent, setCompactionThresholdPercent] = useState(50);
+    const [compactionThresholdPercent, setCompactionThresholdPercent] = useState(75);
     const [compactionBackoffDecayFactor, setCompactionBackoffDecayFactor] = useState(0.5);
     const [progressWatchdogEnabled, setProgressWatchdogEnabled] = useState(false);
     const [progressWatchdogTimeoutSec, setProgressWatchdogTimeoutSec] = useState(120);
@@ -160,7 +160,7 @@ export function CompactionSection({ settingsData, setStatus, mergeSettingsData }
                     value=${compactionThresholdPercent}
                     min=${10}
                     max=${95}
-                    fallback=${50}
+                    fallback=${75}
                     width="80px"
                     onChange=${setCompactionThresholdPercent}
                 />

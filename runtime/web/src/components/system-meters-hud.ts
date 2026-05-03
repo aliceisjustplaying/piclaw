@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { html, useEffect, useMemo, useState } from '../vendor/preact-htm.js';
 import { getSystemMetrics } from '../api.js';
-import { METERS_COLLAPSED_EVENT_NAME, METERS_EVENT_NAME, readStoredMetersCollapsed, readStoredMetersEnabled, toggleMetersCollapsed } from '../ui/meters.js';
+import { METERS_COLLAPSED_EVENT_NAME, METERS_EVENT_NAME, applyMetersCollapsed, readStoredMetersCollapsed, readStoredMetersEnabled } from '../ui/meters.js';
 
 function sanitizeSeries(input, maxPoints = 30) {
     const series = Array.isArray(input)
@@ -65,6 +65,9 @@ export function buildCompactMetersSummary(metrics) {
         `CPU ${formatPercent(metrics?.cpu_percent)}`,
         `RAM ${formatPercent(metrics?.ram_percent)}`,
     ];
+    if (Number(metrics?.buffer_cache_bytes) > 0) {
+        parts.push(`BUF ${formatBytesCompact(metrics?.buffer_cache_bytes)}`);
+    }
     if (Number.isFinite(Number(metrics?.swap_percent)) && Number(metrics?.swap_total_bytes) > 0) {
         parts.push(`SWP ${formatPercent(metrics?.swap_percent)}`);
     }
@@ -97,6 +100,8 @@ export function SystemMetersHud({ mode = 'overlay' }) {
         cpu_series: [],
         ram_series: [],
         swap_series: [],
+        buffer_cache_bytes: null,
+        buffer_cache_series_bytes: [],
         process_rss_series_bytes: [],
         process_memory: {
             rss_bytes: 0,
@@ -157,6 +162,8 @@ export function SystemMetersHud({ mode = 'overlay' }) {
                     cpu_series: clampPercentSeries(next?.cpu_series),
                     ram_series: clampPercentSeries(next?.ram_series),
                     swap_series: clampPercentSeries(next?.swap_series),
+                    buffer_cache_bytes: Number.isFinite(Number(next?.buffer_cache_bytes)) ? Number(next?.buffer_cache_bytes) : null,
+                    buffer_cache_series_bytes: sanitizeSeries(next?.buffer_cache_series_bytes),
                     process_rss_series_bytes: sanitizeSeries(next?.process_rss_series_bytes),
                     process_memory: {
                         rss_bytes: Number(next?.process_memory?.rss_bytes) || 0,
@@ -189,7 +196,9 @@ export function SystemMetersHud({ mode = 'overlay' }) {
     const cpuPath = useMemo(() => buildSparklinePath(metrics.cpu_series, 56, 16, { min: 0, max: 100 }), [metrics.cpu_series]);
     const ramPath = useMemo(() => buildSparklinePath(metrics.ram_series, 56, 16, { min: 0, max: 100 }), [metrics.ram_series]);
     const swapPath = useMemo(() => buildSparklinePath(metrics.swap_series, 56, 16, { min: 0, max: 100 }), [metrics.swap_series]);
+    const bufferCachePath = useMemo(() => buildSparklinePath(metrics.buffer_cache_series_bytes), [metrics.buffer_cache_series_bytes]);
     const rssPath = useMemo(() => buildSparklinePath(metrics.process_rss_series_bytes), [metrics.process_rss_series_bytes]);
+    const showBufferCache = Number(metrics.buffer_cache_bytes) > 0 && sanitizeSeries(metrics.buffer_cache_series_bytes).length > 0;
     const showSwap = Number.isFinite(Number(metrics.swap_percent)) && metrics.swap_total_bytes > 0;
     const currentRssBytes = resolveCurrentRssBytes(metrics);
     const showRss = shouldShowRss(metrics);
@@ -203,7 +212,9 @@ export function SystemMetersHud({ mode = 'overlay' }) {
 
     const handleToggleCollapsed = (event) => {
         event?.stopPropagation?.();
-        toggleMetersCollapsed();
+        const nextCollapsed = !collapsed;
+        setCollapsed(nextCollapsed);
+        applyMetersCollapsed(nextCollapsed);
     };
 
     return html`
@@ -242,6 +253,15 @@ export function SystemMetersHud({ mode = 'overlay' }) {
                                         <path d=${rssPath}></path>
                                     </svg>
                                     <span class="system-meters-value">${formatBytesCompact(currentRssBytes)}</span>
+                                </div>
+                            `}
+                            ${showBufferCache && html`
+                                <div class="system-meters-row buf">
+                                    <span class="system-meters-label">BUF</span>
+                                    <svg class="system-meters-spark" viewBox="0 0 56 16" preserveAspectRatio="none" aria-hidden="true">
+                                        <path d=${bufferCachePath}></path>
+                                    </svg>
+                                    <span class="system-meters-value">${formatBytesCompact(metrics.buffer_cache_bytes)}</span>
                                 </div>
                             `}
                             ${showSwap && html`
