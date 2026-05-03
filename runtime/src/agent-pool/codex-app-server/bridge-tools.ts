@@ -1,14 +1,14 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { DATA_DIR } from "../../core/config.js";
-import { getMediaByIdForChat, getMediaInfoByIdForChat, searchMessages } from "../../db.js";
 import { ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS, CODEX_BRIDGE_EXCLUDED_TOOLS, PICLAW_DYNAMIC_TOOLS } from "./constants.js";
 import { bridgeSessionByThread, chatByThread, contextUsageByChat, toolAbortControllersByThread } from "./state.js";
 import type { JsonObject, PiclawBridgeSession, PiclawBridgeTool } from "./types.js";
 import { contentItemsFrom, parseArgs, readString, workspaceCwd } from "./utils.js";
 import { markThreadUntrusted } from "./notifications.js";
 import { log } from "./telemetry.js";
+import {
+  buildBridgeAttachmentNotesFromMaterialized,
+  executePiclawBuiltinTool,
+  materializeBridgeMediaList,
+} from "../piclaw-bridge-builtins.js";
 
 export function bridgeToolName(tool: PiclawBridgeTool): string {
   return typeof tool.name === "string" ? tool.name.trim() : "";
@@ -19,7 +19,7 @@ export function isCodexBridgeToolAllowed(name: string): boolean {
   return Boolean(normalized) && !CODEX_BRIDGE_EXCLUDED_TOOLS.has(normalized);
 }
 
-export function getBridgeTools(session: PiclawBridgeSession | null | undefined): PiclawBridgeTool[] {
+export function getBridgeTools(session: PiclawBridgeSession | null | undefined, toolFilter?: (toolName: string) => boolean): PiclawBridgeTool[] {
   const rawTools: PiclawBridgeTool[] = [];
   if (typeof session?.getAllTools === "function") rawTools.push(...session.getAllTools());
   rawTools.push(...Array.from(session?._toolRegistry?.values() ?? []));
@@ -46,6 +46,7 @@ export function getBridgeTools(session: PiclawBridgeSession | null | undefined):
   for (const tool of rawTools) {
     const name = bridgeToolName(tool);
     if (!isCodexBridgeToolAllowed(name) || seen.has(name)) continue;
+    if (toolFilter && !toolFilter(name)) continue;
     if (typeof tool.execute !== "function") continue;
     seen.add(name);
     tools.push(tool);
@@ -70,8 +71,12 @@ export function listCodexBridgeDynamicToolsForTests(session: PiclawBridgeSession
   return getBridgeTools(session).map(dynamicToolSchemaFromPiclawTool);
 }
 
-export function dynamicToolsConfig(session?: PiclawBridgeSession | null): JsonObject {
-  return { dynamicTools: [...PICLAW_DYNAMIC_TOOLS, ...getBridgeTools(session).map(dynamicToolSchemaFromPiclawTool)] };
+export function dynamicToolsConfig(session?: PiclawBridgeSession | null, toolFilter?: (toolName: string) => boolean): JsonObject {
+  const builtins = PICLAW_DYNAMIC_TOOLS.filter((tool) => {
+    const name = typeof tool.name === "string" ? tool.name : "";
+    return !toolFilter || toolFilter(name);
+  });
+  return { dynamicTools: [...builtins, ...getBridgeTools(session, toolFilter).map(dynamicToolSchemaFromPiclawTool)] };
 }
 
 export function summarizeDynamicToolNames(config: JsonObject): string[] {
@@ -115,49 +120,12 @@ function makeBridgeContext(chatJid: string): JsonObject {
   };
 }
 
-function isTextLike(contentType: string): boolean {
-  return contentType.startsWith("text/") ||
-    contentType === "application/json" ||
-    contentType === "application/xml" ||
-    contentType === "image/svg+xml" ||
-    contentType.endsWith("+json") ||
-    contentType.endsWith("+xml");
-}
-
-function safeFileName(id: number, name: string): string {
-  const cleaned = name.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || `attachment-${id}`;
-  return `${id}-${cleaned}`;
-}
-
-export function materializeMedia(chatJid: string, mediaId: number): { path: string; name: string; contentType: string; size: number; text: string | null } | null {
-  const media = getMediaByIdForChat(chatJid, mediaId);
-  if (!media) return null;
-  const dir = join(DATA_DIR, "codex-input-attachments");
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, safeFileName(media.id, media.filename));
-  writeFileSync(path, media.data);
-  const text = isTextLike(media.content_type)
-    ? new TextDecoder().decode(media.data).slice(0, 200_000)
-    : null;
-  return { path, name: media.filename, contentType: media.content_type, size: media.data.byteLength, text };
-}
-
 export function buildUserInput(chatJid: string, prompt: string, mediaIds: number[] | undefined, toolNames: string[] = []): JsonObject[] {
   const inputs: JsonObject[] = [];
-  const attachmentNotes: string[] = [];
-  let remainingPreviewChars = ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS;
-  for (const mediaId of mediaIds ?? []) {
-    const materialized = materializeMedia(chatJid, mediaId);
-    if (!materialized) {
-      attachmentNotes.push(`- media ${mediaId}: not found`);
-      continue;
-    }
-    attachmentNotes.push(`- media ${mediaId}: ${materialized.name} (${materialized.contentType}, ${materialized.size} bytes) saved at ${materialized.path}`);
-    if (materialized.text && remainingPreviewChars > 0) {
-      const preview = materialized.text.slice(0, remainingPreviewChars);
-      remainingPreviewChars -= preview.length;
-      attachmentNotes.push(`  text preview:\n${preview}${preview.length < materialized.text.length ? "\n...[attachment text preview truncated]" : ""}`);
-    }
+  const materializedMedia = materializeBridgeMediaList(chatJid, mediaIds);
+  const attachmentNotes = buildBridgeAttachmentNotesFromMaterialized(materializedMedia, ATTACHMENT_TEXT_PREVIEW_TOTAL_CHARS);
+  for (const { media: materialized } of materializedMedia) {
+    if (!materialized) continue;
     if (materialized.contentType.startsWith("image/") && materialized.contentType !== "image/svg+xml") {
       inputs.push({ type: "localImage", path: materialized.path });
     }
@@ -225,43 +193,6 @@ export async function handleDynamicToolCall(params: JsonObject): Promise<{ conte
     }
   }
 
-  if (tool === "search_messages") {
-    const query = readString(args.query);
-    if (!query) return contentItemsFrom("Missing query.", false);
-    const limit = Math.max(1, Math.min(20, Number(args.limit) || 8));
-    const offset = Math.max(0, Number(args.offset) || 0);
-    const rows = searchMessages(chatJid, query, limit, offset).map((row) => ({
-      rowid: row.id,
-      timestamp: row.timestamp,
-      type: row.data?.type,
-      content: row.data?.content,
-      media_ids: row.data?.media_ids ?? [],
-      thread_id: row.data?.thread_id ?? null,
-    }));
-    return contentItemsFrom({ chat_jid: chatJid, query, rows });
-  }
-
-  if (tool === "read_media") {
-    const mediaId = Number(args.media_id);
-    if (!Number.isFinite(mediaId) || mediaId <= 0) return contentItemsFrom("Missing media_id.", false);
-    const materialized = materializeMedia(chatJid, mediaId);
-    const info = getMediaInfoByIdForChat(chatJid, mediaId);
-    if (!materialized || !info) return contentItemsFrom(`Media ${mediaId} not found.`, false);
-    const maxChars = Math.max(1, Math.min(50_000, Number(args.max_chars) || 12_000));
-    return contentItemsFrom({
-      id: mediaId,
-      filename: materialized.name,
-      content_type: materialized.contentType,
-      size: materialized.size,
-      path: materialized.path,
-      text: materialized.text ? materialized.text.slice(0, maxChars) : null,
-      metadata: info.metadata ?? null,
-    });
-  }
-
-  if (tool === "context_usage") {
-    return contentItemsFrom(contextUsageByChat.get(chatJid) ?? { tokens: null, contextWindow: null, percent: null });
-  }
-
-  return contentItemsFrom(`Unknown Piclaw dynamic tool: ${tool}`, false);
+  const result = executePiclawBuiltinTool(chatJid, tool, args, () => contextUsageByChat.get(chatJid) ?? null);
+  return contentItemsFrom(result.value, result.isError !== true);
 }

@@ -1,13 +1,14 @@
 import { extensionKvGet, extensionKvSet } from "../db.js";
 import { getAgentBackendConfig, type AgentBackend } from "../core/config.js";
+import { getDb } from "../db/connection.js";
 
 const EXTENSION_ID = "agent-backend";
 const STATE_KEY = "state";
-const HANDOFF_KEY = "handoff";
 const HANDOFF_MAX_CHARS = 16_000;
 
 export interface ChatBackendState {
   backend?: AgentBackend;
+  handoff?: BackendHandoffState | null;
 }
 
 export interface BackendHandoffState {
@@ -32,11 +33,29 @@ export function getChatAgentBackend(chatJid: string): AgentBackend {
   return state?.backend ?? getAgentBackendConfig().backend;
 }
 
+function readState(chatJid: string): ChatBackendState {
+  return extensionKvGet<ChatBackendState>(EXTENSION_ID, STATE_KEY, "chat", chatJid) ?? {};
+}
+
+function writeState(chatJid: string, state: ChatBackendState): void {
+  extensionKvSet(EXTENSION_ID, STATE_KEY, state, "chat", chatJid);
+}
+
+function updateState<T>(chatJid: string, update: (state: ChatBackendState) => { next: ChatBackendState; result: T }): T {
+  return getDb().transaction(() => {
+    const { next, result } = update(readState(chatJid));
+    writeState(chatJid, next);
+    return result;
+  })();
+}
+
 export function setChatAgentBackend(chatJid: string, backend: string): AgentBackend {
   const normalized = normalizeBackend(backend);
   if (!normalized) throw new Error("Unknown backend. Available: codex, claude, pi.");
-  extensionKvSet(EXTENSION_ID, STATE_KEY, { backend: normalized }, "chat", chatJid);
-  return normalized;
+  return updateState(chatJid, (state) => ({
+    next: { ...state, backend: normalized },
+    result: normalized,
+  }));
 }
 
 export function setBackendHandoff(chatJid: string, handoff: Omit<BackendHandoffState, "createdAt" | "usedAt">): BackendHandoffState {
@@ -46,20 +65,25 @@ export function setBackendHandoff(chatJid: string, handoff: Omit<BackendHandoffS
     createdAt: new Date().toISOString(),
     usedAt: null,
   };
-  extensionKvSet(EXTENSION_ID, HANDOFF_KEY, state, "chat", chatJid);
-  return state;
+  return updateState(chatJid, (current) => ({
+    next: { ...current, handoff: state },
+    result: state,
+  }));
 }
 
 export function getPendingBackendHandoff(chatJid: string, backend: AgentBackend): BackendHandoffState | null {
-  const state = extensionKvGet<BackendHandoffState>(EXTENSION_ID, HANDOFF_KEY, "chat", chatJid);
+  const state = readState(chatJid).handoff ?? null;
   if (!state || state.to !== backend || state.usedAt) return null;
   return state;
 }
 
 export function markBackendHandoffUsed(chatJid: string): void {
-  const state = extensionKvGet<BackendHandoffState>(EXTENSION_ID, HANDOFF_KEY, "chat", chatJid);
-  if (!state || state.usedAt) return;
-  extensionKvSet(EXTENSION_ID, HANDOFF_KEY, { ...state, usedAt: new Date().toISOString() }, "chat", chatJid);
+  updateState(chatJid, (state) => ({
+    next: !state.handoff || state.handoff.usedAt
+      ? state
+      : { ...state, handoff: { ...state.handoff, usedAt: new Date().toISOString() } },
+    result: undefined,
+  }));
 }
 
 export function formatBackendLabel(backend: AgentBackend): string {

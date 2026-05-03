@@ -42,6 +42,7 @@ export interface RecoveryAttemptSnapshot {
   sawAssistantToolCall?: boolean;
   sawThinkingOnlyStop?: boolean;
   onlyReadOnlyToolActivity?: boolean;
+  hadToolFailure?: boolean;
   toolUseBudgetExceeded?: boolean;
   assistantToolUseMessageCount?: number;
   toolExecutionCount?: number;

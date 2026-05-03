@@ -51,9 +51,8 @@ import {
 } from "./blank-turn-detection.js";
 import type { AgentTurnCoordinator } from "./turn-coordinator.js";
 import type { AgentOutput, AgentRecoveryDiagnosticEntry, AgentRecoveryMetadata, RetrySettingsProvider, RunAgentOptions } from "./contracts.js";
-import { getCodexAppServerModelLabel, runCodexAppServerPrompt, willCodexAppServerStartNewThread, type PiclawBridgeSession } from "./codex-app-server-backend.js";
-import { getClaudeAgentSdkModelLabel, hasClaudeAgentSdkSession, runClaudeAgentSdkPrompt } from "./claude-agent-sdk-backend.js";
 import { getChatAgentBackend } from "./backend-state.js";
+import { createAgentBackendAdapter, type AgentBackendAdapter } from "./agent-backends.js";
 import { isPendingShutdown } from "../runtime/shutdown-registry.js";
 import {
   beginTrackedPhase,
@@ -771,6 +770,178 @@ async function runPromptAttempt(
   };
 }
 
+async function runExternalBackendAttempt(
+  adapter: AgentBackendAdapter,
+  prompt: string,
+  chatJid: string,
+  runtime: AgentSessionRuntime,
+  runOptions: RunAgentOptions,
+  options: RunAgentOrchestratorOptions,
+  totalRunStartedAt: number,
+  modelLabel: string | null,
+): Promise<PromptAttemptResult> {
+  let hadToolActivity = false;
+  let hadPartialOutput = false;
+  let hadCompletedTurnOutput = false;
+  let sawCompactionIntent = false;
+  let compactionErrorMessage: string | null = null;
+  let hadToolFailure = false;
+  let toolExecutionCount = 0;
+  let assistantToolUseMessageCount = 0;
+  let toolUseBudgetExceeded = false;
+  let toolCallCapExceeded = false;
+  let sawAssistantToolCall = false;
+  let sawThinkingOnlyStop = false;
+  let onlyReadOnlyToolActivity = true;
+  const toolUseMessageBudget = getToolUseMessageBudget();
+  const toolCallCap = typeof runOptions.maxToolCalls === "number" && runOptions.maxToolCalls > 0
+    ? runOptions.maxToolCalls
+    : null;
+  const localAbortController = new AbortController();
+  const abortExternalRun = () => {
+    if (!localAbortController.signal.aborted) localAbortController.abort();
+  };
+  const abortFromCaller = () => abortExternalRun();
+  if (runOptions.signal?.aborted) abortExternalRun();
+  else runOptions.signal?.addEventListener("abort", abortFromCaller, { once: true });
+
+  const originalOnTurnComplete = runOptions.onTurnComplete;
+  const onTurnComplete = originalOnTurnComplete
+    ? ((turn: { text: string; attachments: AttachmentInfo[] }) => {
+        hadCompletedTurnOutput = hadCompletedTurnOutput || !!(turn.text || turn.attachments.length > 0);
+        originalOnTurnComplete(turn);
+      })
+    : undefined;
+  const tracker = options.turnCoordinator.createTracker(chatJid, onTurnComplete);
+  const toolExecutionWatchdogHeartbeat = createToolExecutionWatchdogHeartbeatController(chatJid);
+  const originalOnEvent = runOptions.onEvent;
+  const externalRunOptions: RunAgentOptions = {
+    ...runOptions,
+    signal: localAbortController.signal,
+    onTurnComplete,
+    onEvent: (event) => {
+      options.turnCoordinator.handleExternalEvent(chatJid, tracker, event, (coordinatedEvent) => {
+        if (coordinatedEvent.type === "message_update") {
+          heartbeatTrackedPhase(chatJid, "streaming", { eventType: coordinatedEvent.type, source: adapter.backend });
+          const messageEvent = (coordinatedEvent as { assistantMessageEvent?: { type?: string; delta?: string } }).assistantMessageEvent;
+          if (messageEvent?.type === "text_delta" && messageEvent.delta) hadPartialOutput = true;
+        } else if (
+          coordinatedEvent.type === "tool_execution_start"
+          || coordinatedEvent.type === "tool_execution_update"
+          || coordinatedEvent.type === "tool_execution_end"
+        ) {
+          heartbeatTrackedPhase(chatJid, "tool_execution", {
+            eventType: coordinatedEvent.type,
+            source: adapter.backend,
+            toolName: (coordinatedEvent as { toolName?: unknown }).toolName,
+          });
+        } else if (coordinatedEvent.type === "compaction_start" || coordinatedEvent.type === "compaction_end") {
+          heartbeatTrackedPhase(chatJid, coordinatedEvent.type === "compaction_start" ? "preprompt_compaction" : "prompt", {
+            eventType: coordinatedEvent.type,
+            source: adapter.backend,
+          });
+        }
+
+        if (coordinatedEvent.type === "tool_execution_start" || coordinatedEvent.type === "tool_execution_end") {
+          toolExecutionWatchdogHeartbeat.handleEvent(coordinatedEvent as ToolExecutionWatchdogEvent);
+        }
+        if (coordinatedEvent.type === "tool_execution_start") {
+          hadToolActivity = true;
+          const toolName = (coordinatedEvent as { toolName?: unknown }).toolName;
+          if (typeof toolName !== "string" || !["read", "read_attachment", "search_workspace", "search_messages", "read_media", "context_usage"].includes(toolName)) {
+            onlyReadOnlyToolActivity = false;
+          }
+        }
+        if (coordinatedEvent.type === "tool_execution_end") {
+          hadToolActivity = true;
+          toolExecutionCount += 1;
+          if ((coordinatedEvent as { isError?: unknown }).isError) hadToolFailure = true;
+          if (toolCallCap != null && toolExecutionCount >= toolCallCap) {
+            toolCallCapExceeded = true;
+            abortExternalRun();
+          }
+        }
+        if (coordinatedEvent.type === "compaction_start") sawCompactionIntent = true;
+        if (coordinatedEvent.type === "compaction_end") {
+          const error = (coordinatedEvent as { errorMessage?: unknown }).errorMessage;
+          if (typeof error === "string" && error.trim()) compactionErrorMessage = error.trim();
+        }
+        if (coordinatedEvent.type === "message_end") {
+          const message = (coordinatedEvent as { message?: { role?: unknown; content?: unknown; stopReason?: unknown } }).message;
+          if (message?.role === "assistant" && Array.isArray(message.content)) {
+            const hasToolCall = message.content.some((block) => block && typeof block === "object" && (block as { type?: unknown }).type === "toolCall");
+            sawAssistantToolCall = sawAssistantToolCall || hasToolCall;
+            if (hasToolCall && message.stopReason === "toolUse") {
+              assistantToolUseMessageCount += 1;
+              if (!toolUseBudgetExceeded && assistantToolUseMessageCount > toolUseMessageBudget) {
+                toolUseBudgetExceeded = true;
+                abortExternalRun();
+              }
+            }
+            sawThinkingOnlyStop = Boolean(
+              message.stopReason === "stop"
+                && message.content.some((block: any) => block?.type === "thinking")
+                && !message.content.some((block: any) => block?.type === "text")
+                && !message.content.some((block: any) => block?.type === "toolCall")
+            );
+          }
+        }
+        originalOnEvent?.(coordinatedEvent);
+      });
+    },
+  };
+
+  try {
+    heartbeatTrackedPhase(chatJid, "prompt", { eventType: "prompt_start", source: adapter.backend });
+    let output = await adapter.run(prompt, chatJid, externalRunOptions, runtime);
+    heartbeatTrackedPhase(chatJid, "prompt", { eventType: "prompt_resolved", source: adapter.backend });
+    if (toolCallCapExceeded) {
+      output = { status: "error", result: null, error: "Tool call limit exceeded." };
+    } else if (toolUseBudgetExceeded && !output.result && !output.attachments?.length) {
+      sawCompactionIntent = true;
+      output = {
+        status: "error",
+        result: null,
+        error: `Tool-use budget exceeded before finalization (${assistantToolUseMessageCount}/${toolUseMessageBudget} tool steps).`,
+        toolBudgetExceeded: true,
+        toolStepsUsed: assistantToolUseMessageCount,
+        toolStepsBudget: toolUseMessageBudget,
+      } as any;
+    }
+    options.onInfo?.("External backend prompt resolved", {
+      operation: "run_agent.external_backend_prompt_resolved",
+      chatJid,
+      backend: adapter.backend,
+      model: modelLabel,
+      promptDurationMs: Date.now() - totalRunStartedAt,
+      status: output.status,
+      ...getRunObservabilityDetails(runOptions),
+    });
+    hadPartialOutput = hadPartialOutput || Boolean(output.result) || Boolean(tracker.getFinalText());
+    hadCompletedTurnOutput = hadCompletedTurnOutput || output.status === "success" && Boolean(output.result || output.attachments?.length);
+    return {
+      output,
+      snapshot: {
+        hadToolActivity,
+        hadPartialOutput,
+        hadCompletedTurnOutput,
+        compactionErrorMessage,
+        sawCompactionIntent,
+        sawAssistantToolCall,
+        sawThinkingOnlyStop,
+        onlyReadOnlyToolActivity,
+        hadToolFailure,
+        toolUseBudgetExceeded,
+        assistantToolUseMessageCount,
+        toolExecutionCount,
+      },
+    };
+  } finally {
+    runOptions.signal?.removeEventListener("abort", abortFromCaller);
+    toolExecutionWatchdogHeartbeat.stop();
+  }
+}
+
 /** Run a prompt against the persistent session for one chat. */
 export async function runAgentPrompt(
   prompt: string,
@@ -801,62 +972,169 @@ export async function runAgentPrompt(
     }
 
     const backend = getChatAgentBackend(chatJid);
-
-    if (backend === "codex-app-server") {
+    const backendAdapter = createAgentBackendAdapter(backend);
+    if (backendAdapter) {
       const runtime = await options.getOrCreateRuntime(chatJid);
-      modelLabel = getCodexAppServerModelLabel(chatJid);
+      modelLabel = await backendAdapter.getModelLabel(chatJid);
       updateSessionModel(chatJid, modelLabel, null);
-      beginTrackedPhase(chatJid, "prompt", { source: "run_agent.codex_app_server" });
-      options.onInfo?.("Using experimental Codex app-server backend", {
-        operation: "run_agent_prompt.codex_app_server_backend_selected",
+      beginTrackedPhase(chatJid, "prompt", { source: backendAdapter.logSource });
+      options.onInfo?.("Using native agent backend", {
+        operation: "run_agent_prompt.native_backend_selected",
         chatJid,
+        backend,
         model: modelLabel,
         promptLength: prompt.length,
         ...getRunObservabilityDetails(runOptions),
       });
-      const bridgeSession = runtime.session as unknown as PiclawBridgeSession;
-      const promptForCodex = willCodexAppServerStartNewThread(chatJid, bridgeSession)
-        ? (runOptions.codexReplayPrompt || prompt)
-        : prompt;
-      const output = await runCodexAppServerPrompt(promptForCodex, chatJid, runOptions, bridgeSession);
-      const duration = Date.now() - startTime;
-      writeAgentLog(
-        options.logsDir,
-        chatJid,
-        duration,
-        false,
-        output.status === "success" ? output.result : null,
-        output.status === "error" ? output.error || "Codex app-server error" : null,
-        null,
-      );
-      return output;
-    }
+      const preparedPrompt = backendAdapter.preparePrompt(prompt, chatJid, runOptions, runtime);
+      const timeoutMs = typeof runOptions.timeoutMs === "number" ? runOptions.timeoutMs : getAgentRuntimeConfig().timeoutMs;
+      const retrySettings = ((runtime.services?.settingsManager as RetrySettingsProvider | undefined)?.getRetrySettings?.()) || undefined;
+      const baseRecoveryConfig = getAutomaticRecoveryConfig(retrySettings);
+      const recoveryConfig = timeoutMs > 0
+        ? { ...baseRecoveryConfig, totalBudgetMs: Math.min(baseRecoveryConfig.totalBudgetMs, timeoutMs) }
+        : baseRecoveryConfig;
+      let recoveryAttemptsUsed = 0;
+      let lastClassifier: RecoveryClassifier | null = null;
+      const strategyHistory: RecoveryStrategy[] = [];
+      const recoveryDiagnostics: AgentRecoveryDiagnosticEntry[] = [];
+      let recoveryBudgetStartedAt: number | null = null;
+      const getRecoveryBudgetElapsedMs = () => Math.max(0, Date.now() - (recoveryBudgetStartedAt ?? startTime));
+      const channel = detectChannel(chatJid);
 
-    if (backend === "claude-agent-sdk") {
-      const runtime = await options.getOrCreateRuntime(chatJid);
-      modelLabel = getClaudeAgentSdkModelLabel(chatJid);
-      updateSessionModel(chatJid, modelLabel, null);
-      beginTrackedPhase(chatJid, "prompt", { source: "run_agent.claude_agent_sdk" });
-      options.onInfo?.("Using experimental Claude Agent SDK backend", {
-        operation: "run_agent_prompt.claude_agent_sdk_backend_selected",
-        chatJid,
-        model: modelLabel,
-        promptLength: prompt.length,
-        ...getRunObservabilityDetails(runOptions),
+      return await withChatContext(chatJid, channel, async () => {
+        while (true) {
+          const attempt = await runExternalBackendAttempt(
+            backendAdapter,
+            preparedPrompt,
+            chatJid,
+            runtime,
+            runOptions,
+            options,
+            startTime,
+            modelLabel,
+          );
+          if (attempt.output.status === "success" || attempt.output.status === "tool_complete") {
+            const duration = Date.now() - startTime;
+            const finalText = typeof attempt.output.result === "string" ? attempt.output.result : null;
+            const recoveryMeta = recoveryAttemptsUsed > 0
+              ? buildRecoveryMetadata(recoveryAttemptsUsed, duration, true, false, lastClassifier, strategyHistory, recoveryDiagnostics)
+              : null;
+            writeAgentLog(options.logsDir, chatJid, duration, false, finalText, null, recoveryMeta);
+            if (recoveryAttemptsUsed > 0) {
+              emitAgentSessionEvent(runOptions.onEvent, {
+                type: "recovery_end",
+                outcome: "recovered",
+                attemptsUsed: recoveryAttemptsUsed,
+                classifier: lastClassifier,
+              });
+              attempt.output.recovery = recoveryMeta ?? undefined;
+            }
+            return attempt.output;
+          }
+
+          const errorText = attempt.output.error || `${backend} error`;
+          const decision = decideAutomaticRecovery({
+            config: recoveryConfig,
+            errorText,
+            recoveryAttemptsUsed,
+            elapsedMs: getRecoveryBudgetElapsedMs(),
+            snapshot: attempt.snapshot,
+          });
+          lastClassifier = decision.classifier;
+          recoveryDiagnostics.push(buildRecoveryDiagnosticEntry(
+            "attempt_failure",
+            recoveryAttemptsUsed + 1,
+            decision.classifier,
+            decision.strategy,
+            decision.reason,
+            errorText,
+            Date.now() - startTime,
+            attempt.snapshot,
+          ));
+          if (!decision.recover || !decision.strategy) {
+            const duration = Date.now() - startTime;
+            const recoveryMeta = recoveryAttemptsUsed > 0
+              ? buildRecoveryMetadata(recoveryAttemptsUsed, duration, false, true, lastClassifier, strategyHistory, recoveryDiagnostics)
+              : null;
+            writeAgentLog(options.logsDir, chatJid, duration, false, null, errorText, recoveryMeta);
+            if (recoveryAttemptsUsed > 0) {
+              emitAgentSessionEvent(runOptions.onEvent, {
+                type: "recovery_end",
+                outcome: "exhausted",
+                attemptsUsed: recoveryAttemptsUsed,
+                classifier: decision.classifier,
+                errorMessage: errorText,
+              });
+              attempt.output.recovery = recoveryMeta ?? undefined;
+            }
+            return attempt.output;
+          }
+          if (recoveryBudgetStartedAt == null) recoveryBudgetStartedAt = Date.now();
+          recoveryAttemptsUsed += 1;
+          strategyHistory.push(decision.strategy);
+          const retryDelayMs = decision.strategy === "retry"
+            ? getAutomaticRecoveryDelayMs(recoveryConfig, recoveryAttemptsUsed)
+            : 0;
+          emitAgentSessionEvent(runOptions.onEvent, {
+            type: "recovery_start",
+            classifier: decision.classifier,
+            strategy: decision.strategy,
+            attempt: recoveryAttemptsUsed,
+            maxAttempts: recoveryConfig.maxAttempts,
+            totalBudgetMs: recoveryConfig.totalBudgetMs,
+            delayMs: retryDelayMs,
+            reason: decision.reason,
+            errorMessage: errorText,
+          });
+          heartbeatTrackedPhase(chatJid, "recovery", {
+            eventType: "recovery_start",
+            source: backendAdapter.backend,
+            strategy: decision.strategy,
+            attempt: recoveryAttemptsUsed,
+          });
+          if (retryDelayMs > 0) await sleep(retryDelayMs);
+          if (decision.strategy === "compact_then_retry" && backendAdapter.compact) {
+            heartbeatTrackedPhase(chatJid, "preprompt_compaction", {
+              eventType: "compaction_start",
+              source: backendAdapter.backend,
+              reason: "overflow",
+            });
+            emitAgentSessionEvent(runOptions.onEvent, { type: "compaction_start", reason: "overflow" });
+            const compactionResult = await backendAdapter.compact(chatJid);
+            const compactionErrorMessage = compactionResult.ok
+              ? null
+              : compactionResult.errorMessage || `${backend} compaction was unavailable.`;
+            heartbeatTrackedPhase(chatJid, "prompt", {
+              eventType: "compaction_end",
+              source: backendAdapter.backend,
+              reason: "overflow",
+              ok: compactionResult.ok,
+            });
+            emitAgentSessionEvent(runOptions.onEvent, {
+              type: "compaction_end",
+              reason: "overflow",
+              aborted: false,
+              willRetry: compactionResult.ok,
+              ...(compactionErrorMessage ? { errorMessage: `Recovery compaction failed: ${compactionErrorMessage}` } : {}),
+            });
+            if (!compactionResult.ok) {
+              const duration = Date.now() - startTime;
+              const error = `Recovery compaction failed: ${compactionErrorMessage}`;
+              const recoveryMeta = buildRecoveryMetadata(recoveryAttemptsUsed, duration, false, true, lastClassifier, strategyHistory, recoveryDiagnostics);
+              writeAgentLog(options.logsDir, chatJid, duration, false, null, error, recoveryMeta);
+              emitAgentSessionEvent(runOptions.onEvent, {
+                type: "recovery_end",
+                outcome: "exhausted",
+                attemptsUsed: recoveryAttemptsUsed,
+                classifier: lastClassifier,
+                errorMessage: error,
+              });
+              return { status: "error", result: null, error, recovery: recoveryMeta };
+            }
+          }
+          options.clearAttachments(chatJid);
+        }
       });
-      const promptForClaude = hasClaudeAgentSdkSession(chatJid) ? prompt : (runOptions.codexReplayPrompt || prompt);
-      const output = await runClaudeAgentSdkPrompt(promptForClaude, chatJid, runOptions, runtime.session as unknown as PiclawBridgeSession);
-      const duration = Date.now() - startTime;
-      writeAgentLog(
-        options.logsDir,
-        chatJid,
-        duration,
-        false,
-        output.status === "success" ? output.result : null,
-        output.status === "error" ? output.error || "Claude Agent SDK error" : null,
-        null,
-      );
-      return output;
     }
 
     const runtime = await options.getOrCreateRuntime(chatJid);

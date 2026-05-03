@@ -285,34 +285,43 @@ export class AgentTurnCoordinator {
     onEvent?: (event: AgentSessionEvent) => void,
   ): () => void {
     return session.subscribe((event: AgentSessionEvent) => {
-      this.options.touchSession(chatJid);
-
-      if (onEvent) {
-        try {
-          onEvent(event);
-        } catch (err) {
-          this.options.onWarn?.("Event handler error", {
-            operation: "subscribe_to_session.on_event",
-            chatJid,
-            err,
-          });
-        }
-      }
-
-      tracker.handleMessageUpdate(event);
-
-      if (event.type === "message_end") {
-        try {
-          this.options.recordMessageUsage(chatJid, (event as { message?: unknown }).message);
-        } catch (err) {
-          this.options.onWarn?.("Failed to persist message usage", {
-            operation: "subscribe_to_session.record_usage",
-            chatJid,
-            err,
-          });
-        }
-      }
+      this.handleExternalEvent(chatJid, tracker, event, onEvent);
     });
+  }
+
+  handleExternalEvent(
+    chatJid: string,
+    tracker: AgentTurnTracker,
+    event: AgentSessionEvent,
+    onEvent?: (event: AgentSessionEvent) => void,
+  ): void {
+    this.options.touchSession(chatJid);
+
+    if (onEvent) {
+      try {
+        onEvent(event);
+      } catch (err) {
+        this.options.onWarn?.("Event handler error", {
+          operation: "subscribe_to_session.on_event",
+          chatJid,
+          err,
+        });
+      }
+    }
+
+    tracker.handleMessageUpdate(event);
+
+    if (event.type === "message_end") {
+      try {
+        this.options.recordMessageUsage(chatJid, (event as { message?: unknown }).message);
+      } catch (err) {
+        this.options.onWarn?.("Failed to persist message usage", {
+          operation: "subscribe_to_session.record_usage",
+          chatJid,
+          err,
+        });
+      }
+    }
   }
 
   startPromptTimeout(

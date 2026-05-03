@@ -60,10 +60,10 @@ export function hasCodexAppServerThread(chatJid: string): boolean {
   return threadsByChat.has(chatJid);
 }
 
-export function willCodexAppServerStartNewThread(chatJid: string, bridgeSession?: PiclawBridgeSession | null): boolean {
+export function willCodexAppServerStartNewThread(chatJid: string, bridgeSession?: PiclawBridgeSession | null, toolFilter?: (toolName: string) => boolean): boolean {
   const existing = threadsByChat.get(chatJid);
   if (!existing) return true;
-  return existing.dynamicToolSignature !== dynamicToolSignature(dynamicToolsConfig(bridgeSession));
+  return existing.dynamicToolSignature !== dynamicToolSignature(dynamicToolsConfig(bridgeSession, toolFilter));
 }
 
 export function markCodexAppServerThreadUntrustedForTests(chatJid: string): void {
@@ -178,8 +178,8 @@ async function compactCodexAppServerChatUnlocked(chatJid: string): Promise<void>
   }
 }
 
-async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, bridgeSession?: PiclawBridgeSession | null): Promise<CodexThreadState> {
-  const toolsConfig = dynamicToolsConfig(bridgeSession);
+async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, bridgeSession?: PiclawBridgeSession | null, toolFilter?: (toolName: string) => boolean): Promise<CodexThreadState> {
+  const toolsConfig = dynamicToolsConfig(bridgeSession, toolFilter);
   const toolSignature = dynamicToolSignature(toolsConfig);
   const existing = threadsByChat.get(chatJid);
   const existingWasUntrusted = existing ? isUntrustedThread(existing.threadId) : false;
@@ -204,11 +204,11 @@ async function getThread(nextClient: CodexAppServerClientLike, chatJid: string, 
   const threadId = response?.thread?.id;
   if (!threadId) throw new Error("Codex app-server did not return a thread id");
   if (existing) {
-    threadsByChat.delete(chatJid);
-    chatByThread.delete(existing.threadId);
     bridgeSessionByThread.delete(existing.threadId);
     untrustedExternalContentByThread.delete(existing.threadId);
     toolAbortControllersByThread.delete(existing.threadId);
+    threadsByChat.delete(chatJid);
+    chatByThread.delete(existing.threadId);
     activeTurnByChat.delete(chatJid);
   }
   const state = { threadId, dynamicToolSignature: toolSignature };
@@ -236,7 +236,7 @@ async function runCodexAppServerPromptUnlocked(
 ): Promise<AgentOutput> {
   if (runOptions.signal?.aborted) return { status: "error", result: null, error: "Codex app-server aborted" };
   const nextClient = await getClient();
-  const thread = await getThread(nextClient, chatJid, bridgeSession);
+  const thread = await getThread(nextClient, chatJid, bridgeSession, runOptions.toolCeilingFilter);
   if (bridgeSession) bridgeSessionByThread.set(thread.threadId, bridgeSession);
   if (runOptions.hasUntrustedExternalContent === true) markThreadUntrusted(thread.threadId);
 
@@ -386,7 +386,7 @@ async function runCodexAppServerPromptUnlocked(
   });
 
   try {
-    const toolsConfig = dynamicToolsConfig(bridgeSession);
+    const toolsConfig = dynamicToolsConfig(bridgeSession, runOptions.toolCeilingFilter);
     const dynamicToolNames = summarizeDynamicToolNames(toolsConfig);
     log.info("Codex app-server dynamic tools configured", {
       operation: "codex_app_server.dynamic_tools_configured",
